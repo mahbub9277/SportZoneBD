@@ -1,0 +1,3 @@
+ALTER TABLE "Match"
+  DROP COLUMN IF EXISTS "banner",
+  DROP COLUMN IF EXISTS "cover";

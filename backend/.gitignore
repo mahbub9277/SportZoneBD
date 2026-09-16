@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.local
+.env.*
+!.env.example
+
+dist
+coverage
+*.tsbuildinfo
+*.log
+logs/
+tmp/
+
+/src/generated/prisma

@@ -1,0 +1,815 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
+  description String?
+  isSystem    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  users       UserRole[]
+  permissions Permission[]
+
+  @@index([name])
+}
+
+model Permission {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  roles Role[]
+
+  @@index([key])
+}
+
+model User {
+  id                     String    @id @default(uuid()) @db.Uuid
+  email                  String?   @unique
+  username               String?   @unique
+  fullName               String
+  avatar                 String?
+  passwordHash           String?
+  googleId               String?   @unique
+  verificationOtp        String?
+  verificationOtpExpires DateTime?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  guestMode              Boolean   @default(true)
+  isActive               Boolean   @default(true)
+  isSuspended            Boolean   @default(false)
+  isBanned               Boolean   @default(false)
+  lastLoginAt            DateTime?
+  generations            Int       @default(0) // Used for cache invalidation
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  emailVerifiedAt        DateTime?
+  deletedAt              DateTime?
+
+  roles                   UserRole[]
+  sessions                Session[]
+  subscriptions           Subscription[]
+  payments                Payment[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreferences?
+  pushSubscriptions       PushSubscription[]
+  loginHistory            LoginHistory[]
+  reports                 Report[]
+  adUnlock                AdUnlock?
+  adViewSessions          AdViewSession[]
+  channelReactions        ChannelReaction[]
+}
+
+model UserRole {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  roleId    String    @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  jti              String?   @unique // JWT ID for token-session binding
+  refreshTokenHash String?   @db.Text
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model LoginHistory {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  ipAddress String?
+  userAgent String?
+  success   Boolean
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SubscriptionPlan {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @unique
+  price        Decimal    @db.Decimal(10, 2)
+  durationDays Int
+  maxDevices   Int       @default(1)
+  description  String?    @db.Text
+  status       PlanStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  subscriptions Subscription[]
+  payments      Payment[]
+
+  @@index([status])
+}
+
+model Subscription {
+  id        String             @id @default(uuid()) @db.Uuid
+  userId    String             @db.Uuid
+  planId    String             @db.Uuid
+  status    SubscriptionStatus @default(ACTIVE)
+  startedAt DateTime           @default(now())
+  expiresAt DateTime
+  autoRenew Boolean            @default(false)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  deletedAt DateTime?
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model PaymentMethod {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
+  displayName String
+  enabled     Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  payments Payment[]
+
+  @@index([enabled])
+}
+
+model Payment {
+  id                 String        @id @default(uuid()) @db.Uuid
+  userId             String        @db.Uuid
+  paymentMethodId    String?       @db.Uuid // Made optional for payment intent creation
+  provider           String // e.g., 'bkash', 'nagad', 'mock'
+  providerPaymentId  String?       @unique // The ID from the payment provider
+  subscriptionPlanId String?       @db.Uuid
+  subscriptionId     String?       @unique @db.Uuid // Link to the created subscription
+  transactionId      String        @unique
+  amount             Decimal       @db.Decimal(10, 2)
+  currency           String        @default("BDT")
+  status             PaymentStatus @default(PENDING)
+  verificationResult String?
+  reviewedBy         String?       @db.Uuid
+  reviewedAt         DateTime?
+  rejectionReason    String?       @db.Text
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethod    PaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  subscriptionPlan SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id], onDelete: SetNull)
+  subscription     Subscription?     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model NotificationPreferences {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  matchStartEmail   Boolean @default(true)
+  matchStartPush    Boolean @default(true)
+  newHighlightEmail Boolean @default(true)
+  newHighlightPush  Boolean @default(true)
+  teamNewsEmail     Boolean @default(false)
+  teamNewsPush      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  endpoint  String    @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model Report {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  category  String
+  summary   String
+  details   String    @db.Text
+  status    String    @default("OPEN")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Setting {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique
+  value       String
+  type        String    @default("string")
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([key])
+}
+
+model Player {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  number    Int?
+  position  String?   @db.VarChar(255)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+}
+
+model Match {
+  id             String      @id @default(uuid()) @db.Uuid
+  title          String
+  kickoffAt      DateTime
+  startTime      DateTime?
+  endTime        DateTime?
+  expectedEndTime DateTime?
+  autoFinish     Boolean     @default(false)
+  preStartEnabled Boolean?
+  preStartWindowMinutes Int?
+  preStartVideoUrl String?
+  finishedAt     DateTime?
+  status         MatchStatus @default(UPCOMING)
+  sport          SportType   @default(CRICKET)
+  tournamentName String?     @db.VarChar(255)
+  homeTeamName   String?     @db.VarChar(255)
+  awayTeamName   String?     @db.VarChar(255)
+  homeTeamLogo   String?
+  awayTeamLogo   String?
+  premium        Boolean     @default(false)
+  stadium        String?     @db.VarChar(255)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+
+  highlights   Highlight[]
+  streams      Stream[]
+  eventMatches EventMatch[]
+
+  @@index([status])
+  @@index([sport])
+  @@index([kickoffAt]) // Critical for sorting/filtering by date
+  @@index([createdAt]) // For ordering by newest
+  @@index([status, kickoffAt]) // Composite index for status-filtered date sorting
+  @@index([status, finishedAt])
+  @@index([status, expectedEndTime])
+}
+
+model Stream {
+  id                      String               @id @default(uuid()) @db.Uuid
+  matchId                 String               @db.Uuid
+  name                    String               @default("Main stream")
+  logo                    String?
+  primaryUrl              String
+  backupUrl               String?
+  enabled                 Boolean              @default(true)
+  status                  StreamStatus         @default(READY)
+  quality                 String               @default("auto")
+  sourceType              StreamSourceType     @default(DIRECT_URL)
+  channelId               String?              @db.Uuid
+  activationMode          StreamActivationMode @default(AUTOMATIC)
+  activationOffsetMinutes Int                  @default(0)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  deletedAt               DateTime?
+
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  match   Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+model AllowedDomain {
+  id          String    @id @default(uuid()) @db.Uuid
+  host        String    @unique
+  isEnabled   Boolean   @default(true)
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([host])
+  @@index([isEnabled])
+}
+
+model ChannelCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  image       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  channels Channel[]
+
+  @@index([name])
+}
+
+model Channel {
+  id         String        @id @default(uuid()) @db.Uuid
+  name       String
+  logo       String?
+  url        String        @db.Text
+  viewers    Int           @default(1280)
+  isPremium  Boolean       @default(false) // e.g., "active", "inactive", "maintenance"
+  status     ChannelStatus @default(ACTIVE)
+  categoryId String        @db.Uuid
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  category      ChannelCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  streams       Stream[]
+  eventChannels EventChannel[]
+  reactions     ChannelReaction[]
+
+  @@index([name])
+  @@index([categoryId])
+  @@index([status])
+  @@index([isPremium])
+}
+
+enum ChannelReactionType {
+  LIKE
+  DISLIKE
+}
+
+model ChannelReaction {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid
+  channelId String              @db.Uuid
+  type      ChannelReactionType
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([channelId, type])
+}
+
+model Event {
+  id            String      @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String      @unique
+  description   String?     @db.Text
+  logo          String?
+  banner        String?
+  status        EventStatus @default(ACTIVE)
+  showInSidebar Boolean     @default(false)
+  sortOrder     Int         @default(0)
+  isPremium     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  deletedAt     DateTime?
+
+  eventChannels EventChannel[]
+  eventMatches  EventMatch[]
+
+  @@index([status, showInSidebar, sortOrder])
+  @@index([sortOrder])
+}
+
+model MediaAsset {
+  id         String      @id @default(uuid()) @db.Uuid
+  type       MediaType
+  url        String      @db.Text
+  publicId   String      @unique
+  fileName   String?
+  mimeType   String?
+  size       Int?
+  width      Int?
+  height     Int?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  deletedAt  DateTime?
+
+  @@index([type, createdAt])
+  @@index([deletedAt])
+}
+
+model EventChannel {
+  eventId   String   @db.Uuid
+  channelId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, channelId])
+  @@index([channelId])
+}
+
+model EventMatch {
+  eventId   String   @db.Uuid
+  matchId   String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, matchId])
+  @@index([matchId])
+}
+
+model Highlight {
+  id           String    @id @default(uuid()) @db.Uuid
+  matchId      String?   @db.Uuid
+  title        String
+  videoId      String?   @db.VarChar(255)
+  thumbnail    String?
+  thumbnailUrl String?
+  duration     String?
+  category     String?
+  url          String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  match Match? @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
+  @@index([createdAt]) // For sorting by newest
+  @@index([deletedAt]) // For soft delete filtering
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid
+  title     String
+  body      String
+  link      String?    @db.Text
+  type      String
+  channel   NotificationChannel @default(IN_APP)
+  isRead    Boolean             @default(false)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel, deletedAt, createdAt, id])
+  @@index([userId, channel, isRead, deletedAt])
+}
+
+model EmailTemplate {
+  id        String    @id @default(uuid()) @db.Uuid
+  subject   String
+  body      String    @db.Text
+  targetAudience String  @default("ALL")
+  link      String?   @db.Text
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([enabled])
+}
+
+model Popup {
+  id        String    @id @default(uuid()) @db.Uuid
+  title     String
+  message   String    @db.Text
+  isActive  Boolean   @default(true)
+  imageUrl  String?
+  link      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive])
+}
+
+model Advertisement {
+  id        String    @id @default(uuid()) @db.Uuid
+  title     String
+  description String?  @db.Text
+  link      String
+  imageUrl  String?
+  facebookUrl String?
+  youtubeUrl String?
+  telegramUrl String?
+  instagramUrl String?
+  websiteUrl String?
+  isActive  Boolean   @default(true)
+  placement AdvertisementPlacement @default(BOTH)
+  interstitialEnabled Boolean @default(true)
+  durationSeconds Int @default(10)
+  unlockHours Int @default(24)
+  priority Int @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive])
+  @@index([isActive, placement, priority])
+  adViewSessions AdViewSession[]
+}
+
+model Banner {
+  id          String      @id @default(uuid()) @db.Uuid
+  title       String
+  subtitle    String?
+  type        BannerType  @default(IMAGE)
+  imageUrl    String?
+  videoUrl    String?
+  posterUrl   String?
+  badge       String?
+  ctaText     String?
+  ctaUrl      String?
+  isActive    Boolean     @default(true)
+  displayOrder Int        @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@index([isActive, displayOrder])
+}
+
+model AdUnlock {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model AdViewSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  advertisementId  String   @db.Uuid
+  userId           String?  @db.Uuid
+  sessionTokenHash String   @unique
+  startedAt        DateTime @default(now())
+  durationSeconds  Int
+  completedAt      DateTime?
+  canceledAt       DateTime?
+  unlockExpiresAt  DateTime?
+
+  advertisement Advertisement @relation(fields: [advertisementId], references: [id], onDelete: Cascade)
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+  @@index([unlockExpiresAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  type      String // e.g., 'POPUP_CLICK'
+  entityId  String // e.g., the ID of the popup that was clicked
+  userId    String?  @db.Uuid // Optional: track which user clicked
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([entityId])
+}
+
+model SystemLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  level     String // e.g., 'info', 'warn', 'error'
+  message   String   @db.Text
+  meta      Json? // For extra context
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([createdAt])
+}
+
+model Backup {
+  id        String       @id @default(uuid()) @db.Uuid
+  fileName  String
+  size      BigInt // in bytes
+  status    BackupStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+
+  @@index([createdAt])
+}
+
+model SecuritySetting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  value       String
+  type        String   @default("boolean") // e.g., 'boolean', 'string', 'number'
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}
+
+enum BackupStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum StreamSourceType {
+  DIRECT_URL
+  CHANNEL
+}
+
+enum StreamActivationMode {
+  AUTOMATIC
+  MANUAL
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum BannerType {
+  IMAGE
+  VIDEO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
+  FAILED
+  REFUNDED
+  MANUAL_VERIFICATION
+}
+
+enum ChannelStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum EventStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AdvertisementPlacement {
+  MATCH
+  CHANNEL
+  BOTH
+  FULL_PAGE
+}
+
+enum MediaType {
+  BANNER
+  LOGO
+}
+
+enum MatchStatus {
+  UPCOMING
+  LIVE
+  FINISHED
+}
+
+model AutomationJob {
+  id             String              @id @default(uuid()) @db.Uuid
+  name           String // e.g., "Provider Match Sync", "Stream Health Check"
+  status         AutomationJobStatus @default(IDLE)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  isEnabled      Boolean             @default(true)
+  cronExpression String? // e.g., "*/2 * * * *"
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  deletedAt      DateTime?
+
+  logs AutomationLog[]
+
+  @@index([status])
+  @@index([isEnabled])
+  @@index([lastRunAt])
+}
+
+model AutomationLog {
+  id           String              @id @default(uuid()) @db.Uuid
+  jobId        String              @db.Uuid
+  action       AutomationLogAction
+  status       AutomationLogStatus
+  summary      String? // e.g., "Created 5 matches, updated 2, skipped 1"
+  errorMessage String?
+  details      Json? // For extra context like match IDs, stream URLs, etc.
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  job AutomationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([action])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum SportType {
+  CRICKET
+  FOOTBALL
+  MOTORSPORTS
+  WWE
+}
+
+enum StreamStatus {
+  READY
+  LIVE
+  OFFLINE
+  ERROR
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+
+  @@map("notification_channel")
+}
+
+enum AutomationJobStatus {
+  IDLE
+  RUNNING
+  PAUSED
+  ERROR
+}
+
+enum AutomationLogAction {
+  DISCOVER_MATCHES
+  VALIDATE_STREAMS
+  UPDATE_MATCH_STATUS
+  SYNC_PROVIDER_DATA
+  HEALTH_CHECK
+}
+
+enum AutomationLogStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}

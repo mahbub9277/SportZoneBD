@@ -1,0 +1,13 @@
+{
+  "prisma.pinToPrisma6": false,
+  "github.copilot.chat.codeGeneration.ignoreFiles": [
+    "**/*.md"
+  ],
+"terminal.integrated.profiles.windows": {
+  "PowerShell": {
+    "source": "PowerShell",
+    "args": ["-ExecutionPolicy", "Bypass"]
+  }
+},
+"terminal.integrated.defaultProfile.windows": "PowerShell"
+}
