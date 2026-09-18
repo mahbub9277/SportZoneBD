@@ -70,7 +70,19 @@ export function BannerManagementPage() {
   const selectedPosterUrl = posterInfo?.previewUrl || form.posterUrl
 
   useEffect(() => {
-    setOrderedBanners(banners)
+    setOrderedBanners((current) => {
+      if (
+        current.length === banners.length &&
+        current.every((banner, index) => {
+          const next = banners[index]
+          return Boolean(next) && banner.id === next.id && banner.displayOrder === next.displayOrder
+        })
+      ) {
+        return current
+      }
+
+      return banners.map((banner) => ({ ...banner }))
+    })
   }, [banners])
 
   useEffect(() => () => {
