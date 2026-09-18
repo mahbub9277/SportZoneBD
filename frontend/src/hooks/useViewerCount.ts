@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { useSocket } from './useSocket'
 
 export function useViewerCount(channelId?: string | null, initialCount?: number) {
@@ -7,7 +7,7 @@ export function useViewerCount(channelId?: string | null, initialCount?: number)
 
   useEffect(() => {
     if (!channelId) {
-      setCount(initialCount ?? 0)
+      startTransition(() => setCount(initialCount ?? 0))
       return
     }
 

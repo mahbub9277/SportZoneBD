@@ -52,7 +52,8 @@ class ErrorBoundary extends Component<Props, State> {
     const getDomException = (value: unknown): DOMException | null => {
       if (value instanceof DOMException) return value
       if (typeof value === 'object' && value !== null) {
-        const nested = (value as any).error ?? (value as any).reason
+        const candidate = value as { error?: unknown; reason?: unknown }
+        const nested = candidate.error ?? candidate.reason
         if (nested instanceof DOMException) return nested
       }
       return null
@@ -125,7 +126,7 @@ class ErrorBoundary extends Component<Props, State> {
             Oops! Something went wrong.
           </h2>
           <p style={{ marginTop: '1rem', color: 'var(--text-muted, #A1A1AA)' }} aria-live="polite">
-            We've encountered an unexpected error. Our team has been notified.
+            We&apos;ve encountered an unexpected error. Our team has been notified.
           </p>
           {this.state.error && (
             <pre

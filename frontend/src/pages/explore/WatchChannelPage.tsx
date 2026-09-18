@@ -13,7 +13,7 @@ import { addRecentChannel } from '../../features/recent/recent.slice' //
 import { selectIsAuthenticated, selectIsPremiumSubscriber } from '../../features/auth/authSlice'
 import { cn } from '../../lib/utils'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { startTransition, useEffect, useState, useMemo, useRef } from 'react'
 import { useViewerCount } from '../../hooks/useViewerCount'
 import { Input } from '../../components/ui/Input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
@@ -28,7 +28,6 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-  PaginationEllipsis,
 } from '../../components/ui/Pagination'
 import { Channel, ChannelCategory } from '@/shared/types';
 import { motion, AnimatePresence } from 'framer-motion'
@@ -61,12 +60,11 @@ export function WatchChannelPage() {
   const desiredReactionRef = useRef<ReactionType | null>(null)
   const reactionTimerRef = useRef<number | null>(null)
   const reactionRequestActiveRef = useRef(false)
-  const viewerId = null
   const { setActivePlayer } = useMiniPlayer()
 
   const navigate = useNavigate()
   const channel = watchData?.channel
-  const relatedChannels = watchData?.relatedChannels ?? []
+  const relatedChannels = useMemo(() => watchData?.relatedChannels ?? [], [watchData?.relatedChannels])
 
   const favoriteChannelIds = useAppSelector(selectFavoriteChannelIds)
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
@@ -103,7 +101,7 @@ export function WatchChannelPage() {
     reactionStateRef.current = null
     serverReactionRef.current = null
     desiredReactionRef.current = null
-    setOptimisticReactions(null)
+    startTransition(() => setOptimisticReactions(null))
   }, [channelId])
 
   useEffect(() => () => {
@@ -177,20 +175,22 @@ export function WatchChannelPage() {
   const { data: directUnlock, isFetching: isUnlockLoading } = useGetAdUnlockQuery(undefined, { skip: isPremiumSubscriber || Boolean(channel?.isPremium) })
 
   useEffect(() => {
-    setPlaybackAllowedChannelId(null)
-    setGateRequested(false)
+    startTransition(() => {
+      setPlaybackAllowedChannelId(null)
+      setGateRequested(false)
+    })
   }, [channelId])
 
   useEffect(() => {
     if (!channel || isChannelLocked || gateRequested || isAdvertisementLoading || isUnlockLoading) return
-    setGateRequested(true)
+    startTransition(() => setGateRequested(true))
     if (isPremiumSubscriber) {
-      setPlaybackAllowedChannelId(channel.id)
+      startTransition(() => setPlaybackAllowedChannelId(channel.id))
       return
     }
     const hasUnlock = Boolean(directUnlock && new Date(directUnlock.expiresAt).getTime() > Date.now())
     if (hasUnlock || !directAdvertisement) {
-      setPlaybackAllowedChannelId(channel.id)
+      startTransition(() => setPlaybackAllowedChannelId(channel.id))
       return
     }
     openChannel(`/watch/${channel.id}`, false, () => setPlaybackAllowedChannelId(channel.id))
@@ -206,16 +206,15 @@ export function WatchChannelPage() {
     setActivePlayer(channel.url && !isChannelLocked && (isPremiumSubscriber || isPlaybackAllowed) ? {
       url: channel.url,
       title: channel.name,
-      streamId: channel.id,
       channelId: channel.id,
       presenceType: 'channel',
       playbackRoute: `/watch/${channelId}`,
     } : null)
-  }, [channel?.id, channel?.name, channel?.url, channelId, isChannelLocked, isPlaybackAllowed, isPremiumSubscriber, setActivePlayer])
+  }, [channel, channel?.id, channel?.name, channel?.url, channelId, isChannelLocked, isPlaybackAllowed, isPremiumSubscriber, setActivePlayer])
 
   useEffect(() => {
-    setRelatedPage(1)
-  }, [channelId, relatedChannels.length])
+    startTransition(() => setRelatedPage(1))
+  }, [channel, channelId, relatedChannels.length])
 
   const relatedTotalPages = Math.max(1, Math.ceil(relatedChannels.length / relatedChannelsPerPage))
   const paginatedRelatedChannels = useMemo(() => {
@@ -240,7 +239,7 @@ export function WatchChannelPage() {
       if (action.action === 'unlockPremium' && action.redirect === currentPath) {
         sessionStorage.removeItem('post-auth-action')
         if (!isChannelLocked) return
-        setOpenSubscriptionModal(true)
+        startTransition(() => setOpenSubscriptionModal(true))
       }
     } catch {
       // Ignore malformed post-auth actions
@@ -418,7 +417,7 @@ export function WatchChannelPage() {
 
 function ChannelsBrowser() {
   const { data: categoriesResp, isLoading, isError } = useGetPublicChannelsQuery()
-  const categories = categoriesResp ?? []
+  const categories = useMemo(() => categoriesResp ?? [], [categoriesResp])
 
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [query, setQuery] = useState('')
@@ -426,8 +425,6 @@ function ChannelsBrowser() {
   const [premiumOnly, setPremiumOnly] = useState(false)
   const [allChannelsPage, setAllChannelsPage] = useState(1)
   const channelsPerPage = 12
-
-  const allChannels = useMemo(() => categories.flatMap((c: ChannelCategory) => c.channels ?? []), [categories])
 
   const processedCategories = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -449,15 +446,15 @@ function ChannelsBrowser() {
       })
     }
 
-    const sourceCategories = selectedCategoryId === 'all' ? categories : categories.filter((c: any) => c.id === selectedCategoryId)
+    const sourceCategories = selectedCategoryId === 'all' ? categories : categories.filter((c: ChannelCategory) => c.id === selectedCategoryId)
 
     return sourceCategories
-      .map((category: any) => ({ ...category, channels: filterAndSortChannels(category.channels) }))
-      .filter((category: any) => category.channels.length > 0)
+      .map((category: ChannelCategory) => ({ ...category, channels: filterAndSortChannels(category.channels) }))
+      .filter((category): category is ChannelCategory & { channels: Channel[] } => Boolean(category.channels?.length))
   }, [categories, query, selectedCategoryId, premiumOnly, sortOrder])
 
   useEffect(() => {
-    setAllChannelsPage(1)
+    startTransition(() => setAllChannelsPage(1))
   }, [query, selectedCategoryId, premiumOnly, sortOrder])
 
   if (isLoading) {
@@ -485,11 +482,11 @@ function ChannelsBrowser() {
 
           <Select onValueChange={(val) => setSelectedCategoryId(val as string)} value={selectedCategoryId}>
             <SelectTrigger className="w-full sm:w-48">
-              <SelectValue>{selectedCategoryId === 'all' ? 'All Categories' : categories.find((c: any) => c.id === selectedCategoryId)?.name}</SelectValue>
+              <SelectValue>{selectedCategoryId === 'all' ? 'All Categories' : categories.find((c: ChannelCategory) => c.id === selectedCategoryId)?.name}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {categories.map((c: any) => (
+              {categories.map((c: ChannelCategory) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
             </SelectContent>
@@ -512,11 +509,11 @@ function ChannelsBrowser() {
         </TabsList>
 
         <TabsContent value="byCategory" className="pt-4">
-          {processedCategories.map((category: any) => (
+          {processedCategories.map((category: ChannelCategory) => (
             <div key={category.id} className="mb-6">
               <h3 className="text-lg font-semibold mb-3">{category.name}</h3>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {category.channels.map((channel: Channel) => (
+                {(category.channels ?? []).map((channel) => (
                   <Card key={channel.id} className="flex flex-col items-center justify-center p-4 text-center h-full relative group">
                     <Link to={`/watch/${channel.id}`} className="flex flex-col items-center justify-center h-full w-full">
                       <img loading="lazy" decoding="async" fetchPriority="low" src={buildCloudinaryUrl(channel.logo, { width: 64, height: 64, crop: 'fill' })} alt={channel.name} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1 mb-2" />
@@ -531,7 +528,7 @@ function ChannelsBrowser() {
 
         <TabsContent value="all" className="pt-4">
           {(() => {
-            const allFilteredChannels = processedCategories.flatMap((c: any) => c.channels)
+            const allFilteredChannels = processedCategories.flatMap((c: ChannelCategory) => c.channels ?? [])
             const totalPages = Math.max(1, Math.ceil(allFilteredChannels.length / channelsPerPage))
             const paginatedChannels = allFilteredChannels.slice((allChannelsPage - 1) * channelsPerPage, allChannelsPage * channelsPerPage)
             return (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CornerDownLeft, Search, SearchX, Swords } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -64,16 +64,23 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
   const matches = useMemo(() => searchResults.filter((result) => result.type === 'match'), [searchResults])
   const channels = useMemo(() => searchResults.filter((result) => result.type === 'channel'), [searchResults])
 
+  const handleSelect = useCallback((path: string) => {
+    onClose()
+    navigate(path)
+  }, [navigate, onClose])
+
   useEffect(() => {
     if (!isOpen) return
-    setQuery('')
-    setActiveIndex(0)
+    startTransition(() => {
+      setQuery('')
+      setActiveIndex(0)
+    })
     const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 100)
     return () => window.clearTimeout(focusTimer)
   }, [isOpen])
 
   useEffect(() => {
-    setActiveIndex(0)
+    startTransition(() => setActiveIndex(0))
     resultsRef.current = []
   }, [normalizedQuery])
 
@@ -99,7 +106,7 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeIndex, isOpen, searchResults])
+  }, [activeIndex, handleSelect, isOpen, searchResults])
 
   useEffect(() => {
     resultsRef.current[activeIndex]?.scrollIntoView({
@@ -107,11 +114,6 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
       block: 'nearest',
     })
   }, [activeIndex])
-
-  const handleSelect = (path: string) => {
-    onClose()
-    navigate(path)
-  }
 
   const renderResult = (result: SearchResult, index: number) => {
     const isActive = index === activeIndex
@@ -187,7 +189,7 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
           ) : searchResults.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center py-12 text-center text-(--text-muted)">
               <SearchX size={32} className="mb-4" />
-              <p>No results found for "{normalizedQuery}"</p>
+              <p>No results found for &quot;{normalizedQuery}&quot;</p>
             </div>
           ) : (
             <motion.div layout className="space-y-4">

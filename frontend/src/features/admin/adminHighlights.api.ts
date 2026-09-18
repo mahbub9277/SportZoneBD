@@ -35,7 +35,8 @@ export const adminHighlightsApi = emptyApi.injectEndpoints({
     createHighlight: builder.mutation<Highlight, CreateHighlightPayload>({
       query: (body) => {
         // Remove tempId before sending to the backend
-        const { tempId, ...rest } = body;
+        const rest = { ...body };
+        delete (rest as { tempId?: string }).tempId;
         return {
           url: 'highlights',
           method: 'POST',

@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
-import { Button } from '../../components/ui/Button'
-import { Database, HardDrive, RefreshCw, Wifi, TrendingUp, Calendar, Filter, Zap, Cloud } from 'lucide-react'
+import { Database, HardDrive, RefreshCw, Wifi, Calendar, Filter, Zap, Cloud } from 'lucide-react'
 import { useGetCloudinaryStorageUsageQuery } from '../../features/admin/system.api'
 
 function formatBytes(bytes: number) {

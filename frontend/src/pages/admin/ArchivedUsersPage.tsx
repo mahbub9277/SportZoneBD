@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useDebounce } from '../../hooks/useDebounce';
 import { toast } from 'sonner';
 import { useGetArchivedUsersQuery, useRestoreUserMutation, usePermanentlyDeleteUserMutation, useUnsuspendUserMutation } from '../../features/admin/users.api';
 import { DataTable } from '../../components/ui/data-table/DataTable';
 import { type ColumnDef } from '@tanstack/react-table';
-import { type User, type PaginationMeta } from '../../features/auth/auth.types';
+import { type User } from '../../features/auth/auth.types';
 import { buildCloudinaryUrl } from '../../utils/cloudinary';
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
@@ -48,7 +48,7 @@ export function ArchivedUsersPage() {
       await restoreUser(restoringUser.id).unwrap();
       toast.success(`User "${restoringUser.fullName || restoringUser.email}" has been restored.`);
       setRestoringUser(null);
-    } catch (err) {
+    } catch {
       toast.error('Failed to restore user.');
     }
   };
@@ -59,7 +59,7 @@ export function ArchivedUsersPage() {
       await permanentlyDeleteUser(permanentlyDeletingUser.id).unwrap();
       toast.success(`User "${permanentlyDeletingUser.fullName || permanentlyDeletingUser.email}" has been permanently deleted.`);
       setPermanentlyDeletingUser(null);
-    } catch (err) {
+    } catch {
       toast.error('Failed to permanently delete user.');
     }
   };
@@ -174,7 +174,7 @@ export function ArchivedUsersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Restore User Account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will reactivate the user's account and allow them to log in again. Are you sure you want to restore "{restoringUser?.fullName || restoringUser?.email}"?
+              This will reactivate the user&apos;s account and allow them to log in again. Are you sure you want to restore &quot;{restoringUser?.fullName || restoringUser?.email}&quot;?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -188,7 +188,7 @@ export function ArchivedUsersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Unsuspend User Account?</AlertDialogTitle>
-            <AlertDialogDescription>This will reactivate access for "{unsuspendingUser?.fullName || unsuspendingUser?.email}".</AlertDialogDescription>
+            <AlertDialogDescription>This will reactivate access for &quot;{unsuspendingUser?.fullName || unsuspendingUser?.email}&quot;.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleUnsuspendConfirm} className="bg-green-600 hover:bg-green-700">Unsuspend</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
@@ -199,7 +199,7 @@ export function ArchivedUsersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently Delete User?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action is irreversible and will permanently remove all data associated with "{permanentlyDeletingUser?.fullName || permanentlyDeletingUser?.email}". This cannot be undone. Are you sure?
+              This action is irreversible and will permanently remove all data associated with &quot;{permanentlyDeletingUser?.fullName || permanentlyDeletingUser?.email}&quot;. This cannot be undone. Are you sure?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

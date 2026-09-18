@@ -70,7 +70,7 @@ export function NotificationsPage() {
         <Card className="p-8 text-center text-(--text-muted)">
           <BellRing className="mx-auto h-12 w-12" />
           <p className="mt-4 text-lg font-semibold">No notifications yet</p>
-          <p>We'll let you know when there's something new.</p>
+          <p>We&apos;ll let you know when there&apos;s something new.</p>
         </Card>
       ) : (
         <>

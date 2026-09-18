@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { type UseFormReturn } from 'react-hook-form'
 import { toast } from 'sonner'
 import type { TypedMutationTrigger } from '@reduxjs/toolkit/query/react'
-import type { MutationDefinition, BaseQueryFn, FetchBaseQueryError } from '@reduxjs/toolkit/query'
+import type { BaseQueryFn } from '@reduxjs/toolkit/query'
 
 /**
  * Extracts a user-friendly error message from an RTK Query error object.
@@ -13,7 +13,7 @@ import type { MutationDefinition, BaseQueryFn, FetchBaseQueryError } from '@redu
 function getApiErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error && typeof error === 'object') {
     if ('data' in error && error.data) {
-      const errorData = error.data as any;
+      const errorData = error.data as { message?: unknown };
       if (typeof errorData.message === 'string') {
         return errorData.message;
       }
@@ -37,7 +37,6 @@ function getApiErrorMessage(error: unknown, fallbackMessage: string): string {
 interface Entity {
   id: string
   title?: string // Added optional title for toast messages
-  [key: string]: any
 }
 
 /**
@@ -52,11 +51,11 @@ type RTKMutationHook<TArg, TResult> = () => readonly [
 /**
  * Configuration options for the useEntityManagement hook.
  */
-interface UseEntityManagementOptions<TEntity extends Entity, TFormData extends Record<string, any>, TCreateData, TUpdateData> {
+interface UseEntityManagementOptions<TEntity extends Entity, TFormData extends object, TCreateData, TUpdateData> {
   entityName: string
   useCreateMutation: RTKMutationHook<TCreateData, TEntity>
   useUpdateMutation: RTKMutationHook<TUpdateData, TEntity>
-  useDeleteMutation: RTKMutationHook<string, any>
+  useDeleteMutation: RTKMutationHook<string, unknown>
   form: UseFormReturn<TFormData>
   entityToFormData: (entity: TEntity) => TFormData
   formDataToCreatePayload?: (formData: TFormData) => TCreateData
@@ -74,7 +73,7 @@ type FormState<TEntity> =
   | { mode: 'create' }
   | { mode: 'edit'; entity: TEntity };
 
-export function useEntityManagement<TEntity extends Entity, TFormData extends Record<string, any>, TCreateData = TFormData, TUpdateData = TFormData & { id: string }>({
+export function useEntityManagement<TEntity extends Entity, TFormData extends object, TCreateData = TFormData, TUpdateData = TFormData & { id: string }>({
   entityName,
   useCreateMutation,
   useUpdateMutation,

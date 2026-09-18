@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { Palette, User, Bell } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -107,8 +107,10 @@ function NotificationSettings() {
 
   useEffect(() => {
     const supportsPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
-    setPushSupported(supportsPush)
-    setPushPermission(supportsPush ? Notification.permission : 'unsupported')
+    startTransition(() => {
+      setPushSupported(supportsPush)
+      setPushPermission(supportsPush ? Notification.permission : 'unsupported')
+    })
   }, [])
 
   const enableBrowserPush = async () => {

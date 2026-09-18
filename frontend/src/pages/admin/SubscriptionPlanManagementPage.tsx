@@ -214,7 +214,7 @@ export function SubscriptionPlanManagementPage() {
                 <div>
                   <p className="font-semibold text-brand-text-primary">{plan.name}</p>
                   <p className="text-sm text-brand-text-muted">{plan.description || 'No description'}</p>
-                  <p className="mt-1 text-xs text-brand-text-muted">Status: {plan.status} · Created {new Date(plan.createdAt ?? Date.now()).toLocaleDateString()} · Updated {new Date(plan.updatedAt ?? Date.now()).toLocaleDateString()}</p>
+                  <p className="mt-1 text-xs text-brand-text-muted">Status: {plan.status} · Created {plan.createdAt ? new Date(plan.createdAt).toLocaleDateString() : 'Unknown'} · Updated {plan.updatedAt ? new Date(plan.updatedAt).toLocaleDateString() : 'Unknown'}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                   <span className="font-semibold text-brand-text-primary">{plan.price} BDT / {plan.durationDays} days / {plan.maxDevices} devices</span>
@@ -236,7 +236,7 @@ export function SubscriptionPlanManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action will mark the plan "{planToDelete?.name}" as deleted. It can be restored later from the "Show Deleted" view.
+              This action will mark the plan &quot;{planToDelete?.name}&quot; as deleted. It can be restored later from the &quot;Show Deleted&quot; view.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -33,7 +33,7 @@ function formatBytes(bytes: string, decimals = 2) {
 export default function BackupPage() {
   const backupsQuery = useGetBackupsQuery()
   const backups = backupsQuery.data ?? emptyBackups
-  const { isLoading, isFetching } = backupsQuery
+  const { isLoading } = backupsQuery
   const [createBackup, { isLoading: isCreating }] = useCreateBackupMutation()
   const [getBackupDownload, { isFetching: isDownloading }] = useLazyGetBackupDownloadQuery()
 

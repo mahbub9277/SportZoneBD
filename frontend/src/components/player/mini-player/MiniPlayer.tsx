@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Maximize2, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { CustomVideoPlayer } from '../CustomVideoPlayer'
 
@@ -46,18 +46,18 @@ export function MiniPlayer({ activePlayer, setActivePlayer }: MiniPlayerProps) {
 
   useEffect(() => {
     if (!activePlayer) {
-      setIsMini(!isPlayerPage)
-      resetMiniSurfaceState()
+      startTransition(() => setIsMini(!isPlayerPage))
+      startTransition(() => resetMiniSurfaceState())
       return
     }
 
-    setIsMini(false)
+    startTransition(() => setIsMini(false))
     resetMiniSurfaceState()
   }, [activePlayer, isPlayerPage, resetMiniSurfaceState])
 
   useEffect(() => {
     if (!isMini) {
-      resetMiniSurfaceState()
+      startTransition(() => resetMiniSurfaceState())
     }
   }, [isMini, resetMiniSurfaceState])
 

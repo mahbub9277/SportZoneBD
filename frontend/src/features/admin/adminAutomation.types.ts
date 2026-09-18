@@ -1,4 +1,4 @@
-import type { PaginatedResult } from '../../app/api/types'
+import { PaginatedResult } from "@/app/api/types";
 
 /**
  * Represents a single log entry from an automation job.
@@ -11,7 +11,7 @@ export interface AutomationLog {
   status: 'SUCCESS' | 'FAILED' | 'RUNNING' | 'PARTIAL'
   summary?: string | null
   errorMessage?: string | null
-  details?: Record<string, any> | null
+  details?: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
 }

@@ -92,12 +92,11 @@ export function usePictureInPicture(videoRef: RefObject<HTMLMediaElement | null>
         document.removeEventListener('leavepictureinpicture', handlePiPChange)
       }
 
-      const currentVideo = videoRef.current as SafariVideoElement | null
-      currentVideo?.removeEventListener('webkitpresentationmodechanged', handlePiPChange)
-      currentVideo?.removeEventListener('enterpictureinpicture', handlePiPChange)
-      currentVideo?.removeEventListener('leavepictureinpicture', handlePiPChange)
+      video?.removeEventListener('webkitpresentationmodechanged', handlePiPChange)
+      video?.removeEventListener('enterpictureinpicture', handlePiPChange)
+      video?.removeEventListener('leavepictureinpicture', handlePiPChange)
     }
-  }, [syncState, videoRef.current])
+  }, [syncState, videoRef])
 
   return { isActive, isSupported, toggle }
 }

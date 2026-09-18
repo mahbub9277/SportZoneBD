@@ -28,6 +28,7 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': 'warn',
       'react/react-in-jsx-scope': 'off',
+      'react/prop-types': 'off',
     },
   },
 );

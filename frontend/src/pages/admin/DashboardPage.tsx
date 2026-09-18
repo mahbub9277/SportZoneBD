@@ -1,14 +1,12 @@
-import { memo, useEffect, useState, type ElementType } from 'react'
+import { memo, startTransition, useEffect, useState, type ElementType } from 'react'
 import { Users, Swords, DollarSign, Radio, Clock3, Sparkles, ShieldCheck, TrendingUp, Zap, AlertCircle, Activity, CheckCircle2, XCircle, Clock, Gauge } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ResponsiveContainer,
-  BarChart as RechartsBarChart,
   LineChart,
   YAxis,
   Tooltip,
-  Bar,
   XAxis,
   Line,
   Legend,
@@ -122,14 +120,14 @@ const AdminDashboardPage = () => {
 
   useEffect(() => {
     const nextCount = Number(data?.totalLiveViewers)
-    if (Number.isFinite(nextCount) && nextCount >= 0) setLiveViewerCount(Math.floor(nextCount))
+    if (Number.isFinite(nextCount) && nextCount >= 0) startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
   }, [data?.totalLiveViewers])
 
   useEffect(() => {
     if (!adminSocket) return
     const handleLiveViewersUpdate = (payload: { totalLiveViewers: number }) => {
       const nextCount = Number(payload?.totalLiveViewers)
-      if (Number.isFinite(nextCount) && nextCount >= 0) setLiveViewerCount(Math.floor(nextCount))
+      if (Number.isFinite(nextCount) && nextCount >= 0) startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
     }
     adminSocket.on('liveViewersUpdate', handleLiveViewersUpdate)
     return () => {
@@ -137,7 +135,7 @@ const AdminDashboardPage = () => {
     }
   }, [adminSocket])
 
-  useEffect(() => setLiveStreamHealth(streamHealth), [streamHealth])
+  useEffect(() => startTransition(() => setLiveStreamHealth(streamHealth)), [streamHealth])
   useEffect(() => {
     if (!adminSocket) return
     const handleHealth = (payload: NonNullable<typeof streamHealth>) => { setLiveStreamHealth(payload) }

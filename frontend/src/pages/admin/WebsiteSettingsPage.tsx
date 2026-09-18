@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
-import { Globe, Save, Shield } from 'lucide-react'
+import { Globe } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -36,13 +36,13 @@ export default function WebsiteSettingsPage() {
   )
 
   useEffect(() => {
-    setForm((previous) => ({
+    startTransition(() => setForm((previous) => ({
       ...previous,
       'site.title': settingsMap['site.title'] ?? previous['site.title'] ?? '',
       'site.description': settingsMap['site.description'] ?? previous['site.description'] ?? '',
       'site.tagline': settingsMap['site.tagline'] ?? previous['site.tagline'] ?? '',
       BKASH_MANUAL_PAYMENT_NUMBER: settingsMap.BKASH_MANUAL_PAYMENT_NUMBER ?? previous.BKASH_MANUAL_PAYMENT_NUMBER ?? '',
-    }))
+    })))
   }, [settingsMap])
 
   const handleSave = async () => {
@@ -56,7 +56,7 @@ export default function WebsiteSettingsPage() {
         { key: 'BKASH_MANUAL_PAYMENT_NUMBER', value: form.BKASH_MANUAL_PAYMENT_NUMBER },
       ]
 
-      await upsertSetting(settingsToSave as any).unwrap()
+      await upsertSetting(settingsToSave).unwrap()
       toast.success('Website settings saved successfully.', { id: toastId })
     } catch {
       toast.error('Unable to save website settings.', { id: toastId })

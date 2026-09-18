@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, ExternalLink, Info, Loader2, ShieldCheck, Timer, X } from 'lucide-react'
@@ -33,10 +33,12 @@ export function AdvertisementInterstitialPage() {
     }
     if (!advertisement) return
     const end = Date.now() + advertisement.durationSeconds * 1000
-    setCountdownEndsAt(end)
-    setRemaining(advertisement.durationSeconds)
-    setHasVisitedAdvertisement(false)
-    setShowInteractionNotice(true)
+    startTransition(() => {
+      setCountdownEndsAt(end)
+      setRemaining(advertisement.durationSeconds)
+      setHasVisitedAdvertisement(false)
+      setShowInteractionNotice(true)
+    })
   }, [advertisement, destination, isPremium, navigate, unlock])
 
   useEffect(() => {

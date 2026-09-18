@@ -1,10 +1,11 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { startTransition, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { useGetActivePopupsQuery } from '../../features/popups/popups.api';
 import { useTrackEventMutation } from '../../features/analytics/analytics.api';
 import { useAuth } from '../../hooks/common/layouts/useAuth';
 import { buildCloudinaryUrl } from '../../utils/cloudinary';
+import type { Popup } from '../../features/admin/popups.api';
 
 const POPUP_TTL_MS = 6 * 60 * 60 * 1000;
 const POPUP_STORAGE_KEY = 'sportzone_popup_dismissals';
@@ -50,7 +51,7 @@ export function PopupDisplay() {
     skip: shouldSkipPopups,
   });
   const [trackEvent] = useTrackEventMutation();
-  const [currentPopup, setCurrentPopup] = useState<any | null>(null);
+  const [currentPopup, setCurrentPopup] = useState<Popup | null>(null);
   const [shownPopupIds, setShownPopupIds] = useState<Set<string>>(new Set());
 
   const validPopups = useMemo(() => {
@@ -58,7 +59,7 @@ export function PopupDisplay() {
       return [];
     }
 
-    const filtered = popups.filter((popup: any) => {
+    const filtered = popups.filter((popup: Popup) => {
       const popupId = String(popup.id ?? '');
       if (!popupId) return false;
       if (shownPopupIds.has(popupId)) return false;
@@ -83,12 +84,12 @@ export function PopupDisplay() {
       }
     });
 
-    setShownPopupIds(activeIds);
+    startTransition(() => setShownPopupIds(activeIds));
   }, [shouldSkipPopups]);
 
   useEffect(() => {
     if (!currentPopup && validPopups.length > 0) {
-      setCurrentPopup(validPopups[0]);
+      startTransition(() => setCurrentPopup(validPopups[0]));
     }
   }, [currentPopup, validPopups]);
 

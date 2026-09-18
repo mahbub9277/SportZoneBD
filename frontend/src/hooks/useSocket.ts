@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import React, { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { useAppSelector } from '../app/hooks'
 import { useAppDispatch } from '../app/hooks'
@@ -157,19 +157,21 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }) as AppSocket
 
     publicSocketRef.current = publicSocketInstance
-    setSocket(publicSocketInstance)
-    setIsConnected(publicSocketInstance.connected)
+    startTransition(() => {
+      setSocket(publicSocketInstance)
+      setIsConnected(publicSocketInstance.connected)
+    })
 
     let hasConnectedOnce = false
     const handleConnect = () => {
-      setIsConnected(true)
+      startTransition(() => setIsConnected(true))
       if (hasConnectedOnce) {
         dispatch(notificationsApi.util.invalidateTags(['Notifications']))
       }
       hasConnectedOnce = true
     }
-    const handleDisconnect = () => setIsConnected(false)
-    const handleConnectError = () => setIsConnected(false)
+    const handleDisconnect = () => startTransition(() => setIsConnected(false))
+    const handleConnectError = () => startTransition(() => setIsConnected(false))
     const handleMatchStatusUpdated = () => {
       dispatch(matchesApi.util.invalidateTags([{ type: 'Matches', id: 'LIST' }]))
     }
@@ -206,10 +208,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       publicSocketInstance.removeAllListeners()
       publicSocketInstance.disconnect()
       publicSocketRef.current = null
-      setSocket(null)
-      setIsConnected(false)
+      startTransition(() => {
+        setSocket(null)
+        setIsConnected(false)
+      })
     }
-  }, [socketBackendUrl])
+  }, [dispatch, socketBackendUrl])
 
   useEffect(() => {
     const previousAdminSocket = adminSocketRef.current
@@ -217,8 +221,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       previousAdminSocket.removeAllListeners()
       previousAdminSocket.disconnect()
       adminSocketRef.current = null
-      setAdminSocket(null)
-      setIsAdminConnected(false)
+      startTransition(() => {
+        setAdminSocket(null)
+        setIsAdminConnected(false)
+      })
     }
 
     if (!isAuthenticated) return
@@ -236,12 +242,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }) as AppSocket
 
     adminSocketRef.current = adminSocketInstance
-    setAdminSocket(adminSocketInstance)
-    setIsAdminConnected(adminSocketInstance.connected)
+    startTransition(() => {
+      setAdminSocket(adminSocketInstance)
+      setIsAdminConnected(adminSocketInstance.connected)
+    })
 
-    const handleAdminConnect = () => setIsAdminConnected(true)
-    const handleAdminDisconnect = () => setIsAdminConnected(false)
-    const handleAdminConnectError = () => setIsAdminConnected(false)
+    const handleAdminConnect = () => startTransition(() => setIsAdminConnected(true))
+    const handleAdminDisconnect = () => startTransition(() => setIsAdminConnected(false))
+    const handleAdminConnectError = () => startTransition(() => setIsAdminConnected(false))
 
     adminSocketInstance.on('connect', handleAdminConnect)
     adminSocketInstance.on('disconnect', handleAdminDisconnect)
@@ -254,8 +262,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       adminSocketInstance.removeAllListeners()
       adminSocketInstance.disconnect()
       adminSocketRef.current = null
-      setAdminSocket(null)
-      setIsAdminConnected(false)
+      startTransition(() => {
+        setAdminSocket(null)
+        setIsAdminConnected(false)
+      })
     }
   }, [authToken, isAuthenticated, socketBackendUrl])
 
@@ -279,9 +289,10 @@ export function useAutomationEvents() {
   const { adminSocket } = useSocket()
 
   const on = useCallback(<E extends keyof ServerToClientEvents>(event: E, callback: ServerToClientEvents[E]) => {
-    adminSocket?.on(event, callback as any)
+    const listener = callback as (...args: any[]) => void
+    adminSocket?.on(event as any, listener as any)
     return () => {
-      adminSocket?.off(event, callback as any)
+      adminSocket?.off(event as any, listener as any)
     }
   }, [adminSocket])
 

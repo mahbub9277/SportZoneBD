@@ -28,7 +28,7 @@ export function ChannelsPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
 
-  const catList = categories ?? []
+  const catList = useMemo(() => categories ?? [], [categories])
 
   const clearFilters = () => {
     setQuery('')
@@ -53,7 +53,7 @@ export function ChannelsPage() {
     if (selectedCategoryId === 'all') {
       return catList
         .map((c: ChannelCategory) => ({ ...c, channels: filterChannels(c.channels) }))
-        .filter((c: any) => c.channels.length > 0)
+        .filter((c): c is ChannelCategory & { channels: Channel[] } => Boolean(c.channels?.length))
     }
 
     const cat = catList.find((c: ChannelCategory) => c.id === selectedCategoryId)
@@ -163,7 +163,7 @@ export function ChannelsPage() {
         </div>
       )}
 
-      {filteredCategories.map((category: ChannelCategory, categoryIndex) => (
+      {filteredCategories.map((category: ChannelCategory) => (
         <div
           key={category.id}
           className="space-y-4"
@@ -182,7 +182,7 @@ export function ChannelsPage() {
             <div
               className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
             >
-              {(category.channels ?? []).map((channel: any) => (
+              {(category.channels ?? []).map((channel: Channel) => (
                 <div
                   key={channel.id}
                 >
@@ -211,7 +211,7 @@ export function ChannelsPage() {
             <div
               className="space-y-3"
             >
-              {(category.channels ?? []).map((channel: any) => (
+              {(category.channels ?? []).map((channel: Channel) => (
                 <div
                   key={channel.id}
                 >

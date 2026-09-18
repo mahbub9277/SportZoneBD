@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { useSocket } from './useSocket'
 
 export function useResourceViewerCount(kind: 'channel' | 'match' | 'stream', resourceId: string | undefined, initialCount = 0) {
   const [count, setCount] = useState(initialCount)
   const { socket } = useSocket()
 
-  useEffect(() => setCount(initialCount), [initialCount, resourceId])
+  useEffect(() => startTransition(() => setCount(initialCount)), [initialCount, resourceId])
   useEffect(() => {
     if (!socket || !resourceId) return
     const handleUpdate = (payload: { kind: string; resourceId: string; count: number }) => {

@@ -4,7 +4,7 @@ import { Button } from '../../../components/ui/Button'
 import { GlobalLoadingIndicator } from '../../../components/shared/GlobalLoadingIndicator';
 import { useLogoutMutation } from '../../../features/auth/auth.api.ts';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
-import { logout, selectAccountStatus, selectAccountStatusMessage, selectIsAuthenticated } from '../../../features/auth/authSlice';
+import { logout, selectAccountStatus, selectAccountStatusMessage } from '../../../features/auth/authSlice';
 import { PopupDisplay } from '../../../components/shared/PopupDisplay';
 
 /**

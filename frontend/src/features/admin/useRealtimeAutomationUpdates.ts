@@ -46,7 +46,7 @@ export function useRealtimeAutomationUpdates() {
                   // Ensure 'details' conforms to Record<string, any> | null.
                   // JsonValue can be primitives or arrays, which are not assignable to Record<string, any>.
                   details: (log.details && typeof log.details === 'object' && !Array.isArray(log.details))
-                    ? log.details as Record<string, any>
+                    ? log.details as Record<string, unknown>
                     : null,
                   createdAt: toIsoString(log.createdAt) ?? new Date(0).toISOString(),
                   updatedAt: toIsoString(log.updatedAt) ?? new Date(0).toISOString(),
@@ -90,7 +90,7 @@ export function useRealtimeAutomationUpdates() {
               ...payload, // Spread all properties from payload
               status: payload.status as Exclude<SocketAutomationLog['status'], 'SKIPPED'>, // Explicitly cast status to exclude 'SKIPPED'
               details: (payload.details && typeof payload.details === 'object' && !Array.isArray(payload.details))
-                ? payload.details as Record<string, any>
+                ? payload.details as Record<string, unknown>
                 : null,
               createdAt: toIsoString(payload.createdAt) ?? new Date(0).toISOString(),
               updatedAt: toIsoString(payload.updatedAt) ?? new Date(0).toISOString(),

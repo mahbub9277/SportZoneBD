@@ -58,7 +58,7 @@ export default function ForgotPasswordPage() {
         <div className="grid gap-2 text-center">
           <h1 className="flex items-center justify-center gap-2 text-3xl font-semibold tracking-tight text-text-primary"><motion.span whileHover={{ scale: 1.1, rotate: 5 }} className="text-accent"><Mail className="h-6 w-6" /></motion.span>Forgot Password</h1>
           <p className="text-balance text-sm text-text-muted">
-            Enter your email and we'll send you a 6-digit code to reset your password.
+            Enter your email and we&apos;ll send you a 6-digit code to reset your password.
           </p>
         </div>
         {isSuccess ? (

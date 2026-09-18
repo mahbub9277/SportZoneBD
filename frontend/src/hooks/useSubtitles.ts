@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
 import type { SubtitleTrack } from '../components/player/player.types'
 
 const normalizeLanguage = (value?: string | null) => (value || '').trim().toLowerCase()
@@ -75,8 +75,10 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
     if (!selectedLanguage && nativeTracks.length > 0) {
       const nextChoice = preferredLanguage || choices[0]?.srcLang || null
       if (nextChoice) {
-        setSelectedLanguage(nextChoice)
-        applyLanguage(nextChoice)
+        startTransition(() => {
+          setSelectedLanguage(nextChoice)
+          applyLanguage(nextChoice)
+        })
       }
       return
     }
@@ -84,7 +86,7 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
     if (selectedLanguage && choices.length > 0) {
       const hasSelectedTrack = choices.some((track) => normalizeLanguage(track.srcLang) === normalizeLanguage(selectedLanguage))
       if (!hasSelectedTrack) {
-        setSelectedLanguage(null)
+        startTransition(() => setSelectedLanguage(null))
       }
     }
   }, [applyLanguage, choices, nativeTracks.length, preferredLanguage, selectedLanguage])

@@ -5,12 +5,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../DropdownMenu'
 
 interface DataTableRowActionsProps<TData> {
-  row: any // Using `any` for flexibility with different row types
+  row: { original: TData }
   onEdit?: (item: TData) => void
   onDelete?: (item: TData) => void
   // Add other common actions here

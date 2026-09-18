@@ -1,8 +1,11 @@
 import { useEffect } from 'react'
-import { useDispatch } from 'react-redux'
+import { useAppDispatch } from '../app/hooks'
+import type { AppDispatch } from '../app/store'
 import { io, type Socket } from 'socket.io-client'
 
 let socketInstance: Socket | null = null
+type SocketAck = { success?: boolean }
+type ResourceEvent = { type: string; id: string; data: unknown }
 
 /**
  * Initialize Socket.IO connection to admin room
@@ -25,7 +28,7 @@ export function initAdminSocket() {
   socketInstance.on('connect', () => {
     console.log('[Socket.IO] Connected to server')
     // Join admin room
-    socketInstance?.emit('join-admin-room', {}, (ack: any) => {
+    socketInstance?.emit('join-admin-room', {}, (ack: SocketAck) => {
       if (ack?.success) {
         console.log('[Socket.IO] Joined admin room')
       }
@@ -36,7 +39,7 @@ export function initAdminSocket() {
     console.log('[Socket.IO] Disconnected from server')
   })
 
-  socketInstance.on('error', (error: any) => {
+  socketInstance.on('error', (error: unknown) => {
     console.error('[Socket.IO] Error:', error)
   })
 
@@ -55,20 +58,20 @@ export function getAdminSocket(): Socket | null {
  * Automatically invalidates RTK Query cache when resources change
  */
 export function useAdminSocketListener() {
-  const dispatch = useDispatch()
+  const dispatch = useAppDispatch()
 
   useEffect(() => {
     const socket = initAdminSocket()
     if (!socket) return
 
     // Listen for resource creation events
-    const handleResourceCreated = (data: { type: string; id: string; data: any }) => {
+    const handleResourceCreated = (data: ResourceEvent) => {
       console.log('[Socket.IO] Resource created:', data)
       invalidateResourceCache(dispatch, data.type)
     }
 
     // Listen for resource update events
-    const handleResourceUpdated = (data: { type: string; id: string; data: any }) => {
+    const handleResourceUpdated = (data: ResourceEvent) => {
       console.log('[Socket.IO] Resource updated:', data)
       invalidateResourceCache(dispatch, data.type)
     }
@@ -94,7 +97,7 @@ export function useAdminSocketListener() {
 /**
  * Invalidate RTK Query cache for a specific resource type
  */
-function invalidateResourceCache(dispatch: any, resourceType: string) {
+function invalidateResourceCache(dispatch: AppDispatch, resourceType: string) {
   const typeMap: { [key: string]: string } = {
     'User': 'User',
     'Match': 'Match',

@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
-import { Radio, Clock, CheckCircle2, Play, Plus } from 'lucide-react'
+import { Radio, Play, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useGetAdminLiveMatchesQuery, useUpdateMatchStatusMutation, useExtendMatchMutation } from '../../features/admin/adminLiveMatches.api'
@@ -98,7 +98,7 @@ export function LiveMatchesManagementPage() {
                           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                             <div className="flex items-center justify-center gap-2">
                             <button type="button" onClick={() => handleExtend(match.id)} disabled={isExtending} className="inline-flex items-center gap-1 rounded-lg border border-(--accent)/50 px-3 py-2 text-xs font-medium text-(--accent) hover:border-(--accent)" title="Extend expected end by 30 minutes"><Plus className="h-3.5 w-3.5" />30 min</button>
-                            <Select onValueChange={(value) => handleStatusChange(match.id, value as any)} disabled={isUpdating}>
+                            <Select onValueChange={(value) => handleStatusChange(match.id, value as 'UPCOMING' | 'LIVE' | 'FINISHED')} disabled={isUpdating}>
                               <SelectTrigger className="w-40 bg-linear-to-r from-(--accent)/20 to-(--accent)/10 border-2 border-(--accent)/50 hover:border-(--accent)">
                                 <SelectValue placeholder="Change Status" />
                               </SelectTrigger>

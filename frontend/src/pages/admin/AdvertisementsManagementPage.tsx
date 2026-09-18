@@ -356,7 +356,7 @@ export default function AdvertisementsManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Advertisement?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the advertisement "{deletingAd?.title}". This action cannot be undone.
+              This will permanently delete the advertisement &quot;{deletingAd?.title}&quot;. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

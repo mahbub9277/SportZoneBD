@@ -40,7 +40,6 @@ export interface PlayerControlsProps {
   volumeContainerRef: React.RefObject<HTMLDivElement | null>
   onPlayPause: () => void
   onVolumeButtonClick: (event: React.MouseEvent<HTMLElement>) => void
-  onVolumePointerDown: (event: React.PointerEvent<HTMLElement>) => void
   onVolumeKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void
   onVolumeChange: (value: number) => void
   onSeekMouseDown: (event: React.MouseEvent<HTMLInputElement>) => void
@@ -59,7 +58,6 @@ export interface PlayerControlsProps {
   onPiPToggle: () => void
   onFullscreenToggle: () => void
   onRetry: () => void
-  onGoLive: () => void
   onSurfaceClick: (event: React.MouseEvent<HTMLDivElement>) => void
   onSurfaceDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void
   onMouseMove: () => void
@@ -83,10 +81,10 @@ export function PlayerControls({
   activeSettingsSection, playbackRate, subtitlesEnabled, isPiPSupported, isPiPActive, compactControls,
   liveWindow, qualityLevels, currentLevel, playbackRates, subtitleChoices, selectedSubtitleLanguage,
   settingsButtonRef, settingsMenuRef, volumeContainerRef, onPlayPause, onVolumeButtonClick,
-  onVolumePointerDown, onVolumeKeyDown, onVolumeChange, onSeekMouseDown, onSeekChange, onSeekMouseUp,
+  onVolumeKeyDown, onVolumeChange, onSeekMouseDown, onSeekChange, onSeekMouseUp,
   onSeekBackward, onSeekForward, showSeekControls = false, onSettingsToggle, onSettingsSectionChange,
   onQualityChange, onPlaybackRateChange, onSubtitleChange, onToggleSubtitles, onLock, onPiPToggle,
-  onFullscreenToggle, onRetry, onGoLive, onSurfaceClick, onSurfaceDoubleClick, onMouseMove, onMouseEnter,
+  onFullscreenToggle, onRetry, onSurfaceClick, onSurfaceDoubleClick, onMouseMove, onMouseEnter,
   matchMetadata,
 }: PlayerControlsProps) {
   const displayCurrentTime = Number.isFinite(played) ? Math.max(0, played) : Number.isFinite(liveWindow.currentTime) ? Math.max(0, liveWindow.currentTime) : 0

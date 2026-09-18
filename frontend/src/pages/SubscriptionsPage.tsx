@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Crown, Check, Copy, Smartphone } from 'lucide-react'
@@ -102,7 +102,7 @@ export function SubscriptionsPage() {
         const planToPurchase = plans.find((p) => p.id === planId)
         if (planToPurchase) {
           sessionStorage.removeItem('post-auth-action')
-          setSelectedPlan(planToPurchase)
+          startTransition(() => setSelectedPlan(planToPurchase))
         }
       }
     }

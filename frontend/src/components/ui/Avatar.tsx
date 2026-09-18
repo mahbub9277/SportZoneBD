@@ -25,19 +25,14 @@ const generateColor = (name: string) => {
   return `hsl(${h}, 60%, 70%)`
 }
 
-const MotionAvatar = motion(AvatarPrimitive.Root as React.ComponentType<any>)
-
 const Avatar = React.forwardRef<
   React.ElementRef<typeof AvatarPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> & { isLoading?: boolean }
 >(({ className, isLoading = false, children, ...props }, ref) => {
   return (
-    <MotionAvatar
+    <AvatarPrimitive.Root
       ref={ref}
       className={cn('relative flex size-10 shrink-0 overflow-hidden rounded-full border border-(--border) bg-(--surface-soft)', className)}
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
       {...props}
     >
       {children}
@@ -54,7 +49,7 @@ const Avatar = React.forwardRef<
           </motion.div>
         )}
       </AnimatePresence>
-    </MotionAvatar>
+    </AvatarPrimitive.Root>
   )
 })
 Avatar.displayName = AvatarPrimitive.Root.displayName

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useGetPremiumUsersQuery } from '../../../features/admin/users.api';
 import { DataTable } from '../../../components/ui/data-table/DataTable';
 import { type ColumnDef } from '@tanstack/react-table';
-import { type User, type PaginationMeta } from '../../../features/auth/auth.types';
+import { type User } from '../../../features/auth/auth.types';
 import { buildCloudinaryUrl } from '../../../utils/cloudinary';
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/Avatar';
 import { Button } from '../../../components/ui/Button';

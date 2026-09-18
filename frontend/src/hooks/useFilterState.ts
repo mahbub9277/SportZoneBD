@@ -1,12 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useDebounce } from './useDebounce'
 
-type FilterState<T> = {
-  [K in keyof T]: [T[K], (value: T[K]) => void]
-}
-
-export function useFilterState<T extends Record<string, any>>(initialState: T, debounceKeys: (keyof T)[] = [], debounceMs = 300) {
+export function useFilterState<T extends Record<string, unknown>>(initialState: T, debounceKeys: (keyof T)[] = [], debounceMs = 300) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState<T>(() => {
     const state = { ...initialState }
@@ -27,15 +23,20 @@ export function useFilterState<T extends Record<string, any>>(initialState: T, d
 
   const debouncedFilters = useDebounce(filters, debounceMs)
 
+  const serializedFilters = JSON.stringify(debounceKeys.length > 0 ? debouncedFilters : filters)
+  const serializedInitialState = JSON.stringify(initialState)
+
   useEffect(() => {
+    const filterSnapshot = JSON.parse(serializedFilters) as T
+    const initialSnapshot = JSON.parse(serializedInitialState) as T
     const newParams = new URLSearchParams()
-    for (const key in filters) {
-      if (String(filters[key]) && filters[key] !== initialState[key]) {
-        newParams.set(key, String(filters[key]))
+    for (const key in filterSnapshot) {
+      if (String(filterSnapshot[key]) && filterSnapshot[key] !== initialSnapshot[key]) {
+        newParams.set(key, String(filterSnapshot[key]))
       }
     }
     setSearchParams(newParams, { replace: true })
-  }, [JSON.stringify(debounceKeys.length > 0 ? debouncedFilters : filters), setSearchParams, JSON.stringify(initialState)])
+  }, [serializedFilters, serializedInitialState, setSearchParams])
 
   return { filters, setFilters, debouncedFilters }
 }

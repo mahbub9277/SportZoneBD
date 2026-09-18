@@ -21,6 +21,7 @@ import { userSchema, type UserFormValues } from './components/user.schema'
 import { motion } from 'framer-motion'
 
 function UserRow({ user, onEdit, onDelete, onSuspend, onUnsuspend }: { user: User; onEdit: (user: User) => void; onDelete: (user: User) => void; onSuspend: (user: User) => void; onUnsuspend: (user: User) => void; }) {
+  const [currentTime] = useState(() => Date.now())
   const getStatusClass = (user: User) => {
     if (user.isSuspended) {
       return 'bg-orange-500/20 text-orange-400';
@@ -51,7 +52,7 @@ function UserRow({ user, onEdit, onDelete, onSuspend, onUnsuspend }: { user: Use
       </td>
       <td className="p-4 align-middle">
         <div className="flex flex-wrap gap-1">
-          {user.roles?.map((role: any, roleIndex: number) => (
+          {user.roles?.map((role, roleIndex: number) => (
             <span key={role.id || role.name || `role-${roleIndex}`} className="rounded-full bg-(--accent)/20 px-2 py-0.5 text-xs font-medium text-(--accent)">
               {(role?.role?.name || role.name || role).toString().replace('_', ' ')}
             </span>
@@ -64,7 +65,7 @@ function UserRow({ user, onEdit, onDelete, onSuspend, onUnsuspend }: { user: Use
         </span>
       </td>
       <td className="p-4 align-middle">
-        {user.subscription && user.subscription.status === 'ACTIVE' && new Date(user.subscription.expiresAt).getTime() > Date.now() ? (
+        {user.subscription && user.subscription.status === 'ACTIVE' && new Date(user.subscription.expiresAt).getTime() > currentTime ? (
           <span className="rounded-full bg-green-500/20 px-2.5 py-1 text-xs font-semibold text-green-400">Premium</span>
         ) : (
           <span className="rounded-full bg-gray-500/20 px-2.5 py-1 text-xs font-semibold text-gray-400">Free</span>
@@ -133,7 +134,7 @@ export function UserManagementPage() {
       fullName: user.fullName || '',
       email: user.email || '',
       password: '', // Password is not fetched, leave blank for no change.
-      roleIds: user.roles?.map((role: any) => role.id || role) || [], // The roles are now just an array of strings (IDs).
+      roleIds: user.roles?.map((role) => role.id) || [],
       isActive: user.isActive,
     });
   };
@@ -302,7 +303,7 @@ export function UserManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action will permanently delete the user account for "{deletingUser?.fullName || deletingUser?.email}". This cannot be undone.
+              This action will permanently delete the user account for &quot;{deletingUser?.fullName || deletingUser?.email}&quot;. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -317,7 +318,7 @@ export function UserManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Suspend User Account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will temporarily disable the user's account, preventing them from logging in. Are you sure you want to suspend "{suspendingUser?.fullName || suspendingUser?.email}"?
+              This will temporarily disable the user&apos;s account, preventing them from logging in. Are you sure you want to suspend &quot;{suspendingUser?.fullName || suspendingUser?.email}&quot;?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -332,7 +333,7 @@ export function UserManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reactivate User Account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will restore the user's account access, allowing them to log in again. Are you sure you want to unsuspend "{unsuspendingUser?.fullName || unsuspendingUser?.email}"?
+              This will restore the user&apos;s account access, allowing them to log in again. Are you sure you want to unsuspend &quot;{unsuspendingUser?.fullName || unsuspendingUser?.email}&quot;?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

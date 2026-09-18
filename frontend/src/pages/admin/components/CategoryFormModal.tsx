@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { ImagePlus, LayoutList, X } from 'lucide-react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
@@ -38,6 +38,7 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
     resolver: zodResolver(categorySchema),
     defaultValues: { name: '', description: '', image: undefined },
   })
+  const categoryName = useWatch({ control: form.control, name: 'name' })
 
   useEffect(() => {
     if (editingCategory) {
@@ -46,12 +47,12 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
         description: editingCategory.description ?? '',
         image: undefined,
       })
-      setImagePreviewUrl(editingCategory.image ?? null)
+      startTransition(() => setImagePreviewUrl(editingCategory.image ?? null))
       return
     }
 
     form.reset({ name: '', description: '', image: undefined })
-    setImagePreviewUrl(null)
+    startTransition(() => setImagePreviewUrl(null))
   }, [editingCategory, form, isOpen])
 
   useEffect(() => {
@@ -109,7 +110,7 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
             )} />
             <FormField control={form.control} name="description" render={({ field }) => (
               <FormItem>
-                <div className="flex items-center justify-between gap-3"><FormLabel>Description</FormLabel><DescriptionGenerator entityType="CATEGORY" title={form.watch('name')} currentDescription={field.value ?? ''} context={{}} onGenerated={field.onChange} /></div>
+                <div className="flex items-center justify-between gap-3"><FormLabel>Description</FormLabel><DescriptionGenerator entityType="CATEGORY" title={categoryName} currentDescription={field.value ?? ''} context={{}} onGenerated={field.onChange} /></div>
                 <FormControl><Input {...field} value={field.value ?? ''} className="min-h-11" /></FormControl>
                 <FormMessage />
               </FormItem>

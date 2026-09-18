@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { startTransition, useState, useEffect, useMemo } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLowPowerDevice } from '@/hooks/useLowPowerDevice'
@@ -93,19 +93,21 @@ export function MatchPage() {
     && (match?.status === 'LIVE' || isWithinPreStartWindow)
 
   useEffect(() => {
-    setIsPlaybackAllowed(false)
-    setGateRequested(false)
-    setCurrentStreamUrl(undefined)
-    setSelectedStreamId(undefined)
-    setPreStartVideoFailed(false)
+    startTransition(() => {
+      setIsPlaybackAllowed(false)
+      setGateRequested(false)
+      setCurrentStreamUrl(undefined)
+      setSelectedStreamId(undefined)
+      setPreStartVideoFailed(false)
+    })
   }, [id])
 
   useEffect(() => {
-    setPreStartVideoFailed(false)
+    startTransition(() => setPreStartVideoFailed(false))
   }, [effectivePreStartVideoUrl])
 
   useEffect(() => {
-    setCurrentTime(Date.now())
+    startTransition(() => setCurrentTime(Date.now()))
     if (!Number.isFinite(preStartAt) || preStartAt <= Date.now()) return
 
     const timer = window.setTimeout(() => setCurrentTime(Date.now()), preStartAt - Date.now())
@@ -114,14 +116,14 @@ export function MatchPage() {
 
   useEffect(() => {
     if (!match || isMatchLocked || gateRequested || isAdvertisementLoading || isUnlockLoading) return
-    setGateRequested(true)
+    startTransition(() => setGateRequested(true))
     if (isPremiumSubscriber) {
-      setIsPlaybackAllowed(true)
+      startTransition(() => setIsPlaybackAllowed(true))
       return
     }
     const hasUnlock = Boolean(directUnlock && new Date(directUnlock.expiresAt).getTime() > Date.now())
     if (hasUnlock || !directAdvertisement) {
-      setIsPlaybackAllowed(true)
+      startTransition(() => setIsPlaybackAllowed(true))
       return
     }
     openMatch(`/matches/${match.id}`, false, () => setIsPlaybackAllowed(true))
@@ -130,9 +132,11 @@ export function MatchPage() {
   useEffect(() => {
     if (!match || isMatchLocked || (!isPremiumSubscriber && !isPlaybackAllowed)) return
     const firstStream = availableStreams[0]
-    setCurrentStreamUrl(initialStream)
-    setSelectedStreamId(firstStream?.id)
-    setIsAutoMode(false)
+    startTransition(() => {
+      setCurrentStreamUrl(initialStream)
+      setSelectedStreamId(firstStream?.id)
+      setIsAutoMode(false)
+    })
   }, [availableStreams, initialStream, isMatchLocked, isPlaybackAllowed, isPremiumSubscriber, match])
 
   useEffect(() => {
@@ -145,7 +149,7 @@ export function MatchPage() {
       if (action.action === 'unlockPremium' && action.redirect === currentPath) {
         sessionStorage.removeItem('post-auth-action')
         if (!isMatchLocked) return
-        setOpenSubscriptionModal(true)
+        startTransition(() => setOpenSubscriptionModal(true))
       }
     } catch {
       // Ignore malformed post-auth actions

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
+import React, { startTransition, useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
 import { Unlock, Tv, RotateCcw, AlertCircle } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
@@ -45,6 +45,10 @@ const LazyReactPlayer = React.lazy(async () => {
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const LOW_POWER_PLAYBACK_RATES = [0.75, 1, 1.25]
+
+function writeRef<T>(ref: { current: T }, value: T) {
+  ref.current = value
+}
 
 interface PlayerState {
   isPlaying: boolean; volume: number; isMuted: boolean; played: number; duration: number; isSeeking: boolean; isFullscreen: boolean; controlsVisible: boolean; isSettingsOpen: boolean; playerError: string | null; playbackRate: number
@@ -142,7 +146,7 @@ export function CustomVideoPlayer({
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
   const [currentLevel, setCurrentLevel] = useState<number>(-1) // -1 for Auto
   const [refreshKey, setRefreshKey] = useState(0)
-  const [hasNativeMediaReady, setHasNativeMediaReady] = useState(false)
+  const [, setHasNativeMediaReady] = useState(false)
   const [qualityToast, setQualityToast] = useState<string | null>(null)
   const { currentUrl, errorMessage, retry, setError } = useHlsPlayer(url, streamId)
   const draggingTrackRef = useRef<HTMLDivElement | null>(null)
@@ -183,7 +187,7 @@ export function CustomVideoPlayer({
     streamId,
     channelId: channelId || (presenceType === 'channel' ? presenceId : undefined),
     matchId,
-    active: isPlaying && !terminatedRef.current,
+    active: isPlaying,
   })
 
   const clearQualityToast = useCallback(() => {
@@ -335,15 +339,15 @@ export function CustomVideoPlayer({
     sourceGenerationRef.current += 1
 
     clearQualityToast()
-    setHasNativeMediaReady(false)
+    startTransition(() => setHasNativeMediaReady(false))
     volumePointerCleanupRef.current?.()
     volumePointerCleanupRef.current = null
     draggingTrackRef.current = null
     if (tapTimeoutRef.current !== null) {
       window.clearTimeout(tapTimeoutRef.current)
-      tapTimeoutRef.current = null
+      writeRef(tapTimeoutRef, null)
     }
-    lastTouchRef.current = null
+    writeRef(lastTouchRef, null)
     leaveViewerPresence()
     trackTelemetry('player_destroyed')
 
@@ -514,47 +518,11 @@ export function CustomVideoPlayer({
 
   const volumeContainerRef = useRef<HTMLDivElement | null>(null)
 
-  const updateVolumeFromClientX = useCallback((clientX: number) => { // Changed to use useCallback
-    const track = draggingTrackRef.current
-    if (!track) return
-
-    const rect = track.getBoundingClientRect()
-    let ratio = (clientX - rect.left) / rect.width
-    ratio = Math.max(0, Math.min(1, ratio))
-    syncNativeVolume(ratio)
-  }, [syncNativeVolume])
-  
   const detachVolumeDragListeners = useCallback(() => { // Changed to use useCallback
     if (!volumePointerCleanupRef.current) return
     volumePointerCleanupRef.current()
     volumePointerCleanupRef.current = null
   }, [])
-
-  const handleVolumeTrackPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    draggingTrackRef.current = e.currentTarget.parentElement as HTMLDivElement
-    updateVolumeFromClientX(e.clientX)
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      updateVolumeFromClientX(moveEvent.clientX)
-    }
-
-    const onPointerUp = () => {
-      draggingTrackRef.current = null
-      detachVolumeDragListeners()
-    }
-
-    detachVolumeDragListeners()
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
-    window.addEventListener('pointercancel', onPointerUp)
-    volumePointerCleanupRef.current = () => {
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
-    }
-  }, [detachVolumeDragListeners, updateVolumeFromClientX])
 
   const handleVolumeSliderKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => { // Changed to use useCallback
     event.stopPropagation();
@@ -678,12 +646,12 @@ export function CustomVideoPlayer({
     }
 
     if (tapTimeoutRef.current !== null) window.clearTimeout(tapTimeoutRef.current)
-    tapTimeoutRef.current = window.setTimeout(() => {
+    writeRef(tapTimeoutRef, window.setTimeout(() => {
       handlePlayPause()
       if (!controlsVisible) showControls()
       else toggleControls()
-      tapTimeoutRef.current = null
-    }, 180)
+      writeRef(tapTimeoutRef, null)
+    }, 180))
   }, [controlsVisible, handlePlayPause, isLocked, isSettingsOpen, isTouchDevice, showControls, showSeekControls, toggleControls])
 
   const handleVolumeUp = useCallback(() => { // Changed to use useCallback
@@ -736,7 +704,7 @@ export function CustomVideoPlayer({
     event.stopPropagation()
     if (tapTimeoutRef.current !== null) {
       window.clearTimeout(tapTimeoutRef.current)
-      tapTimeoutRef.current = null
+      writeRef(tapTimeoutRef, null)
     }
     if (!isLocked && !compactControls) void handleToggleFullscreen()
   }, [compactControls, handleToggleFullscreen, isLocked])
@@ -745,17 +713,18 @@ export function CustomVideoPlayer({
     event.stopPropagation()
     if (tapTimeoutRef.current !== null) {
       window.clearTimeout(tapTimeoutRef.current)
-      tapTimeoutRef.current = null
+      writeRef(tapTimeoutRef, null)
     }
     if (isLocked || compactControls || isTouchDevice) return
     handleToggleFullscreen()
   }, [compactControls, handleToggleFullscreen, isLocked, isTouchDevice])
 
   useEffect(() => {
+    const tapTimeout = tapTimeoutRef
     return () => {
-      if (tapTimeoutRef.current !== null) {
-        window.clearTimeout(tapTimeoutRef.current)
-        tapTimeoutRef.current = null
+      if (tapTimeout.current !== null) {
+        window.clearTimeout(tapTimeout.current)
+        writeRef(tapTimeout, null)
       }
     }
   }, [compactControls, isTouchDevice, sourceKey])
@@ -765,7 +734,7 @@ export function CustomVideoPlayer({
 
     const target = event.target as HTMLElement | null
     if (target?.closest('button, input, [role="button"], [role="slider"], [role="menu"]')) {
-      lastTouchRef.current = null
+      writeRef(lastTouchRef, null)
       return
     }
 
@@ -773,14 +742,14 @@ export function CustomVideoPlayer({
     const now = Date.now()
     const previous = lastTouchRef.current
     const isDoubleTap = Boolean(previous && now - previous.time < 320 && Math.hypot(touch.clientX - previous.x, touch.clientY - previous.y) < 40)
-    lastTouchRef.current = { time: now, x: touch.clientX, y: touch.clientY }
+    writeRef(lastTouchRef, { time: now, x: touch.clientX, y: touch.clientY })
 
     if (isDoubleTap) {
       event.preventDefault()
-      lastTouchRef.current = null
+      writeRef(lastTouchRef, null)
       if (tapTimeoutRef.current !== null) {
         window.clearTimeout(tapTimeoutRef.current)
-        tapTimeoutRef.current = null
+        writeRef(tapTimeoutRef, null)
       }
       void handleToggleFullscreen()
       return
@@ -853,15 +822,6 @@ export function CustomVideoPlayer({
     seekBy(10)
   }, [seekBy])
 
-  const handleGoLive = useCallback(() => {
-    const video = getVideoElement()
-    if (!video || !liveWindow.liveEdge) return
-    video.currentTime = Math.max(0, liveWindow.liveEdge - 0.25)
-    void video.play().catch(() => undefined)
-    updateLiveWindow()
-    updateTimelineDom()
-  }, [getVideoElement, liveWindow.liveEdge, updateLiveWindow, updateTimelineDom])
-
   const handleRetry = useCallback(() => {
     stopPlayback()
     terminatedRef.current = false
@@ -870,8 +830,8 @@ export function CustomVideoPlayer({
     dispatch({ type: 'SET_ERROR', payload: null });
     dispatch({ type: 'SET_PLAYING', payload: false });
     setRefreshKey(prev => prev + 1)
-    proxyTriedRef.current = false
-    proxyFailedRef.current = false
+    writeRef(proxyTriedRef, false)
+    writeRef(proxyFailedRef, false)
     if (!retry()) {
       const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
       dispatch({ type: 'SET_ERROR', payload: exhaustedMessage })
@@ -952,7 +912,7 @@ export function CustomVideoPlayer({
     try {
       const maybeFn = playerRef.current?.getInternalPlayer
       hlsPlayer = typeof maybeFn === 'function' ? maybeFn.call(playerRef.current) : playerRef.current
-    } catch (e) {
+    } catch {
       hlsPlayer = playerRef.current
     }
 
@@ -972,7 +932,7 @@ export function CustomVideoPlayer({
         try {
           hlsPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
           hlsPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
-        } catch (e) {
+        } catch {
           // ignore listener cleanup failures
         }
       }
@@ -1001,7 +961,7 @@ export function CustomVideoPlayer({
         hlsLevelSwitchListenerRef.current = handleQualityEvent
         hlsPlayer.on('hlsLevelSwitched', handleQualityEvent)
         hlsPlayer.on('hlsManifestParsed', handleQualityEvent)
-      } catch (e) {
+      } catch {
         // ignore listener attach failures
       }
 
@@ -1070,9 +1030,10 @@ export function CustomVideoPlayer({
         nativeVideo.textTracks.removeEventListener('removetrack', refreshTracks)
       }
     }
-  }, [applySubtitleLanguage, errorMessage, getVideoElement, isMuted, onPlayerError, playbackRate, refreshNativeTracks, selectedSubtitleLanguage, setError, showQualityToast, trackTelemetry, updateLiveWindow, volume])
+  }, [applySubtitleLanguage, errorMessage, getVideoElement, isMuted, joinViewerPresence, onPlayerError, playbackRate, refreshNativeTracks, selectedSubtitleLanguage, setError, showQualityToast, sourceKey, subtitles, syncDuration, trackTelemetry, updateLiveWindow, volume])
   
   useEffect(() => { // Changed to use useEffect
+    const tapTimeout = tapTimeoutRef
     return () => {
       stopPlayback()
       detachVolumeDragListeners()
@@ -1082,15 +1043,15 @@ export function CustomVideoPlayer({
           try {
             currentPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
             currentPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
-          } catch (e) {
+          } catch {
             // ignore cleanup failures
           }
         }
         hlsLevelSwitchListenerRef.current = null
       }
-      if (tapTimeoutRef.current !== null) {
-        window.clearTimeout(tapTimeoutRef.current)
-        tapTimeoutRef.current = null
+      if (tapTimeout.current !== null) {
+        window.clearTimeout(tapTimeout.current)
+        writeRef(tapTimeout, null)
       }
     }
   }, [detachVolumeDragListeners, stopPlayback])
@@ -1104,14 +1065,18 @@ export function CustomVideoPlayer({
       setRefreshKey((key) => key + 1)
     }
 
-    proxyTriedRef.current = false
-    proxyFailedRef.current = false
-    clearQualityToast()
-    setHasNativeMediaReady(false)
+    writeRef(proxyTriedRef, false)
+    writeRef(proxyFailedRef, false)
+    if (qualityToastTimeoutRef.current !== null) window.clearTimeout(qualityToastTimeoutRef.current)
+    writeRef(qualityToastTimeoutRef, null)
+    startTransition(() => setQualityToast(null))
+    startTransition(() => setHasNativeMediaReady(false))
     dispatch({ type: 'RESET_FOR_NEW_URL', payload: autoPlay })
-    setQualityLevels([])
-    setCurrentLevel(-1)
-    setLiveWindow({ hasTimeshift: false, liveStart: 0, liveEdge: 0, currentTime: 0, isLive: false })
+    startTransition(() => {
+      setQualityLevels([])
+      setCurrentLevel(-1)
+      setLiveWindow({ hasTimeshift: false, liveStart: 0, liveEdge: 0, currentTime: 0, isLive: false })
+    })
     manualQualityRef.current = false
   }, [autoPlay, clearQualityToast, resolvedUrl, sourceKey, stopPlayback])
   
@@ -1128,14 +1093,14 @@ export function CustomVideoPlayer({
         manualQualityRef.current = levelIndex >= 0 && Boolean(selectedLevel)
 
         if (typeof internalPlayer.autoLevelEnabled === 'boolean') {
-          internalPlayer.autoLevelEnabled = levelIndex < 0
+          Object.assign(internalPlayer, { autoLevelEnabled: levelIndex < 0 })
         }
 
-        internalPlayer.currentLevel = nextIndex
+        Object.assign(internalPlayer, { currentLevel: nextIndex })
         setCurrentLevel(levelIndex < 0 ? -1 : nextIndex)
         const selectedLabel = levelIndex < 0 ? 'Auto' : selectedLevel ? `${selectedLevel.height}p` : null
         if (selectedLabel) showQualityToast(`Quality set to ${selectedLabel}`)
-      } catch (e) {
+      } catch {
         // Ignore invalid HLS level selection
       }
     }
@@ -1304,7 +1269,7 @@ export function CustomVideoPlayer({
   
   const hlsOptions = useMemo<Record<string, unknown>>(() => { // Changed to use useMemo
     const baseOptions: Record<string, unknown> = {
-      xhrSetup: (xhr: any) => {
+      xhrSetup: (xhr: XMLHttpRequest) => {
         xhr.withCredentials = false
       },
     }
@@ -1341,7 +1306,7 @@ export function CustomVideoPlayer({
       hlsOptions: isHlsSource ? hlsOptions : undefined,
       tracks: subtitles || [],
     },
-  }) as any, [hlsOptions, isHlsSource, poster, subtitles])
+  }) as ReactPlayerProps['config'], [hlsOptions, isHlsSource, poster, subtitles])
 
   if (!resolvedUrl) {
     return (
@@ -1376,7 +1341,7 @@ export function CustomVideoPlayer({
       <React.Suspense fallback={<div className="absolute inset-0 z-20 bg-black/35" aria-hidden="true" />}>
           <LazyReactPlayer
             key={refreshKey}
-            ref={playerRef as any}
+            ref={playerRef as unknown as React.Ref<HTMLVideoElement>}
             src={resolvedUrl}
             playing={isPlaying && !!resolvedUrl}
             config={playerConfig}
@@ -1399,14 +1364,15 @@ export function CustomVideoPlayer({
               dispatch({ type: 'SET_PLAYING', payload: false })
             }}
             playsInline={true}
-            onError={(e: any) => {
+            onError={(e: unknown) => {
               if (terminatedRef.current) return
               if (currentSourceKeyRef.current !== sourceKey) return
 
-
-              const nativeError = e && e.nativeEvent ? e.nativeEvent : e
-              const videoElement = e && e.target ? e.target : null
-              const mediaError = videoElement && videoElement.error ? videoElement.error : (nativeError && nativeError.target && nativeError.target.error ? nativeError.target.error : null)
+              const playerError = e as { nativeEvent?: unknown; target?: { error?: MediaError | null } | null }
+              const nativeError = playerError.nativeEvent ?? e
+              const videoElement = playerError.target
+              const nativeTarget = nativeError as { target?: { error?: MediaError | null } | null }
+              const mediaError = videoElement?.error ?? nativeTarget.target?.error ?? null
               const errorCode = typeof mediaError?.code === 'number' ? mediaError.code : null
               const errorMessageFromMedia = typeof mediaError?.message === 'string' ? mediaError.message : ''
               const decoderFailure = errorCode === 4 || /failed to init decoder|not suitable|media resource/i.test(errorMessageFromMedia)
@@ -1441,8 +1407,8 @@ export function CustomVideoPlayer({
               }
 
               if (!proxyTriedRef.current && resolvedUrl) {
-                proxyTriedRef.current = true
-                proxyFailedRef.current = true
+                writeRef(proxyTriedRef, true)
+                writeRef(proxyFailedRef, true)
                 trackTelemetry('network_error')
                 if (!retry()) {
                   const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
@@ -1555,7 +1521,6 @@ export function CustomVideoPlayer({
           volumeContainerRef={volumeContainerRef}
           onPlayPause={handlePlayPause}
           onVolumeButtonClick={handleVolumeButtonClick}
-          onVolumePointerDown={handleVolumeTrackPointerDown}
           onVolumeKeyDown={handleVolumeSliderKeyDown}
           onVolumeChange={handleVolumeInputChange}
           onSeekMouseDown={(event) => handleSeekMouseDown(event)}
@@ -1574,7 +1539,6 @@ export function CustomVideoPlayer({
           onPiPToggle={() => { void handleTogglePictureInPicture() }}
           onFullscreenToggle={() => { void handleToggleFullscreen() }}
           onRetry={handleRetry}
-          onGoLive={handleGoLive}
           onSurfaceClick={handleControlsSurfaceClick}
           onSurfaceDoubleClick={handleControlsSurfaceDoubleClick}
           onMouseMove={handlePlayerPointerMove}

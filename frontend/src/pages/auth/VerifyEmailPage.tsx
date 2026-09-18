@@ -8,7 +8,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '../../components/ui/Button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../components/ui/Form';
-import { Input } from '../../components/ui/Input';
 import { useVerifyEmailMutation, useResendOtpMutation } from '../../features/auth/auth.api.ts';
 import { AlertCircle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
 import brandMark from '../../assets/logo.png.jpeg'
@@ -105,7 +104,7 @@ export default function VerifyEmailPage() {
         <div className="grid gap-2 text-center">
           <h1 className="flex items-center justify-center gap-2 text-3xl font-semibold tracking-tight text-text-primary"><motion.span whileHover={{ scale: 1.1, rotate: 5 }} className="text-accent"><ShieldCheck className="h-6 w-6" /></motion.span>Verify Your Email</h1>
           <p className="text-balance text-sm text-text-muted">
-            We've sent a 6-digit code to <strong>{email}</strong>. Please enter it below.
+            We&apos;ve sent a 6-digit code to <strong>{email}</strong>. Please enter it below.
           </p>
         </div>
         {isVerified ? (

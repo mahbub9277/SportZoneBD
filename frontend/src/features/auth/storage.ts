@@ -19,9 +19,9 @@ function isValidUser(user: unknown): user is User {
     typeof user === 'object' &&
     user !== null &&
     'id' in user &&
-    typeof (user as any).id === 'string' &&
+    typeof (user as { id?: unknown }).id === 'string' &&
     'email' in user &&
-    typeof (user as any).email === 'string'
+    typeof (user as { email?: unknown }).email === 'string'
   )
 }
 
@@ -48,12 +48,6 @@ function getOtherStorage(rememberMe: boolean): Storage {
  * @param rememberMe - The current storage preference.
  * @returns True if storage version matches, false if migration needed.
  */
-function checkStorageVersion(rememberMe: boolean): boolean {
-  const storage = getStorage(rememberMe)
-  const version = storage.getItem(STORAGE_VERSION_KEY)
-  return version === CURRENT_STORAGE_VERSION
-}
-
 /**
  * Persists user authentication state with optional persistence.
  * Clears the opposite storage to prevent conflicts.

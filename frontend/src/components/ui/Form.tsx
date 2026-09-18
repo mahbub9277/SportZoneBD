@@ -121,19 +121,18 @@ const FormControl = React.forwardRef<
 
   const childrenArray = React.Children.toArray(children)
   const firstChild = childrenArray.length === 1 ? childrenArray[0] : null
-  const isFragment = firstChild && (firstChild as any).type === React.Fragment
+  const isFragment = React.isValidElement(firstChild) && firstChild.type === React.Fragment
   const useSlot = firstChild && React.isValidElement(firstChild) && !isFragment
 
   if (!useSlot) {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
       console.warn(
         'FormControl: children is not a single valid React element — not using Slot to avoid runtime error. Rendered fallback wrapper instead.',
       )
     }
     return (
       <div
-        ref={ref as any}
+        ref={ref as React.Ref<HTMLDivElement>}
         id={formItemId}
         aria-describedby={
           !error

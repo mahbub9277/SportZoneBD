@@ -3,7 +3,7 @@ import type { FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertCircle, CheckCircle2, KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,7 +28,6 @@ type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>
 
 export default function ResetPasswordPage() {
   const location = useLocation()
-  const navigate = useNavigate()
   const [resetPassword, { isLoading, error }] = useResetPasswordMutation()
   const [isSuccess, setIsSuccess] = useState(false)
   const emailFromState = (location.state as { email?: string } | null)?.email ?? ''

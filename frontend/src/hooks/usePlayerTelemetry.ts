@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type TelemetryEventType = 'load_start' | 'playing' | 'buffering_start' | 'buffering_end' | 'stalled' | 'fatal_error' | 'network_error' | 'media_error' | 'bitrate_switch' | 'heartbeat' | 'ended' | 'player_destroyed'
 
@@ -19,7 +19,8 @@ function createId() {
 }
 
 export function usePlayerTelemetry({ streamId, channelId, matchId, active }: PlayerTelemetryOptions) {
-  const sessionIdRef = useRef(createId())
+  const [sessionId] = useState(createId)
+  const sessionIdRef = useRef(sessionId)
   const identityRef = useRef(`${streamId ?? ''}|${channelId ?? ''}|${matchId ?? ''}`)
   const queueRef = useRef<Record<string, unknown>[]>([])
   const lastEventTypeRef = useRef<TelemetryEventType | null>(null)
@@ -110,5 +111,5 @@ export function usePlayerTelemetry({ streamId, channelId, matchId, active }: Pla
     flush(true)
   }, [flush])
 
-  return { sessionId: sessionIdRef.current, track, flush }
+  return { sessionId, track, flush }
 }

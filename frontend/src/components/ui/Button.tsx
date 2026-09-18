@@ -18,15 +18,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, isLoading = false, children, ...props }, ref) => {
     const childrenArray = React.Children.toArray(children)
     const firstChild = childrenArray.length === 1 ? childrenArray[0] : null
-    const isFragment = firstChild && (firstChild as any).type === React.Fragment
+    const isFragment = React.isValidElement(firstChild) && firstChild.type === React.Fragment
     const useSlot = asChild && firstChild && React.isValidElement(firstChild) && !isFragment
-    const Comp: any = useSlot ? Slot : 'button'
+    const Comp: React.ElementType = useSlot ? Slot : 'button'
 
     if (asChild && !useSlot) {
       // Warn in dev when asChild is misused so it's easier to find the culprit
       // and fall back to rendering a normal button to avoid the runtime Slot error.
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.warn(
           'Button: `asChild` was set but child is not a single valid React element. Falling back to a native `button` to avoid Slot runtime errors.',
         )
@@ -46,7 +45,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {useSlot ? (
           React.isValidElement(children) ? (
             React.cloneElement(children, undefined,
-              <>{isLoading && <Spinner size="1em" className="mr-2" />} {(children as React.ReactElement<any>).props.children}</>
+              <>{isLoading && <Spinner size="1em" className="mr-2" />} {(children as React.ReactElement<{ children?: React.ReactNode }>).props.children}</>
             )
           ) : null
         ) : (

@@ -11,8 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
-import { PlusCircle, Trash2, Edit, Search, LayoutGrid } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { PlusCircle, Trash2, Edit, Search } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from '../../components/ui/Pagination'
@@ -72,8 +71,8 @@ export function ChannelManagementPage() {
     // 4. Sort
     const [sortKey, sortDir] = filters.sort.split('-') as [keyof Channel, 'asc' | 'desc']
     channels.sort((a, b) => {
-      const valA = (a as any)[sortKey] ?? ''
-      const valB = (b as any)[sortKey] ?? ''
+      const valA = a[sortKey] ?? ''
+      const valB = b[sortKey] ?? ''
 
       if (valA < valB) {
         return sortDir === 'asc' ? -1 : 1
