@@ -36,6 +36,7 @@ export function DataTable<TData, TValue>({
   isLoading,
   error,
 }: DataTableProps<TData, TValue>) {
+  /* @react-skip */
   const table = useReactTable({
     data,
     columns,

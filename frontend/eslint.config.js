@@ -31,4 +31,10 @@ export default tseslint.config(
       'react/prop-types': 'off',
     },
   },
+  {
+    files: ['src/components/ui/data-table/DataTable.tsx'],
+    rules: {
+      'react-hooks/incompatible-library': 'off',
+    },
+  },
 );

@@ -32,13 +32,13 @@ export function ProfilePage() {
     if (!activeSubscription || activeSubscription.status !== 'ACTIVE') return
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
-  }, [activeSubscription?.expiresAt])
+  }, [activeSubscription])
 
   useEffect(() => {
     if (!activeSubscription || activeSubscription.status !== 'ACTIVE') return
     const expiryTimer = window.setTimeout(() => void refetchUser(), Math.max(0, new Date(activeSubscription.expiresAt).getTime() - Date.now()) + 50)
     return () => window.clearTimeout(expiryTimer)
-  }, [activeSubscription?.expiresAt, refetchUser])
+  }, [activeSubscription, refetchUser])
 
   const subscriptionEndDate = activeSubscription?.expiresAt
     ? new Date(activeSubscription.expiresAt).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -96,7 +96,7 @@ export function ProfilePage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Your Profile</DialogTitle>
-              <DialogDescription>Make changes to your profile here. Click save when you're done.</DialogDescription>
+              <DialogDescription>Make changes to your profile here. Click save when you&apos;re done.</DialogDescription>
             </DialogHeader>
             <EditProfileForm user={user} onSubmit={handleProfileUpdate} isLoading={isUpdating} onCancel={() => setIsEditModalOpen(false)} />
           </DialogContent>

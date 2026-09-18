@@ -49,10 +49,10 @@ export default function EventManagementPage() {
   const { data: eventData, isLoading } = useGetAdminEventsQuery()
   const { data: mediaLibrary, isLoading: isMediaLoading, isError: isMediaError } = useGetMediaLibraryQuery()
   const { data: channelData } = useGetAdminChannelsQuery()
-  const events = eventData ?? []
-  const channels = channelData ?? []
+  const events = useMemo(() => eventData ?? [], [eventData])
+  const channels = useMemo(() => channelData ?? [], [channelData])
   const { data: matchData } = useGetMatchesQuery({ page: 1, limit: 100, sort: 'date-asc' })
-  const matches = matchData?.items ?? []
+  const matches = useMemo(() => matchData?.items ?? [], [matchData])
   const [createEvent, { isLoading: isCreating }] = useCreateEventMutation()
   const [updateEvent, { isLoading: isUpdating }] = useUpdateEventMutation()
   const [deleteEvent] = useDeleteEventMutation()
@@ -78,13 +78,21 @@ export default function EventManagementPage() {
   const [mediaFilter, setMediaFilter] = useState<'ALL' | 'BANNER' | 'LOGO'>('ALL')
   const [mediaSearch, setMediaSearch] = useState('')
   const [pendingMedia, setPendingMedia] = useState<MediaAsset | null>(null)
-  const [orderedEvents, setOrderedEvents] = useState<EventDetail[]>([])
+  const [localEventOrder, setLocalEventOrder] = useState<EventDetail[]>([])
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null)
   const temporaryUrls = useRef(new Set<string>())
 
-  useEffect(() => {
-    setOrderedEvents(events)
-  }, [events])
+  const orderedEvents = useMemo(() => {
+    if (localEventOrder.length > 0) {
+      const localIds = new Set(localEventOrder.map((event) => event.id))
+      if (events.length > 0 && events.every((event) => localIds.has(event.id))) {
+        const byId = new Map(events.map((event) => [event.id, event]))
+        return localEventOrder.map((event) => byId.get(event.id) ?? event)
+      }
+    }
+
+    return [...events].sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [events, localEventOrder])
 
   const createPreviewUrl = (file: File) => {
     const url = URL.createObjectURL(file)
@@ -283,13 +291,13 @@ export default function EventManagementPage() {
     if (draggedIndex < 0 || targetIndex < 0) return
     const [draggedEvent] = nextOrder.splice(draggedIndex, 1)
     nextOrder.splice(targetIndex, 0, draggedEvent)
-    setOrderedEvents(nextOrder.map((event, index) => ({ ...event, sortOrder: index })))
+    setLocalEventOrder(nextOrder.map((event, index) => ({ ...event, sortOrder: index })))
     setDraggedEventId(null)
     try {
       await reorderEvents(nextOrder.map((event, index) => ({ id: event.id, sortOrder: index }))).unwrap()
       toast.success('Event order updated.')
     } catch {
-      setOrderedEvents(previousOrder)
+      setLocalEventOrder(previousOrder)
       toast.error('Unable to update event order.')
     }
   }
@@ -373,7 +381,13 @@ function EventHeroPreview({ name, description, logo, banner, isPremium }: { name
 }
 
 function MediaPicker({ label, icon, preview, previewClassName, isUploading, onSelect, onDrop, onLibrary, onRemove }: { label: string; icon: React.ReactNode; preview: string | null; previewClassName: string; isUploading: boolean; onSelect: (file: File) => void; onDrop?: (file: File) => void; onLibrary: () => void; onRemove: () => void }) {
-  return <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-2xl backdrop-blur-xl"><Label>{label}</Label><div className="mt-2 flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={onLibrary}><LayoutList className="mr-1 h-4 w-4" />Select from Library</Button><label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-accent/40 bg-surface-soft/60 px-3 py-2 text-sm text-text-muted transition hover:border-accent hover:text-text-primary">{icon}{isUploading ? 'Uploading...' : 'Upload New Image'}<input type="file" accept="image/*" className="sr-only" disabled={isUploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onSelect(file); e.target.value = '' }} /></label>{preview && <Button type="button" variant="ghost" size="sm" onClick={onRemove}><Trash2 className="mr-1 h-4 w-4" />Remove</Button>}</div>{preview && <img src={preview.startsWith('blob:') ? preview : buildCloudinaryUrl(preview)} alt={`${label} preview`} className={`mt-3 rounded-xl border border-border bg-surface-soft p-1 ${previewClassName}`} />}<p className="mt-2 text-xs text-text-muted">Choose an existing asset or upload a new one.</p></div>
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const file = event.dataTransfer.files?.[0]
+    if (file && onDrop) onDrop(file)
+  }
+
+  return <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-2xl backdrop-blur-xl" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}><Label>{label}</Label><div className="mt-2 flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={onLibrary}><LayoutList className="mr-1 h-4 w-4" />Select from Library</Button><label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-accent/40 bg-surface-soft/60 px-3 py-2 text-sm text-text-muted transition hover:border-accent hover:text-text-primary">{icon}{isUploading ? 'Uploading...' : 'Upload New Image'}<input type="file" accept="image/*" className="sr-only" disabled={isUploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onSelect(file); e.target.value = '' }} /></label>{preview && <Button type="button" variant="ghost" size="sm" onClick={onRemove}><Trash2 className="mr-1 h-4 w-4" />Remove</Button>}</div>{preview && <img src={preview.startsWith('blob:') ? preview : buildCloudinaryUrl(preview)} alt={`${label} preview`} className={`mt-3 rounded-xl border border-border bg-surface-soft p-1 ${previewClassName}`} />}<p className="mt-2 text-xs text-text-muted">Choose an existing asset or upload a new one.</p></div>
 }
 
 function MediaLibraryModal({ mediaType, filter, search, media, selected, isLoading, isError, isDeleting, onFilterChange, onSearchChange, onSelect, onDelete, onCancel, onConfirm }: { mediaType: 'BANNER' | 'LOGO'; filter: 'ALL' | 'BANNER' | 'LOGO'; search: string; media: MediaAsset[]; selected: MediaAsset | null; isLoading: boolean; isError: boolean; isDeleting: boolean; onFilterChange: (filter: 'ALL' | 'BANNER' | 'LOGO') => void; onSearchChange: (value: string) => void; onSelect: (media: MediaAsset) => void; onDelete: (media: MediaAsset) => Promise<void>; onCancel: () => void; onConfirm: () => void }) {

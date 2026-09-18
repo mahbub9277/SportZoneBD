@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useEntityManagement } from '../../hooks/useEntityManagement'
 import { z } from 'zod'
@@ -61,7 +60,7 @@ const matchFormSchemaBase = z.object({
   ).default([]),
 })
 
-const matchFormSchema: z.ZodType<CreateMatchFormValues> = matchFormSchemaBase.refine(
+const matchFormSchema = matchFormSchemaBase.refine(
   (values) => {
     return Boolean(parseMatchDateTime(values.kickoffDate, values.kickoffTime))
   },
@@ -69,7 +68,35 @@ const matchFormSchema: z.ZodType<CreateMatchFormValues> = matchFormSchemaBase.re
     path: ['kickoffTime'],
     message: 'Please enter a valid kickoff date and time.',
   },
-) as z.ZodType<CreateMatchFormValues>
+)
+
+const matchFormResolver: Resolver<CreateMatchFormValues> = async (values) => {
+  const parsed = matchFormSchema.safeParse(values)
+
+  if (parsed.success) {
+    return {
+      values: parsed.data,
+      errors: {},
+    }
+  }
+
+  const errors: FieldErrors<CreateMatchFormValues> = {}
+
+  for (const issue of parsed.error.issues) {
+    const key = issue.path.length > 0 ? String(issue.path[0]) : 'root'
+    errors[key as keyof CreateMatchFormValues] = {
+      type: issue.code,
+      message: issue.message,
+    }
+  }
+
+  const fallbackValues: Record<string, never> = {}
+
+  return {
+    values: fallbackValues,
+    errors,
+  }
+}
 
 type MatchFormData = CreateMatchFormValues
 
@@ -94,8 +121,8 @@ export function MatchManagementPage() {
     sort: `kickoffAt-${filters.sortOrder}`,
   });
 
-  const form = useForm<CreateMatchFormValues, any, CreateMatchFormValues>({
-    resolver: zodResolver(matchFormSchema as any),
+  const form = useForm<CreateMatchFormValues>({
+    resolver: matchFormResolver,
     defaultValues: {
       title: '',
       homeTeamName: '',

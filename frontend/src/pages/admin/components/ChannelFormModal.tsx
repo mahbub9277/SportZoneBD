@@ -36,41 +36,54 @@ interface ChannelFormModalProps {
 export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChannel, categories }: ChannelFormModalProps) {
   const [createChannel, { isLoading: isCreating }] = useCreateChannelMutation()
   const [updateChannel, { isLoading: isUpdating }] = useUpdateChannelMutation()
-  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
+  const [uploadedLogoPreviewUrl, setUploadedLogoPreviewUrl] = useState<string | null>(null)
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
 
   const isMutating = isCreating || isUpdating
+  const defaultValues = {
+    name: editingChannel?.name ?? '',
+    logo: undefined,
+    url: editingChannel?.url ?? '',
+    viewers: editingChannel?.viewers ?? 1280,
+    categoryId: editingChannel?.categoryId ?? '',
+    isPremium: editingChannel?.isPremium ?? false,
+    status: editingChannel?.status ?? 'active',
+  }
 
   const form = useForm({
     resolver: zodResolver(channelSchema),
-    defaultValues: { name: '', logo: undefined, url: '', viewers: 1280, categoryId: '', isPremium: false, status: 'active' },
+    defaultValues,
   })
 
-  useEffect(() => {
-    if (editingChannel) {
-      form.reset({
-        name: editingChannel.name ?? '',
-        logo: undefined,
-        url: editingChannel.url ?? '',
-        viewers: editingChannel.viewers ?? 1280,
-        categoryId: editingChannel.categoryId ?? '',
-        isPremium: editingChannel.isPremium ?? false,
-        status: editingChannel.status ?? 'active',
-      })
-      setLogoPreviewUrl(editingChannel.logo || null)
-    } else {
-      form.reset({ name: '', logo: undefined, url: '', viewers: 1280, categoryId: '', isPremium: false, status: 'active' })
-      setLogoPreviewUrl(null)
-    }
-  }, [editingChannel, isOpen, form])
+  const logoPreviewUrl = uploadedLogoPreviewUrl ?? editingChannel?.logo ?? null
 
   useEffect(() => {
     return () => {
-      if (logoPreviewUrl && logoPreviewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(logoPreviewUrl)
+      if (uploadedLogoPreviewUrl && uploadedLogoPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(uploadedLogoPreviewUrl)
       }
     }
-  }, [logoPreviewUrl])
+  }, [uploadedLogoPreviewUrl])
+
+  const handleOpenChange = (nextIsOpen: boolean) => {
+    onOpenChange(nextIsOpen)
+
+    if (!nextIsOpen) {
+      setUploadedLogoPreviewUrl(null)
+      return
+    }
+
+    form.reset({
+      name: editingChannel?.name ?? '',
+      logo: undefined,
+      url: editingChannel?.url ?? '',
+      viewers: editingChannel?.viewers ?? 1280,
+      categoryId: editingChannel?.categoryId ?? '',
+      isPremium: editingChannel?.isPremium ?? false,
+      status: editingChannel?.status ?? 'active',
+    })
+    setUploadedLogoPreviewUrl(null)
+  }
 
   const onSubmit = async (values: z.infer<typeof channelSchema>) => {
     const formData = new FormData()
@@ -99,7 +112,7 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[calc(100%-1rem)] max-w-2xl min-w-0 max-h-[calc(100dvh-1rem)] overflow-y-auto overflow-x-hidden sm:w-[calc(100%-2rem)]" onPointerDownOutside={(event) => { if ((event.target as HTMLElement).closest('[data-media-library-modal]')) event.preventDefault() }} onInteractOutside={(event) => { if ((event.target as HTMLElement).closest('[data-media-library-modal]')) event.preventDefault() }}>
         <DialogHeader>
           <DialogTitle>{editingChannel ? 'Edit Channel' : 'Add New Channel'}</DialogTitle>
@@ -120,9 +133,9 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
                         <Button type="button" variant="outline" size="sm" onClick={() => setIsMediaLibraryOpen(true)}><LayoutList className="mr-1 h-4 w-4" />Choose from library</Button>
                         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary hover:border-accent/50 hover:text-accent">
                           <ImagePlus className="h-4 w-4" />Upload logo
-                          <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setLogoPreviewUrl(URL.createObjectURL(file)); onChange(event.target.files) } event.currentTarget.value = '' }} />
+                          <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setUploadedLogoPreviewUrl(URL.createObjectURL(file)); onChange(event.target.files) } event.currentTarget.value = '' }} />
                         </label>
-                        {logoPreviewUrl && <Button type="button" variant="ghost" size="icon" onClick={() => { setLogoPreviewUrl(null); onChange(undefined) }} aria-label="Remove channel logo"><X className="h-4 w-4" /></Button>}
+                        {logoPreviewUrl && <Button type="button" variant="ghost" size="icon" onClick={() => { setUploadedLogoPreviewUrl(null); onChange(undefined) }} aria-label="Remove channel logo"><X className="h-4 w-4" /></Button>}
                       </div>
                     </div>
                     <p className="mt-2 text-xs text-text-muted">Choose a square PNG, JPG, or WebP logo.</p>
@@ -166,7 +179,7 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
           </form>
         </Form>
       </DialogContent>
-      {isMediaLibraryOpen && <MediaLibraryModal mediaType="LOGO" onCancel={() => setIsMediaLibraryOpen(false)} onConfirm={(media: MediaAsset) => { form.setValue('logo', media.url, { shouldDirty: true }); setLogoPreviewUrl(media.url); setIsMediaLibraryOpen(false) }} />}
+      {isMediaLibraryOpen && <MediaLibraryModal mediaType="LOGO" onCancel={() => setIsMediaLibraryOpen(false)} onConfirm={(media: MediaAsset) => { form.setValue('logo', media.url, { shouldDirty: true }); setUploadedLogoPreviewUrl(media.url); setIsMediaLibraryOpen(false) }} />}
     </Dialog>
   )
 }

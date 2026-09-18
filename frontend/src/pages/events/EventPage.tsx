@@ -1,8 +1,8 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, Crown, Tv } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useGetEventBySlugQuery } from '../../features/events/events.api'
+import { useGetEventBySlugQuery, type EventDetail } from '../../features/events/events.api'
 import { Card } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
@@ -15,15 +15,31 @@ import { SubscriptionModal } from '../../components/shared/SubscriptionModal'
 import { CustomVideoPlayer } from '../../components/player/CustomVideoPlayer'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 
-const getChannel = (entry: { channel: Channel } | { channelId: string } | Channel) => {
-  if ('channel' in entry) return entry.channel
-  if ('name' in entry) return entry
+const getChannel = (entry: unknown): Channel | null => {
+  if (!entry || typeof entry !== 'object') return null
+
+  if ('channel' in entry && entry.channel && typeof entry.channel === 'object') {
+    return entry.channel as Channel
+  }
+
+  if ('name' in entry && typeof entry.name === 'string') {
+    return entry as Channel
+  }
+
   return null
 }
 
-const getMatch = (entry: { match: Match } | { matchId: string } | Match) => {
-  if ('match' in entry) return entry.match
-  if ('title' in entry) return entry
+const getMatch = (entry: unknown): Match | null => {
+  if (!entry || typeof entry !== 'object') return null
+
+  if ('match' in entry && entry.match && typeof entry.match === 'object') {
+    return entry.match as Match
+  }
+
+  if ('title' in entry && typeof entry.title === 'string') {
+    return entry as Match
+  }
+
   return null
 }
 
@@ -37,15 +53,6 @@ export default function EventPage() {
   const isPremiumSubscriber = useAppSelector(selectIsPremiumSubscriber)
   const openMatch = useAdvertisementGate('MATCH')
   const openChannel = useAdvertisementGate('CHANNEL')
-  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false)
-  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
-  const [isBannerVisible, setIsBannerVisible] = useState(true)
-  const [subscriptionReturnPath, setSubscriptionReturnPath] = useState<string | undefined>()
-
-  useEffect(() => {
-    setSelectedChannel(null)
-    setIsBannerVisible(true)
-  }, [slug])
 
   if (isLoading) {
     return <div className="app-page space-y-3"><Skeleton className="h-52 w-full rounded-3xl" /><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-52 w-full rounded-2xl" />)}</div></div>
@@ -55,10 +62,48 @@ export default function EventPage() {
     return <motion.div className="app-page flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><AlertCircle className="h-12 w-12 text-(--danger)" /><h1 className="text-2xl font-semibold text-text-primary">Event not found</h1><p className="text-text-muted">This event is unavailable or no longer active.</p></motion.div>
   }
 
-  const channels = (event.eventChannels ?? []).map(getChannel).filter((channel): channel is Channel => channel !== null)
-  const matches = (event.eventMatches ?? []).map(getMatch).filter((match): match is Match => match !== null)
-  const relatedChannels = selectedChannel ? channels.filter((channel) => channel.id !== selectedChannel.id) : channels
-  const requiresPremiumAccess = event.isPremium && !isPremiumSubscriber
+  return (
+    <EventPageContent
+      key={slug}
+      event={event}
+      isPremiumSubscriber={isPremiumSubscriber}
+      openMatch={openMatch}
+      openChannel={openChannel}
+      navigate={navigate}
+    />
+  )
+}
+
+function EventPageContent({
+  event,
+  isPremiumSubscriber,
+  openMatch,
+  openChannel,
+  navigate,
+}: {
+  event: NonNullable<ReturnType<typeof useGetEventBySlugQuery>['data']>
+  isPremiumSubscriber: boolean
+  openMatch: (path: string, requirePremium: boolean, callback?: () => void) => void
+  openChannel: (path: string, requirePremium: boolean, callback?: () => void) => void
+  navigate: ReturnType<typeof useNavigate>
+}) {
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false)
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
+  const [isBannerVisible, setIsBannerVisible] = useState(true)
+  const [subscriptionReturnPath, setSubscriptionReturnPath] = useState<string | undefined>()
+
+  const eventDetail: EventDetail = event as EventDetail
+  const eventChannels: EventDetail['eventChannels'] = eventDetail?.eventChannels ?? []
+  const eventMatches: EventDetail['eventMatches'] = eventDetail?.eventMatches ?? []
+
+  const channels: Channel[] = eventChannels
+    .map((entry: EventDetail['eventChannels'][number]): Channel | null => getChannel(entry))
+    .filter((channel): channel is Channel => channel !== null)
+  const matches: Match[] = eventMatches
+    .map((entry: EventDetail['eventMatches'][number]): Match | null => getMatch(entry))
+    .filter((match): match is Match => match !== null)
+  const relatedChannels: Channel[] = selectedChannel ? channels.filter((channel: Channel) => channel.id !== selectedChannel.id) : channels
+  const requiresPremiumAccess = eventDetail.isPremium && !isPremiumSubscriber
 
   const handleChannelOpen = (channel: Channel) => {
     if (requiresPremiumAccess || channel.isPremium && !isPremiumSubscriber) {
@@ -113,9 +158,9 @@ export default function EventPage() {
 
       <section aria-labelledby="event-channels-heading">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 id="event-channels-heading" className="text-2xl font-semibold text-text-primary">{selectedChannel ? 'Related channels' : 'Channels'}</h2><p className="mt-1 text-sm text-text-muted">{selectedChannel ? 'Choose another channel assigned to this event.' : 'Select a channel to start watching.'}</p></div><span className="self-start rounded-full bg-surface-soft px-3 py-1 text-xs text-text-muted shadow-sm sm:self-auto">{relatedChannels.length} available</span></div>
-        {relatedChannels.length === 0 ? <Card className="premium-border bg-surface-soft/45 p-8 text-center text-sm text-text-muted shadow-sm">{selectedChannel ? 'No other channels are assigned to this event.' : 'No channels have been assigned to this event yet.'}</Card> : <div className="grid grid-cols-2 items-stretch gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">{relatedChannels.map((channel, index) => <motion.div key={channel.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.24) }} whileHover={{ y: -4 }} className="h-full"><Card className="premium-border group relative flex h-full min-h-36 flex-col items-center justify-center bg-surface-soft/55 p-2.5 text-center shadow-sm transition-colors hover:bg-surface-soft sm:min-h-44 sm:p-3"><button type="button" onClick={() => handleChannelOpen(channel)} className="flex w-full min-w-0 flex-col items-center justify-center gap-2"><motion.img whileHover={{ scale: 1.08, rotate: 2 }} src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className="h-14 w-14 rounded-full bg-surface-soft p-1 object-contain sm:h-20 sm:w-20" /><span className="line-clamp-2 w-full text-xs font-medium leading-tight text-text-primary sm:text-sm">{channel.name}</span>{(event.isPremium || channel.isPremium) && <Crown className="h-3.5 w-3.5 text-amber-400" aria-label="Premium channel" />}</button></Card></motion.div>)}</div>}
+        {relatedChannels.length === 0 ? <Card className="premium-border bg-surface-soft/45 p-8 text-center text-sm text-text-muted shadow-sm">{selectedChannel ? 'No other channels are assigned to this event.' : 'No channels have been assigned to this event yet.'}</Card> : <div className="grid grid-cols-2 items-stretch gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">{relatedChannels.map((channel: Channel, index: number) => <motion.div key={channel.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.24) }} whileHover={{ y: -4 }} className="h-full"><Card className="premium-border group relative flex h-full min-h-36 flex-col items-center justify-center bg-surface-soft/55 p-2.5 text-center shadow-sm transition-colors hover:bg-surface-soft sm:min-h-44 sm:p-3"><button type="button" onClick={() => handleChannelOpen(channel)} className="flex w-full min-w-0 flex-col items-center justify-center gap-2"><motion.img whileHover={{ scale: 1.08, rotate: 2 }} src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className="h-14 w-14 rounded-full bg-surface-soft p-1 object-contain sm:h-20 sm:w-20" /><span className="line-clamp-2 w-full text-xs font-medium leading-tight text-text-primary sm:text-sm">{channel.name}</span>{(event.isPremium || channel.isPremium) && <Crown className="h-3.5 w-3.5 text-amber-400" aria-label="Premium channel" />}</button></Card></motion.div>)}</div>}
       </section>
-      {matches.length > 0 && <section aria-labelledby="event-matches-heading"><div className="mb-4 flex items-end justify-between gap-3"><div><h2 id="event-matches-heading" className="text-2xl font-semibold text-text-primary">Matches</h2><p className="mt-1 text-sm text-text-muted">Matches assigned to this event.</p></div><span className="rounded-full bg-surface-soft px-3 py-1 text-xs text-text-muted shadow-sm">{matches.length}</span></div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{matches.map((match, index) => <motion.div key={match.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.24) }}><div className="premium-border rounded-3xl"><MatchCardDisplay match={match} onOpen={() => handleMatchOpen(match)} /></div></motion.div>)}</div></section>}
+      {matches.length > 0 && <section aria-labelledby="event-matches-heading"><div className="mb-4 flex items-end justify-between gap-3"><div><h2 id="event-matches-heading" className="text-2xl font-semibold text-text-primary">Matches</h2><p className="mt-1 text-sm text-text-muted">Matches assigned to this event.</p></div><span className="rounded-full bg-surface-soft px-3 py-1 text-xs text-text-muted shadow-sm">{matches.length}</span></div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{matches.map((match: Match, index: number) => <motion.div key={match.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.24) }}><div className="premium-border rounded-3xl"><MatchCardDisplay match={match} onOpen={() => handleMatchOpen(match)} /></div></motion.div>)}</div></section>}
       <SubscriptionModal isOpen={isSubscriptionModalOpen} returnPath={subscriptionReturnPath} onClose={() => setIsSubscriptionModalOpen(false)} />
     </motion.main>
   )

@@ -6,11 +6,10 @@ import { toast } from 'sonner';
 import { useUpdateProfileMutation } from '../../features/auth/auth.api.ts';
 import { useAppSelector } from '../../app/hooks';
 import { selectCurrentUser } from '../../features/auth/auth.slice';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../components/ui/Card.tsx';
+import { Card, CardContent, CardFooter, CardHeader } from '../../components/ui/Card.tsx';
 import { Label } from '../../components/ui/Label.tsx';
 import { Input } from '../../components/ui/Input.tsx';
 import { Button } from '../../components/ui/Button.tsx';
-import { Spinner } from '../../components/ui/Spinner.tsx';
 
 // 1. Define the Zod schema for form validation
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB

@@ -68,7 +68,7 @@ export function SubscriptionsPage() {
     if (!activeSubscription) return
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
-  }, [activeSubscription?.expiresAt])
+  }, [activeSubscription])
 
   useEffect(() => {
     if (!activeSubscription) return

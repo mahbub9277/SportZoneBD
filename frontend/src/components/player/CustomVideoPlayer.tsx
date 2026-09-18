@@ -1030,7 +1030,7 @@ export function CustomVideoPlayer({
         nativeVideo.textTracks.removeEventListener('removetrack', refreshTracks)
       }
     }
-  }, [applySubtitleLanguage, errorMessage, getVideoElement, isMuted, joinViewerPresence, onPlayerError, playbackRate, refreshNativeTracks, selectedSubtitleLanguage, setError, showQualityToast, sourceKey, subtitles, syncDuration, trackTelemetry, updateLiveWindow, volume])
+  }, [applySubtitleLanguage, errorMessage, isMuted, joinViewerPresence, onPlayerError, playbackRate, refreshNativeTracks, selectedSubtitleLanguage, setError, showQualityToast, sourceKey, subtitles, syncDuration, trackTelemetry, updateLiveWindow, volume])
   
   useEffect(() => { // Changed to use useEffect
     const tapTimeout = tapTimeoutRef

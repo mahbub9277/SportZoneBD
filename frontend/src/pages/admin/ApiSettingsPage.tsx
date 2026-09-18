@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -28,25 +28,14 @@ export default function ApiSettingsPage() {
   const { isLoading: isLoadingSettings } = settingsQuery
   const [upsertSetting, { isLoading: isSaving }] = useUpsertAdminSettingMutation()
   const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [isLoadingHealth, setIsLoadingHealth] = useState(true)
+  const [isLoadingHealth, setIsLoadingHealth] = useState(false)
   const [healthError, setHealthError] = useState(false)
-  const [form, setForm] = useState(defaultApiFields)
+  const [form, setForm] = useState<Record<keyof typeof defaultApiFields, string>>(defaultApiFields)
 
   const settingsMap = useMemo(() => new Map(settings.map((setting) => [setting.key, setting])), [settings])
+  const getFieldValue = (key: keyof typeof defaultApiFields) => form[key] ?? settingsMap.get(key)?.value ?? defaultApiFields[key]
 
-  useEffect(() => {
-    const nextForm = { ...defaultApiFields }
-
-    for (const setting of settings) {
-      if (setting.key in nextForm) {
-        nextForm[setting.key as keyof typeof defaultApiFields] = setting.value
-      }
-    }
-
-    setForm(nextForm)
-  }, [settings])
-
-  const loadHealth = useCallback(async () => {
+  const loadHealth = async () => {
     setIsLoadingHealth(true)
     setHealthError(false)
 
@@ -64,17 +53,14 @@ export default function ApiSettingsPage() {
     } finally {
       setIsLoadingHealth(false)
     }
-  }, [])
-
-  useEffect(() => {
-    void loadHealth()
-  }, [loadHealth])
+  }
 
   const handleSave = async (key: keyof typeof defaultApiFields) => {
     try {
+      const nextValue = getFieldValue(key)
       const updatedSettings = await upsertSetting({
         key,
-        value: form[key],
+        value: nextValue,
         type: 'string',
         description: 'API configuration setting',
       }).unwrap()
@@ -107,7 +93,7 @@ export default function ApiSettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoadingSettings ? <Skeleton className="h-24 w-full" /> : (
-            Object.entries(defaultApiFields).map(([key, value], index) => {
+            Object.entries(defaultApiFields).map(([key], index) => {
               const setting = settingsMap.get(key)
               return (
               <motion.div key={key} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + index * 0.05 }} className="rounded-lg border border-(--border) bg-linear-to-br from-(--surface-soft)/50 to-(--surface)/50 p-4">
@@ -122,7 +108,7 @@ export default function ApiSettingsPage() {
                 </div>
                 <Input
                   id={key}
-                  value={form[key as keyof typeof defaultApiFields] ?? value}
+                  value={getFieldValue(key as keyof typeof defaultApiFields)}
                   onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
