@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import type { ElementType } from 'react'
 import { useEffect, useState } from 'react'
 import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, ArrowDownLeft, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'

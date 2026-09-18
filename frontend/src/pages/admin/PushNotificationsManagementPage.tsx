@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
@@ -42,6 +42,11 @@ export default function PushNotificationsManagementPage() {
     resolver: zodResolver(templateSchema),
     defaultValues: { title: '', body: '', targetAudience: 'ALL', enabled: true, link: '' },
   })
+  const titleValue = useWatch({ control: form.control, name: 'title' })
+  const targetAudienceValue = useWatch({ control: form.control, name: 'targetAudience' })
+  const enabledValue = useWatch({ control: form.control, name: 'enabled' })
+  const linkValue = useWatch({ control: form.control, name: 'link' })
+  const bodyValue = useWatch({ control: form.control, name: 'body' })
 
   const onSubmit = (values: TemplateFormData) => {
     const request = editingTemplate
@@ -123,7 +128,7 @@ export default function PushNotificationsManagementPage() {
                 <FormItem><FormLabel>Title</FormLabel><FormControl><Input placeholder="Match starting soon" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="body" render={({ field }) => (
-                <FormItem><div className="flex items-center justify-between gap-3"><FormLabel>Message body</FormLabel><DescriptionGenerator entityType="PUSH_NOTIFICATION" title={form.watch('title')} currentDescription={field.value} context={{ targetAudience: form.watch('targetAudience'), enabled: form.watch('enabled'), link: form.watch('link') }} onGenerated={field.onChange} /></div><FormControl><Textarea rows={4} placeholder="Your favorite match is about to begin." {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem><div className="flex items-center justify-between gap-3"><FormLabel>Message body</FormLabel><DescriptionGenerator entityType="PUSH_NOTIFICATION" title={titleValue ?? ''} currentDescription={field.value} context={{ targetAudience: targetAudienceValue, enabled: enabledValue, link: linkValue }} onGenerated={field.onChange} /></div><FormControl><Textarea rows={4} placeholder="Your favorite match is about to begin." {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="targetAudience" render={({ field }) => (
                 <FormItem><FormLabel>Target audience</FormLabel><FormControl><select {...field} className="flex h-10 w-full rounded-xl border border-(--border) bg-(--surface-soft) px-3 text-sm text-(--text-primary)"><option value="ALL">All members</option><option value="PREMIUM">Premium members</option><option value="FREE">Free members</option></select></FormControl><FormMessage /></FormItem>
@@ -154,7 +159,7 @@ export default function PushNotificationsManagementPage() {
       </Card>
       <Card className="border border-(--border) bg-(--surface)/70 p-6 shadow-[0_20px_60px_var(--shadow)] sm:p-7">
         <CardHeader className="px-0 pt-0"><CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-accent" />Delivery preview</CardTitle><p className="text-sm text-(--text-muted)">Preview the notification as users will receive it.</p></CardHeader>
-        <CardContent className="px-0 pb-0"><div className="rounded-2xl border border-(--border) bg-(--background) p-4 shadow-lg"><div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-slate-950"><Bell className="h-5 w-5" /></div><div className="min-w-0"><p className="truncate font-semibold text-(--text-primary)">{form.watch('title') || 'Notification title'}</p><p className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-(--text-muted)">{form.watch('body') || 'Notification message preview will appear here.'}</p><p className="mt-3 text-xs text-(--text-muted)">Audience: {form.watch('targetAudience') === 'PREMIUM' ? 'Premium members' : form.watch('targetAudience') === 'FREE' ? 'Free members' : 'All members'}</p>{form.watch('link') && <p className="mt-2 flex items-center gap-1 text-xs text-accent"><ExternalLink className="h-3 w-3" />Click opens linked content</p>}</div></div></div></CardContent>
+        <CardContent className="px-0 pb-0"><div className="rounded-2xl border border-(--border) bg-(--background) p-4 shadow-lg"><div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-slate-950"><Bell className="h-5 w-5" /></div><div className="min-w-0"><p className="truncate font-semibold text-(--text-primary)">{titleValue || 'Notification title'}</p><p className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-(--text-muted)">{bodyValue || 'Notification message preview will appear here.'}</p><p className="mt-3 text-xs text-(--text-muted)">Audience: {targetAudienceValue === 'PREMIUM' ? 'Premium members' : targetAudienceValue === 'FREE' ? 'Free members' : 'All members'}</p>{linkValue && <p className="mt-2 flex items-center gap-1 text-xs text-accent"><ExternalLink className="h-3 w-3" />Click opens linked content</p>}</div></div></div></CardContent>
       </Card>
       </motion.div>
 
@@ -201,7 +206,7 @@ export default function PushNotificationsManagementPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action will permanently delete the template "{deletingTemplate?.title}".</AlertDialogDescription>
+            <AlertDialogDescription>This action will permanently delete the template &quot;{deletingTemplate?.title}&quot;.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDeleteConfirm} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>

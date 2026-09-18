@@ -16,7 +16,7 @@ import {
 } from '../../features/email-notifications/email-notifications.api'
 import { toast } from 'sonner'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../components/ui/Form'
@@ -49,10 +49,10 @@ export default function EmailNotificationsManagementPage() {
 
   const isEditing = selectedTemplateId !== null
   const isMutating = isCreating || isUpdating
-  const subjectValue = form.watch('subject')
-  const targetAudienceValue = form.watch('targetAudience')
-  const enabledValue = form.watch('enabled')
-  const linkValue = form.watch('link')
+  const subjectValue = useWatch({ control: form.control, name: 'subject' })
+  const targetAudienceValue = useWatch({ control: form.control, name: 'targetAudience' })
+  const enabledValue = useWatch({ control: form.control, name: 'enabled' })
+  const linkValue = useWatch({ control: form.control, name: 'link' })
 
   const onSubmit = async (data: EmailTemplateFormData) => {
     const promise = isEditing
@@ -209,7 +209,7 @@ export default function EmailNotificationsManagementPage() {
       </Card>
       <Card className="border border-(--border) bg-(--surface)/70 p-6 shadow-[0_20px_60px_var(--shadow)]">
         <CardHeader className="px-0 pt-0"><CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-accent" />Recipient preview</CardTitle><p className="text-sm text-(--text-muted)">Review the message before it is delivered.</p></CardHeader>
-        <CardContent className="px-0 pb-0"><div className="overflow-hidden rounded-2xl border border-(--border) bg-(--background) shadow-lg"><div className="border-b border-(--border) bg-(--surface-soft) p-4"><p className="truncate text-sm font-semibold text-(--text-primary)">{form.watch('subject') || 'Email subject preview'}</p><p className="mt-1 text-xs text-(--text-muted)">SportZoneBD notifications</p></div><p className="min-h-48 whitespace-pre-wrap wrap-break-word p-4 text-sm leading-6 text-(--text-muted)">{form.watch('body') || 'Email body preview will appear here.'}</p>{form.watch('link') && <div className="p-4 pt-0"><span className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-slate-950"><ExternalLink className="h-3.5 w-3.5" />Open linked content</span></div>}</div></CardContent>
+        <CardContent className="px-0 pb-0"><div className="overflow-hidden rounded-2xl border border-(--border) bg-(--background) shadow-lg"><div className="border-b border-(--border) bg-(--surface-soft) p-4"><p className="truncate text-sm font-semibold text-(--text-primary)">{subjectValue || 'Email subject preview'}</p><p className="mt-1 text-xs text-(--text-muted)">SportZoneBD notifications</p></div><p className="min-h-48 whitespace-pre-wrap wrap-break-word p-4 text-sm leading-6 text-(--text-muted)">{useWatch({ control: form.control, name: 'body' }) || 'Email body preview will appear here.'}</p>{linkValue && <div className="p-4 pt-0"><span className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-slate-950"><ExternalLink className="h-3.5 w-3.5" />Open linked content</span></div>}</div></CardContent>
       </Card>
       </motion.div>
 
@@ -255,7 +255,7 @@ export default function EmailNotificationsManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action will permanently delete the email template '{deletingTemplate?.subject}'. This cannot be undone.
+              This action will permanently delete the email template &quot;{deletingTemplate?.subject}&quot;. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

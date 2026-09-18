@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
@@ -29,6 +29,7 @@ export default function RolesManagementPage() {
     resolver: zodResolver(roleSchema),
     defaultValues: { name: '', description: '' },
   })
+  const roleNameValue = useWatch({ control: form.control, name: 'name' })
 
   const onSubmit = (values: RoleFormData) => {
     toast.promise(createRole(values).unwrap(), {
@@ -61,7 +62,7 @@ export default function RolesManagementPage() {
               <FormItem><FormLabel>Role name</FormLabel><FormControl><Input placeholder="editor" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
             <FormField control={form.control} name="description" render={({ field }) => (
-              <FormItem className="md:col-span-2"><div className="flex items-center justify-between gap-3"><FormLabel>Description</FormLabel><DescriptionGenerator entityType="ROLE" title={form.watch('name')} currentDescription={field.value ?? ''} onGenerated={field.onChange} /></div><FormControl><Input placeholder="Can review content and manage media" {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem className="md:col-span-2"><div className="flex items-center justify-between gap-3"><FormLabel>Description</FormLabel><DescriptionGenerator entityType="ROLE" title={roleNameValue ?? ''} currentDescription={field.value ?? ''} onGenerated={field.onChange} /></div><FormControl><Input placeholder="Can review content and manage media" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
             <div className="md:col-span-2">
               <Button type="submit" isLoading={isCreating}>Create role</Button>
