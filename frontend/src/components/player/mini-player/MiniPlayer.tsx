@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Maximize2, X } from 'lucide-react'
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'

@@ -66,23 +66,15 @@ export const buildCloudinaryUrl = (publicId?: string | null, { resourceType = 'i
 
     if (cloudinaryUrl.hostname.includes('cloudinary.com')) {
       const path = cloudinaryUrl.pathname;
-      const match = path.match(/^(\/[^/]+\/)\b(?:image|video|raw|audio|auto)\b\/upload\/(.*)$/);
+      const transformedPath = path.replace(
+        /\/(?:image|video|raw|audio|auto)\/upload\//,
+        `/${resourceType}/upload/${transformationString ? `${transformationString}/` : ''}`,
+      );
 
-      if (match) {
-        const prefix = match[1];
-        const resourceKind = match[0].includes('/raw/upload/') ? (resourceType === 'video' ? 'video' : 'image') : match[0].match(/\/(image|video|raw|audio|auto)\/upload\//)?.[1] ?? resourceType;
-        const targetPath = path.replace(
-          new RegExp(`/${resourceKind}/upload/`),
-          `/${resourceKind}/upload/${transformationString ? `${transformationString}/` : ''}`,
-        );
+      const newUrl = new URL(`https://res.cloudinary.com${transformedPath}`);
+      newUrl.search = cloudinaryUrl.search;
 
-        const newUrl = new URL(`https://res.cloudinary.com${targetPath}`);
-        newUrl.search = cloudinaryUrl.search;
-
-        return newUrl.toString();
-      }
-
-      return normalizedPublicId;
+      return newUrl.toString();
     }
 
     return normalizedPublicId;

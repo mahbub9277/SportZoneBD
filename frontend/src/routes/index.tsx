@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createBrowserRouter, Navigate, Outlet, useNavigate, type ActionFunctionArgs, redirect } from 'react-router-dom'
-import { lazy, useEffect } from 'react'
+import { lazy, useEffect, type ComponentType } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/app/hooks'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
@@ -14,10 +14,17 @@ import { authApi } from '@/features/auth/auth.api.ts'
 import { setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
 import { useGetMeQuery } from '@/features/auth/auth.api'
 // Lazy-loaded Pages
-const lazyRoute = <T = any>(factory: () => Promise<any>, exportName: string) =>
-  lazy(() =>
-    factory().then((m) => ({ default: m?.default ?? m?.[exportName] }))
-  )
+const lazyRoute = (factory: () => Promise<Record<string, unknown>>, exportName: string) =>
+  lazy(async () => {
+    const module = (await factory()) as Record<string, unknown>
+    const component = (module.default ?? module[exportName]) as ComponentType<Record<string, unknown>> | undefined
+
+    if (!component) {
+      throw new Error(`Route export "${exportName}" was not found.`)
+    }
+
+    return { default: component }
+  })
 
 const HomePage = lazyRoute(() => import('@/features/home/HomePage'), 'HomePage')
 const LoginPage = lazyRoute(() => import('@/pages/auth/LoginPage'), 'LoginPage')
@@ -147,9 +154,9 @@ async function adminLoginAction({ request }: ActionFunctionArgs) {
     }
 
     // If login fails, return the error message to be displayed on the page.
-    const errorMessage = (result.error as any)?.data?.message || 'Invalid admin credentials.'
+    const errorMessage = (result.error as { data?: { message?: string } } | undefined)?.data?.message || 'Invalid admin credentials.'
     return { error: errorMessage }
-  } catch (err) {
+  } catch {
     return { error: 'An unexpected error occurred.' }
   } finally {
     store.dispatch(setAuthInitializing(false))

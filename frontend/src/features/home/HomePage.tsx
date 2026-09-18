@@ -24,7 +24,7 @@ export function HomePage() {
   })
   const { data: banners = [] } = useGetActiveBannersQuery()
   const [activeBannerIndex, setActiveBannerIndex] = useState(0)
-  const matches = matchesData?.items ?? []
+  const matches = useMemo(() => matchesData?.items ?? [], [matchesData?.items])
 
   const { liveMatches, upcomingMatches, allMatches } = useMemo(() => {
     const sortedMatches = sortMatches(matches)
@@ -134,7 +134,7 @@ const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
 
 const StatsSection = ({ stats }: { stats: { label: string; value: number; icon: LucideIcon }[] }) => (
   <motion.section initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08, delayChildren: 0.12 } } }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Match summary">
-    {stats.map((item, index) => (
+    {stats.map((item) => (
       <motion.div key={item.label} variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.42, ease: [0.22, 1, 0.36, 1] } } }} whileHover={{ y: -3 }} className="min-w-0">
         <Card className="group premium-card h-full">
           <CardContent className="flex items-center gap-4 p-4 sm:p-5">

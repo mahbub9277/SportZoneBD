@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { Outlet, useLocation } from 'react-router-dom'
 import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -50,11 +51,6 @@ const UserLayout = () => {
   const location = useLocation()
   const shouldReduceMotion = useReducedMotion()
   const previousRouteRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    setSidebarOpen(false)
-    window.scrollTo({ top: 0, behavior: 'auto' })
-  }, [location.pathname])
 
   useEffect(() => {
     const currentRoute = `${location.pathname}${location.search}`

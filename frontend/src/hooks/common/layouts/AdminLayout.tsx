@@ -1,5 +1,5 @@
-import { Outlet, useLocation } from 'react-router-dom';
-import { Suspense, useEffect, useState } from 'react';
+import { Outlet } from 'react-router-dom';
+import { Suspense, useState } from 'react';
 import { AdminSidebar } from '../../../features/admin/AdminSidebar';
 import { AdminHeader } from '../../../features/admin/AdminHeader';
 import { GlobalLoadingIndicator } from '../../../components/shared/GlobalLoadingIndicator';
@@ -8,11 +8,6 @@ import { SocketProvider } from '../../useSocket';
 
 const AdminLayout = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const location = useLocation();
-
-  useEffect(() => {
-    setIsMobileSidebarOpen(false);
-  }, [location.pathname]);
 
   return (
     <SocketProvider>

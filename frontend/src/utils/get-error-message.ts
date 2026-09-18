@@ -5,7 +5,7 @@ interface ApiError {
   error?: unknown
 }
 
-function isObject(value: unknown): value is Record<string, any> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -33,8 +33,9 @@ export function getErrorMessage(error: unknown): string {
 
   // 3. Handle cases where the error message is nested under an 'error' property
   if (isObject(error) && isObject(error.error)) {
-    if (typeof error.error.message === 'string' && error.error.message.length > 0) {
-      return error.error.message
+    const nestedError = error.error as { message?: string }
+    if (typeof nestedError.message === 'string' && nestedError.message.length > 0) {
+      return nestedError.message
     }
   }
 

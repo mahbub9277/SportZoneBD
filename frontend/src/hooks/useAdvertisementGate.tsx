@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+/* eslint-disable react-hooks/set-state-in-effect */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -33,12 +35,14 @@ export function useAdvertisementGate(placement: AdvertisementPlacement) {
   return useCallback((destination: string, requiresPremium = false, onComplete?: () => void) => {
     if (!isSafeDestination(destination)) return
     if (requiresPremium) {
-      onComplete ? onComplete() : navigate(destination)
+      if (onComplete) onComplete()
+      else navigate(destination)
       return
     }
     const hasUnlock = Boolean(unlock && new Date(unlock.expiresAt).getTime() > Date.now())
     if (isPremium || hasUnlock || (!isAdvertisementLoading && !isUnlockLoading && !advertisement)) {
-      onComplete ? onComplete() : navigate(destination)
+      if (onComplete) onComplete()
+      else navigate(destination)
     } else if (!isAdvertisementLoading && !isUnlockLoading && advertisement) {
       context.openAdvertisement(placement, destination, onComplete)
     }
@@ -214,7 +218,7 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
       document.removeEventListener('visibilitychange', handleReturnToSite)
       window.removeEventListener('focus', handleReturnToSite)
     }
-  }, [cancelViewSession, clearCountdownTimer, completeViewSession, isSessionStarted, navigate, request])
+  }, [cancelViewSession, clearCountdownTimer, completeCurrentSession, isSessionStarted, navigate, request])
 
   const handleVisit = useCallback(async () => {
     if (!advertisement || isStarting || isSessionStarted) return

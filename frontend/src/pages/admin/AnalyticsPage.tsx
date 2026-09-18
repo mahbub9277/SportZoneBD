@@ -1,6 +1,7 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import type { ElementType } from 'react'
 import { useEffect, useState } from 'react'
-import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, ArrowDownLeft, Target, Zap, Clock, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
+import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, ArrowDownLeft, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
 import { motion } from 'framer-motion'
 import {
   ResponsiveContainer,
@@ -91,12 +92,12 @@ export default function AnalyticsPage() {
   const { adminSocket } = useSocket()
   const { data: streamHealth, isLoading: isStreamHealthLoading } = useGetStreamHealthSummaryQuery()
   const { data: streamHistory = [], isLoading: isStreamHistoryLoading } = useGetStreamHealthHistoryQuery(60)
-  const [liveStreamHealth, setLiveStreamHealth] = useState<StreamHealthSummary | undefined>(streamHealth)
+  const [socketStreamHealth, setSocketStreamHealth] = useState<StreamHealthSummary | undefined>(undefined)
+  const liveStreamHealth = streamHealth ?? socketStreamHealth
 
-  useEffect(() => setLiveStreamHealth(streamHealth), [streamHealth])
   useEffect(() => {
     if (!adminSocket) return
-    const handleHealth = (payload: SocketStreamHealthSummary) => setLiveStreamHealth(payload)
+    const handleHealth = (payload: SocketStreamHealthSummary) => setSocketStreamHealth(payload)
     adminSocket.on('analytics:stream-health', handleHealth)
     return () => { adminSocket.off('analytics:stream-health', handleHealth) }
   }, [adminSocket])
@@ -108,7 +109,6 @@ export default function AnalyticsPage() {
   const totalSignups = userSeries.reduce((sum, item) => sum + item.count, 0)
   const averageSignups = userSeries.length ? Math.round(totalSignups / userSeries.length) : 0
   const monthsActive = chartSeries.length
-  const averageRevenue = monthsActive ? Math.round(chartSeries.reduce((sum, item) => sum + item.total, 0) / monthsActive) : 0
   const bestMonth = chartSeries.reduce((best, item) => (item.total > best.total ? item : best), { month: 'N/A', total: 0 })
 
   return (

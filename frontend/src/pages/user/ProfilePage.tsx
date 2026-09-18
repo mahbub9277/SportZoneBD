@@ -5,13 +5,12 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../comp
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Button } from '../../components/ui/Button'
 import { Edit, ShieldCheck, Sparkles, CalendarClock, BellRing, ArrowRight, CreditCard, Crown } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '../../components/ui/Dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '../../components/ui/Dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { useGetMeQuery, useUpdateProfileMutation } from '../../features/auth/auth.api'
 import { Link } from 'react-router-dom' 
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { EditProfileForm } from './components/EditProfileForm.tsx'
-import type { User } from '../../features/auth/auth.types'
 import { useAppSelector } from '../../app/hooks'
 import { selectCurrentUser } from '../../features/auth/authSlice'
 import { selectRecentChannelIds } from '../../features/recent/recent.slice'
@@ -68,7 +67,12 @@ export function ProfilePage() {
           setIsEditModalOpen(false) // Close modal on success
           return 'Profile updated successfully!'
         },
-        error: (err: any) => err.data?.message || 'Failed to update profile.'
+        error: (err: unknown) => {
+          const message = typeof err === 'object' && err !== null && 'data' in err && typeof (err as { data?: { message?: string } }).data?.message === 'string'
+            ? (err as { data?: { message?: string } }).data?.message
+            : 'Failed to update profile.'
+          return message
+        }
       }
     );
     return mutationPromise
@@ -172,7 +176,7 @@ export function ProfilePage() {
                 <strong>{subscriptionEndDate}</strong>.
               </p>
             ) : user.subscription?.status === 'EXPIRED' ? (
-              <p className="mt-2 text-sm text-text-muted">Status: <strong>EXPIRED</strong>. Your previous <strong>{user.subscription.plan.name}</strong> plan has ended.</p>
+              <p className="mt-2 text-sm text-text-muted">Status: EXPIRED. Your previous <strong>{user.subscription.plan.name}</strong> plan has ended.</p>
             ) : (
               <p className="mt-2 text-sm text-text-muted">You are on the free plan. Upgrade to unlock premium content.</p>
             )}

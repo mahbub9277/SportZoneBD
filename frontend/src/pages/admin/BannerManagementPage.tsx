@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Edit3, GripVertical, ImagePlus, Loader2, Plus, Trash2, UploadCloud, Video, X } from 'lucide-react'

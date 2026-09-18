@@ -75,12 +75,12 @@ export default defineConfig(({ mode }) => {
     // Terser types can be strict with the shape of options depending on @types/terser.
     // Cast to `any` to avoid type incompatibilities while keeping the intended
     // behavior (dropping console/debugger in production bundles).
-    terserOptions: ({
+    terserOptions: {
       compress: {
         drop_console: true, // Remove console.log statements from production build
         drop_debugger: true,
       },
-    } as any),
+    },
     rollupOptions: {
       onwarn(warning, warn) {
         if (warning.code === 'COMMONJS_VARIABLE_IN_ESM') {

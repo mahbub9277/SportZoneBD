@@ -49,6 +49,10 @@ export default function EmailNotificationsManagementPage() {
 
   const isEditing = selectedTemplateId !== null
   const isMutating = isCreating || isUpdating
+  const subjectValue = form.watch('subject')
+  const targetAudienceValue = form.watch('targetAudience')
+  const enabledValue = form.watch('enabled')
+  const linkValue = form.watch('link')
 
   const onSubmit = async (data: EmailTemplateFormData) => {
     const promise = isEditing
@@ -158,7 +162,7 @@ export default function EmailNotificationsManagementPage() {
                 name="body"
                 render={({ field }) => (
                   <FormItem>
-                    <div className="flex items-center justify-between gap-3"><FormLabel>Body</FormLabel><DescriptionGenerator entityType="EMAIL_NOTIFICATION" title={form.watch('subject')} currentDescription={field.value} context={{ targetAudience: form.watch('targetAudience'), enabled: form.watch('enabled'), link: form.watch('link') }} onGenerated={field.onChange} /></div>
+                    <div className="flex items-center justify-between gap-3"><FormLabel>Body</FormLabel><DescriptionGenerator entityType="EMAIL_NOTIFICATION" title={subjectValue} currentDescription={field.value} context={{ targetAudience: targetAudienceValue, enabled: enabledValue, link: linkValue }} onGenerated={field.onChange} /></div>
                     <FormControl>
                       <Textarea rows={8} placeholder="Check out the latest match highlights..." {...field} />
                     </FormControl>
@@ -251,7 +255,7 @@ export default function EmailNotificationsManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action will permanently delete the email template "{deletingTemplate?.subject}". This cannot be undone.
+              This action will permanently delete the email template '{deletingTemplate?.subject}'. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

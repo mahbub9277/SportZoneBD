@@ -1,6 +1,6 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import type { User } from '../auth/auth.types'
-import type { ApiResponse, PaginatedResult } from '../../app/api/types'
+import type { ApiResponse } from '../../app/api/types'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 
 interface DashboardStats {

@@ -1,7 +1,7 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import type { Channel, ChannelCategory } from '../../shared/types'
 import { unwrapApiResponse } from '../../app/api/api.utils'
-import type { ApiResponse, PaginatedResult } from '../../app/api/types'
+import type { ApiResponse } from '../../app/api/types'
 
 export const channelsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({

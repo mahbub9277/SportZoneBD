@@ -289,10 +289,10 @@ export function useAutomationEvents() {
   const { adminSocket } = useSocket()
 
   const on = useCallback(<E extends keyof ServerToClientEvents>(event: E, callback: ServerToClientEvents[E]) => {
-    const listener = callback as (...args: any[]) => void
-    adminSocket?.on(event as any, listener as any)
+    const listener = callback as (...args: never[]) => void
+    adminSocket?.on(event, listener as never)
     return () => {
-      adminSocket?.off(event as any, listener as any)
+      adminSocket?.off(event, listener as never)
     }
   }, [adminSocket])
 
