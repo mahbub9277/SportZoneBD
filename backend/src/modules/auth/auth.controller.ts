@@ -25,8 +25,8 @@ const isSecureCookie = process.env.NODE_ENV === 'production' || process.env.COOK
 const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
   const sharedCookieOptions = {
     httpOnly: true,
-    secure: isSecureCookie,
-    sameSite: (isSecureCookie ? 'none' : 'lax') as 'lax' | 'none',
+    secure: true,
+    sameSite: 'none' as const,
   }
 
   res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
