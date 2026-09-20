@@ -1,5 +1,6 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import type { User } from '../auth/auth.types'
+import type { TeamReference } from '../matches/matches.types'
 import type { ApiResponse } from '../../app/api/types'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 
@@ -40,6 +41,10 @@ export interface AdvertisementAnalytics {
   guestEvents: number
 }
 
+export interface TeamSearchResult extends Omit<TeamReference, 'id'> {
+  id: string | null
+}
+
 export interface SiteSetting {
   id: string
   key: string
@@ -55,6 +60,10 @@ export interface SiteSetting {
  */
 export const adminApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
+    searchTeams: builder.query<TeamSearchResult[], string>({
+      query: (query) => ({ url: '/teams/search', params: { q: query } }),
+      transformResponse: (response: ApiResponse<TeamSearchResult[]>) => unwrapApiResponse(response),
+    }),
     getDashboardStats: builder.query<DashboardStats, void>({
       query: () => '/admin/dashboard/stats',
       providesTags: ['AdminStats'],
@@ -106,6 +115,7 @@ export const adminApi = emptyApi.injectEndpoints({
 })
 
 export const {
+  useLazySearchTeamsQuery,
   useGetDashboardStatsQuery,
   useGetRecentUsersQuery,
   useGetChartDataQuery,

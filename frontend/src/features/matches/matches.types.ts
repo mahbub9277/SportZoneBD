@@ -94,9 +94,21 @@ export interface Match {
   awayTeamName?: string | null;
   homeTeamLogo?: string | null;
   awayTeamLogo?: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
+  homeTeam?: TeamReference | null;
+  awayTeam?: TeamReference | null;
   competition?: { id: string; name: string; logo?: string | null } | null;
   premium: boolean;
   streams: Stream[];
   highlights: Highlight[];
   [key: string]: unknown; // Keep for flexibility with other potential properties
+}
+
+export interface TeamReference {
+  id: string;
+  name: string;
+  normalizedName?: string;
+  logoUrl?: string | null;
+  logoPublicId?: string | null;
 }

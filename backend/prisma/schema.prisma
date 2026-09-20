@@ -294,6 +294,8 @@ model Match {
   awayTeamName   String?     @db.VarChar(255)
   homeTeamLogo   String?
   awayTeamLogo   String?
+  homeTeamId     String?     @db.Uuid
+  awayTeamId     String?     @db.Uuid
   premium        Boolean     @default(false)
   stadium        String?     @db.VarChar(255)
   createdAt      DateTime    @default(now())
@@ -303,6 +305,8 @@ model Match {
   highlights   Highlight[]
   streams      Stream[]
   eventMatches EventMatch[]
+  homeTeam     Team?        @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: SetNull)
+  awayTeam     Team?        @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([sport])
@@ -311,6 +315,23 @@ model Match {
   @@index([status, kickoffAt]) // Composite index for status-filtered date sorting
   @@index([status, finishedAt])
   @@index([status, expectedEndTime])
+}
+
+model Team {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  normalizedName String   @unique
+  logoUrl        String?
+  logoPublicId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  homeMatches Match[] @relation("HomeTeam")
+  awayMatches Match[] @relation("AwayTeam")
+
+  @@index([name])
+  @@index([deletedAt])
 }
 
 model Stream {

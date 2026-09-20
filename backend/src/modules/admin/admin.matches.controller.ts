@@ -11,6 +11,7 @@ import { notifyMatchStarted } from '../../services/notification.service.js'
 import { cleanupMatch } from '../../services/match-cleanup.service.js'
 import { writeAuditLog } from '../../core/audit.js'
 import { AppError } from '../../core/errors.js'
+import { resolveTeam } from '../teams/team.service.js'
 
 export const getLiveMatches = asyncHandler(async (req: Request, res: Response) => {
   const paginatedQuery = {
@@ -69,13 +70,15 @@ const normalizeStreamPayload = async (stream: any, channelsMap?: Map<string, { u
 
 export const createMatch = asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { streams: streamsJSON, ...matchData } = req.body as any
+    const { streams: streamsJSON, homeTeamId, awayTeamId, ...matchData } = req.body as any
     if (matchData.expectedEndTime === '') matchData.expectedEndTime = null
     if (matchData.expectedEndTime && new Date(matchData.expectedEndTime) < new Date(matchData.kickoffAt)) {
       return res.status(400).json(errorResponse('Expected end time must be after the kickoff time.'))
     }
     const files = (req as any).files
     const uploadedTeamLogoUrls = await handleMatchFileUploads(files)
+    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: uploadedTeamLogoUrls.homeTeamLogo ?? matchData.homeTeamLogo ?? null })
+    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: uploadedTeamLogoUrls.awayTeamLogo ?? matchData.awayTeamLogo ?? null })
     
     let streamsToCreate: any[] = []
     let channelsMap = new Map<string, { url: string }>()
@@ -117,9 +120,13 @@ export const createMatch = asyncHandler(async (req: Request, res: Response) => {
       data: {
         ...matchData,
         ...uploadedTeamLogoUrls,
+        homeTeamId: homeTeam?.id ?? null,
+        awayTeamId: awayTeam?.id ?? null,
+        ...(homeTeam?.logoUrl ? { homeTeamLogo: homeTeam.logoUrl } : {}),
+        ...(awayTeam?.logoUrl ? { awayTeamLogo: awayTeam.logoUrl } : {}),
         streams: streamsToCreate.length > 0 ? { create: streamsToCreate } : undefined,
       },
-      include: { streams: { where: { deletedAt: null } } }
+      include: { streams: { where: { deletedAt: null } }, homeTeam: true, awayTeam: true }
     })
 
     await writeAuditLog('Match created', {
@@ -157,7 +164,7 @@ export const createMatch = asyncHandler(async (req: Request, res: Response) => {
 export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { streams: streamsJSON, ...matchData } = req.body as any
+    const { streams: streamsJSON, homeTeamId, awayTeamId, ...matchData } = req.body as any
     const existingMatch = await prisma.match.findUnique({
       where: { id },
       select: { status: true, title: true, kickoffAt: true, startTime: true },
@@ -168,6 +175,8 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
     }
 
     const uploadedTeamLogoUrls = await handleMatchFileUploads((req as any).files)
+    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: uploadedTeamLogoUrls.homeTeamLogo ?? matchData.homeTeamLogo ?? null })
+    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: uploadedTeamLogoUrls.awayTeamLogo ?? matchData.awayTeamLogo ?? null })
     if (matchData.expectedEndTime === '') {
       matchData.expectedEndTime = null
     } else if (matchData.expectedEndTime !== undefined && matchData.expectedEndTime !== null) {
@@ -218,7 +227,14 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
     const updatedMatch = await prisma.$transaction(async (tx) => {
       const updated = await tx.match.update({
         where: { id },
-        data: { ...matchData, ...uploadedTeamLogoUrls },
+        data: {
+          ...matchData,
+          ...uploadedTeamLogoUrls,
+          homeTeamId: homeTeam?.id ?? null,
+          awayTeamId: awayTeam?.id ?? null,
+          ...(homeTeam?.logoUrl ? { homeTeamLogo: homeTeam.logoUrl } : {}),
+          ...(awayTeam?.logoUrl ? { awayTeamLogo: awayTeam.logoUrl } : {}),
+        },
       })
 
       const retainedStreamIds = streamsToUpdate
@@ -254,7 +270,7 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
 
       return tx.match.findUnique({
         where: { id: updated.id },
-        include: { streams: { where: { deletedAt: null } } },
+        include: { streams: { where: { deletedAt: null } }, homeTeam: true, awayTeam: true },
       })
     })
     

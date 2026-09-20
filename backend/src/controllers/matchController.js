@@ -65,6 +65,8 @@ export const getAllMatches = asyncHandler(async (req, res) => {
           },
         },
       },
+      homeTeam: true,
+      awayTeam: true,
     },
   });
   res.status(200).json(successResponse({ items, meta }, 'Matches retrieved successfully'));
@@ -93,6 +95,8 @@ export const getMatchById = asyncHandler(async (req, res) => {
           },
         },
       },
+      homeTeam: true,
+      awayTeam: true,
       highlights: {
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },

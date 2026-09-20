@@ -23,6 +23,7 @@ import automationRouter from '../modules/automation/automation.routes.js'
 import { eventsRouter } from '../modules/events/event.routes.js'
 import { publicBannersRouter } from '../modules/banners/banner.routes.js'
 import { aiRouter } from '../modules/ai/description.routes.js'
+import { teamsRouter } from '../modules/teams/team.routes.js'
 import { paymentLimiter } from '../middleware/rateLimiter.js'
 const apiRouter: ExpressRouter = Router()
 
@@ -58,6 +59,7 @@ apiRouter.use('/highlights', (req, res, next) => (req.method === 'GET' || req.me
 apiRouter.use('/notifications', (req, res, next) => (req.method === 'GET' || req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), notificationsRouter)
 apiRouter.use('/reports', reportsRouter)
 apiRouter.use('/ai', aiRouter)
+apiRouter.use('/teams', (req, res, next) => authenticate(req, res, next), teamsRouter)
 // Proxy endpoint for fetching external manifests/segments (used by player when necessary)
 apiRouter.use('/proxy', proxyRouter)
 apiRouter.use('/stream', streamProxyRouter)

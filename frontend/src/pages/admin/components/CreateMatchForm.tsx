@@ -9,16 +9,21 @@ import { ImagePlus, Loader2, PlusCircle, MinusCircle, X, ChevronDown, Sparkles }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/Select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/Popover'
 import { useGetAdminChannelsQuery } from '../../../features/admin/channels.api'
+import { useLazySearchTeamsQuery, type TeamSearchResult } from '../../../features/admin/admin.api'
 import type { MediaAsset } from '../../../features/events/events.api'
 import { MediaLibraryModal } from './MediaLibraryModal'
 import { useParseMatchMutation, type ParsedMatchDetails } from '../../../features/ai/ai.api'
 import { formatMatchDateTimeInput, parseMatchDateTime } from '../../../utils/matchDateTime'
+import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { useDebounce } from '../../../hooks/useDebounce'
 
 // This type is now comprehensive, matching MatchManagementPage.tsx's schema
 export type CreateMatchFormValues = {
   title: string
   homeTeamName?: string | null
   awayTeamName?: string | null
+  homeTeamId?: string | null
+  awayTeamId?: string | null
   homeTeamLogo?: File | string | null
   awayTeamLogo?: File | string | null
   kickoffDate: string
@@ -54,7 +59,7 @@ const inputClass = 'min-h-11 border-(--border) bg-(--surface)/75 shadow-inner sh
 function useLogoPreview(value: File | string | null | undefined) {
   const preview = useMemo(() => {
     if (value instanceof File) return URL.createObjectURL(value)
-    return typeof value === 'string' && value ? value : null
+    return typeof value === 'string' && value ? buildCloudinaryUrl(value) : null
   }, [value])
 
   useEffect(() => {
@@ -62,6 +67,47 @@ function useLogoPreview(value: File | string | null | undefined) {
   }, [preview, value])
 
   return preview
+}
+
+function TeamNameField({ form, nameField, idField, logoField, label, placeholder, disabled }: { form: UseFormReturn<CreateMatchFormValues>; nameField: 'homeTeamName' | 'awayTeamName'; idField: 'homeTeamId' | 'awayTeamId'; logoField: 'homeTeamLogo' | 'awayTeamLogo'; label: string; placeholder: string; disabled: boolean }) {
+  const [searchTeams, { data: results = [], isFetching }] = useLazySearchTeamsQuery()
+  const [isOpen, setIsOpen] = useState(false)
+  const name = form.watch(nameField) ?? ''
+  const selectedId = form.watch(idField) ?? ''
+  const debouncedName = useDebounce(name, 300)
+
+  useEffect(() => {
+    if (debouncedName.trim().length < 2 || selectedId) return
+    void searchTeams(debouncedName.trim())
+  }, [debouncedName, searchTeams, selectedId])
+
+  const selectTeam = (team: TeamSearchResult) => {
+    form.setValue(nameField, team.name, { shouldDirty: true, shouldValidate: true })
+    form.setValue(idField, team.id, { shouldDirty: true, shouldValidate: true })
+    form.setValue(logoField, team.logoUrl ?? '', { shouldDirty: true, shouldValidate: true })
+    setIsOpen(false)
+  }
+
+  return (
+    <FormField control={form.control} name={nameField} render={({ field }) => (
+      <FormItem className={flatFormItemClass}>
+        <FormLabel>{label}</FormLabel>
+        <div className="relative">
+          <FormControl><Input placeholder={placeholder} className="min-h-11" {...field} value={field.value ?? ''} disabled={disabled} onFocus={() => setIsOpen(true)} onChange={(event) => { field.onChange(event); form.setValue(idField, null); form.setValue(logoField, null); setIsOpen(true) }} /></FormControl>
+          {isOpen && name.trim().length >= 2 && !selectedId && <div className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-xl">
+            {isFetching && <p className="px-3 py-2 text-xs text-text-muted">Searching teams...</p>}
+            {!isFetching && results.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">No existing team found. Upload a new logo below.</p>}
+            {!isFetching && results.map((team) => <button key={`${team.id ?? team.normalizedName}`} type="button" className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-surface-soft" onMouseDown={(event) => event.preventDefault()} onClick={() => selectTeam(team)}>
+              {team.logoUrl ? <img src={buildCloudinaryUrl(team.logoUrl, { width: 64, height: 64, crop: 'fit', quality: 'auto', format: 'auto' })} alt="" className="h-8 w-8 rounded-md object-contain" /> : <span className="grid h-8 w-8 place-items-center rounded-md bg-surface-soft text-xs">{team.name.slice(0, 2).toUpperCase()}</span>}
+              <span className="min-w-0"><span className="block truncate text-sm text-text-primary">{team.name}</span><span className="block text-[11px] text-text-muted">Existing team</span></span>
+            </button>)}
+          </div>}
+        </div>
+        {selectedId && <p className="text-xs text-success">Using existing team logo</p>}
+        <FormMessage />
+      </FormItem>
+    )} />
+  )
 }
 
 interface CreateMatchFormProps {
@@ -493,20 +539,8 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField control={form.control} name="homeTeamName" render={({ field }) => (
-              <FormItem className={flatFormItemClass}>
-                <FormLabel>Team 1 name</FormLabel>
-                <FormControl><Input placeholder="e.g., Bangladesh" className="min-h-11" {...field} value={field.value ?? ''} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="awayTeamName" render={({ field }) => (
-              <FormItem className={flatFormItemClass}>
-                <FormLabel>Team 2 name</FormLabel>
-                <FormControl><Input placeholder="e.g., India" className="min-h-11" {...field} value={field.value ?? ''} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
+            <TeamNameField form={form} nameField="homeTeamName" idField="homeTeamId" logoField="homeTeamLogo" label="Team 1 name" placeholder="e.g., Bangladesh" disabled={isLoading} />
+            <TeamNameField form={form} nameField="awayTeamName" idField="awayTeamId" logoField="awayTeamLogo" label="Team 2 name" placeholder="e.g., India" disabled={isLoading} />
             <FormField control={form.control} name="homeTeamLogo" render={({ field }) => (
               <FormItem className={flatFormItemClass}>
                 <FormLabel>Team 1 logo</FormLabel>

@@ -7,6 +7,8 @@ export const matchSchema = z.object({
   tournamentName: z.string().trim().max(255).nullable().optional(),
   homeTeamName: z.string().trim().max(255).nullable().optional(),
   awayTeamName: z.string().trim().max(255).nullable().optional(),
+  homeTeamId: z.string().uuid().nullable().optional().or(z.literal('')),
+  awayTeamId: z.string().uuid().nullable().optional().or(z.literal('')),
   kickoffAt: z.coerce.date(),
   expectedEndTime: z.preprocess((val) => val === '' || val === null || val === undefined ? undefined : val, z.coerce.date().optional()),
   autoFinish: z.preprocess((val) => {
