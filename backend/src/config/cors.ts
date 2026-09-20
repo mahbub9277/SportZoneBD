@@ -45,7 +45,7 @@ export const corsOptions: CorsOptions = {
       return
     }
 
-    callback(null, true)
+    callback(null, false)
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

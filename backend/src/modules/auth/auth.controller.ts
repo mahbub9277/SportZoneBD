@@ -63,6 +63,7 @@ export async function createSessionAndSetCookies(res: Response, userId: string) 
     return { accessToken, refreshToken: newRefreshToken }
   });
   setAuthCookies(res, accessToken, refreshToken)
+  return accessToken
 }
 
 export async function registerUser(req: Request, res: Response) {
@@ -153,9 +154,9 @@ export async function loginUser(req: Request, res: Response) {
   }
 
   const userProfile = await getUserProfile(user.id)
-  await createSessionAndSetCookies(res, user.id)
+  const accessToken = await createSessionAndSetCookies(res, user.id)
 
-  return res.status(200).json(successResponse({ user: userProfile }, 'Login successful'))
+  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Login successful'))
 }
 
 export async function loginAdmin(req: Request, res: Response) {
@@ -184,8 +185,8 @@ export async function loginAdmin(req: Request, res: Response) {
   }
 
   const userProfile = await getUserProfile(user.id)
-  await createSessionAndSetCookies(res, user.id)
-  return res.status(200).json(successResponse({ user: userProfile }, 'Admin login successful'))
+  const accessToken = await createSessionAndSetCookies(res, user.id)
+  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Admin login successful'))
 }
 
 export async function verifyEmail(req: Request, res: Response) {
@@ -210,9 +211,9 @@ export async function verifyEmail(req: Request, res: Response) {
   })
 
   const userProfile = await getUserProfile(user.id)
-  await createSessionAndSetCookies(res, user.id)
+  const accessToken = await createSessionAndSetCookies(res, user.id)
 
-  return res.status(200).json(successResponse({ user: userProfile }, 'Email verified successfully.'))
+  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Email verified successfully.'))
 }
 
 export async function resendOtp(req: Request, res: Response) {
@@ -475,6 +476,6 @@ export async function refreshAccessToken(req: Request, res: Response) {
 
 export async function googleCallback(req: any, res: Response) {
   const { user } = req
-  await createSessionAndSetCookies(res, user.id);
-  res.redirect(`${FRONTEND_URL.replace(/\/$/, '')}/auth/google/callback`)
+  const accessToken = await createSessionAndSetCookies(res, user.id)
+  res.redirect(`${FRONTEND_URL.replace(/\/$/, '')}/auth/google/callback#accessToken=${encodeURIComponent(accessToken)}`)
 }

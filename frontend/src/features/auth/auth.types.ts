@@ -53,5 +53,5 @@ export interface LoginRequest {
 export interface LoginResponse {
   [x: string]: unknown;
   user: User;
-  accessToken?: string; // Only present in refresh responses now
+  accessToken?: string;
 }

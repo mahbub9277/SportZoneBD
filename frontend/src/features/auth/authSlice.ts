@@ -43,7 +43,7 @@ const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginRes
   const user = extractUserFromPayload(payload)
 
   state.user = user
-  state.token = null
+  if (isLoginResponse(payload) && payload.accessToken) state.token = payload.accessToken
   state.isAuthenticated = true
   state.isInitializing = false
   state.accountStatus = null
@@ -58,16 +58,20 @@ const authSlice = createSlice({
     },
     setCredentials: (
       state,
-      action: PayloadAction<{ user: User; rememberMe?: boolean }>,
+      action: PayloadAction<{ user: User; rememberMe?: boolean; accessToken?: string }>,
     ) => {
-      const { user, rememberMe = false } = action.payload
+      const { user, rememberMe = false, accessToken } = action.payload
 
       state.user = user
+      if (accessToken) state.token = accessToken
       state.isAuthenticated = true
       state.isInitializing = false
       state.accountStatus = null
       state.accountStatusMessage = null
       saveAuthState(user, null, rememberMe)
+    },
+    setAccessToken: (state, action: PayloadAction<string | null>) => {
+      state.token = action.payload
     },
     setUser: (state, action: PayloadAction<{ user: User }>) => {
       const { user } = action.payload
@@ -133,7 +137,7 @@ const authSlice = createSlice({
   },
 })
 
-export const { setAuthInitializing, setCredentials, setUser, logout } = authSlice.actions
+export const { setAuthInitializing, setCredentials, setAccessToken, setUser, logout } = authSlice.actions
 
 export const selectIsAuthenticated = (state: RootState) => state.auth.isAuthenticated
 export const selectCurrentToken = (state: RootState) => state.auth.token
