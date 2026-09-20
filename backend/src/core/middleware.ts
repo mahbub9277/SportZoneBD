@@ -19,10 +19,22 @@ export interface AuthenticatedRequest extends Request {
   user?: UserPayload
 }
 
+function getAccessToken(req: Request): string | undefined {
+  const authorization = req.headers.authorization?.trim()
+  if (authorization) {
+    const [scheme, ...tokenParts] = authorization.split(/\s+/)
+    if (scheme?.toLowerCase() === 'bearer' && tokenParts.length > 0) {
+      const token = tokenParts.join(' ').trim()
+      if (token) return token
+    }
+  }
+
+  const cookieToken = req.cookies?.accessToken
+  return typeof cookieToken === 'string' && cookieToken.trim() ? cookieToken.trim() : undefined
+}
+
 export async function authenticate(req: Request, _res: Response, next: NextFunction): Promise<void> {
-  const header = req.headers.authorization
-  const accessTokenFromCookie = req.cookies?.accessToken
-  const token = header?.startsWith('Bearer ') ? header.substring(7) : accessTokenFromCookie
+  const token = getAccessToken(req)
 
   if (!token) {
     next(new UnauthorizedError('Missing bearer token'))
@@ -119,8 +131,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
 }
 
 export async function optionalProtect(req: Request, _res: Response, next: NextFunction): Promise<void> {
-  const header = req.headers.authorization
-  const token = header?.startsWith('Bearer ') ? header.substring(7) : req.cookies?.accessToken
+  const token = getAccessToken(req)
 
   if (!token) {
     next()

@@ -20,14 +20,13 @@ const ACCESS_TOKEN_COOKIE = 'accessToken'
 const REFRESH_TOKEN_COOKIE = 'refreshToken'
 const REFRESH_TOKEN_PATH = '/api/v1/auth'
 
-const isSecureCookie = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true'
+const sharedCookieOptions = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none' as const,
+}
 
 const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
-  const sharedCookieOptions = {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'none' as const,
-  }
 
   res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
     ...sharedCookieOptions,
@@ -404,8 +403,8 @@ export async function logoutUser(req: Request, res: Response) {
     }
   }
 
-  res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/', secure: isSecureCookie, sameSite: isSecureCookie ? 'none' : 'lax' })
-  res.clearCookie(REFRESH_TOKEN_COOKIE, { path: REFRESH_TOKEN_PATH, secure: isSecureCookie, sameSite: isSecureCookie ? 'none' : 'lax' })
+  res.clearCookie(ACCESS_TOKEN_COOKIE, { ...sharedCookieOptions, path: '/' })
+  res.clearCookie(REFRESH_TOKEN_COOKIE, { ...sharedCookieOptions, path: REFRESH_TOKEN_PATH })
   return res.status(200).json(successResponse(null, 'Logout successful'))
 }
 
@@ -465,8 +464,8 @@ export async function refreshAccessToken(req: Request, res: Response) {
     if (error instanceof UnauthorizedError) {
       return res
         .status(401)
-        .clearCookie(ACCESS_TOKEN_COOKIE, { path: '/', secure: isSecureCookie, sameSite: isSecureCookie ? 'none' : 'lax' })
-        .clearCookie(REFRESH_TOKEN_COOKIE, { path: REFRESH_TOKEN_PATH, secure: isSecureCookie, sameSite: isSecureCookie ? 'none' : 'lax' })
+        .clearCookie(ACCESS_TOKEN_COOKIE, { ...sharedCookieOptions, path: '/' })
+        .clearCookie(REFRESH_TOKEN_COOKIE, { ...sharedCookieOptions, path: REFRESH_TOKEN_PATH })
         .json(errorResponse(error.message))
     }
     // Clear cookies on any refresh error

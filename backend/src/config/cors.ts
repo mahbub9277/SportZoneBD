@@ -6,11 +6,13 @@ const parseOrigins = (value?: string) =>
     .map((item) => item.trim())
     .filter(Boolean)
 
+const normalizeOrigin = (value: string) => value.trim().replace(/\/+$/, '').toLowerCase()
+
 const configuredOrigins = [
   ...parseOrigins(process.env.CORS_ALLOWED_ORIGINS),
   ...parseOrigins(process.env.FRONTEND_URL),
   ...parseOrigins(process.env.BASE_URL),
-].map((url) => url.replace(/\/+$/, ''))
+].map(normalizeOrigin)
 
 const developmentOrigins = [
   'http://localhost:5173',
@@ -36,7 +38,7 @@ export const corsOptions: CorsOptions = {
       return
     }
 
-    const cleanOrigin = origin.replace(/\/+$/, '')
+    const cleanOrigin = normalizeOrigin(origin)
 
     if (allowedOrigins.includes(cleanOrigin)) {
       callback(null, true)
