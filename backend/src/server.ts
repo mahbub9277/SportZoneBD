@@ -104,6 +104,10 @@ app.use(cookieParser())
 app.use(passport.initialize())
 app.use(generalLimiter)
 
+app.get('/', (_req, res) => {
+  res.status(200).json({ success: true, message: 'SportZoneBD API is running' })
+})
+
 app.get(['/health', '/api/v1/health'], (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'sportzonebd-api' })
 })
