@@ -59,6 +59,11 @@ export const getAllMatches = asyncHandler(async (req, res) => {
       streams: {
         where: { enabled: true, deletedAt: null, status: { notIn: ['OFFLINE', 'ERROR'] } },
         orderBy: { createdAt: 'asc' },
+        include: {
+          channel: {
+            select: { id: true, name: true, url: true, logo: true },
+          },
+        },
       },
     },
   });
@@ -81,6 +86,11 @@ export const getMatchById = asyncHandler(async (req, res) => {
           enabled: true,
           deletedAt: null,
           status: { notIn: ['OFFLINE', 'ERROR'] },
+        },
+        include: {
+          channel: {
+            select: { id: true, name: true, url: true, logo: true },
+          },
         },
       },
       highlights: {

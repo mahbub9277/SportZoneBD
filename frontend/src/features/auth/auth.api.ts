@@ -1,5 +1,5 @@
 import { emptyApi } from '../../app/api/emptyApi'
-import type { LoginRequest, LoginResponse, User } from './auth.types'
+import type { LoginRequest, LoginResponse, RefreshResponse, User } from './auth.types'
 import type { ApiResponse } from '../../app/api/types.ts'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 type VerifyEmailRequest = {
@@ -28,6 +28,13 @@ const authApi = emptyApi.injectEndpoints({
       }),
       transformResponse: (response: ApiResponse<LoginResponse> | LoginResponse) => unwrapApiResponse<LoginResponse>(response),
       invalidatesTags: ['User'], // Invalidate user to refetch profile data
+    }),
+    refreshSession: builder.query<RefreshResponse, void>({
+      query: () => ({
+        url: '/auth/refresh',
+        method: 'POST',
+      }),
+      transformResponse: (response: ApiResponse<RefreshResponse> | RefreshResponse) => unwrapApiResponse<RefreshResponse>(response),
     }),
     register: builder.mutation<LoginResponse, RegisterRequest>({
       query: (credentials) => ({
@@ -110,4 +117,4 @@ const authApi = emptyApi.injectEndpoints({
 
 // Export the auto-generated hook for the `login` mutation
 export { authApi }
-export const { useLoginMutation, useAdminLoginMutation, useRegisterMutation, useVerifyEmailMutation, useResendOtpMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation, useGetMeQuery, useUpdateProfileMutation } = authApi
+export const { useLoginMutation, useAdminLoginMutation, useRefreshSessionQuery, useRegisterMutation, useVerifyEmailMutation, useResendOtpMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation, useGetMeQuery, useUpdateProfileMutation } = authApi

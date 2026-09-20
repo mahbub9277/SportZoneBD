@@ -107,7 +107,7 @@ const GoogleAuthCallback = () => {
   const currentToken = useAppSelector(selectCurrentToken)
   const accessTokenFromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('accessToken')
   const shouldWaitForHashToken = Boolean(accessTokenFromHash && !currentToken)
-  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, { skip: shouldWaitForHashToken })
+  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, { skip: shouldWaitForHashToken || !currentToken })
 
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))

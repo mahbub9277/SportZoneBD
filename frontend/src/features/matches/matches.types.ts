@@ -16,6 +16,12 @@ export interface Stream {
   status?: string | null;
   sourceType?: 'DIRECT_URL' | 'CHANNEL' | string | null;
   channelId?: string | null;
+  channel?: {
+    id: string;
+    name: string;
+    url: string | null;
+    logo?: string | null;
+  } | null;
   activationMode?: 'AUTOMATIC' | 'MANUAL' | string | null;
   activationOffsetMinutes?: number | null;
   isPremium?: boolean;
@@ -34,6 +40,7 @@ export const getStreamUrlCandidates = (stream?: Partial<Stream> | null): string[
   if (!stream) return []
 
   const urls = [
+    stream.sourceType === 'CHANNEL' ? stream.channel?.url : undefined,
     stream.primaryUrl,
     stream.backupUrl,
     stream.url,

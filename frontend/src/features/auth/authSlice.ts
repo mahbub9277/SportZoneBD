@@ -18,7 +18,7 @@ export interface AuthState {
 const initialState: AuthState = {
   ...loadAuthState(),
   token: null, // Token is not persisted in localStorage for security
-  isInitializing: false,
+  isInitializing: true,
   accountStatus: null,
   accountStatusMessage: null,
 }
@@ -102,6 +102,9 @@ const authSlice = createSlice({
         ),
         handleAuthSuccess,
       )
+      .addMatcher(authApi.endpoints.refreshSession.matchFulfilled, (state, { payload }) => {
+        state.token = payload.accessToken
+      })
       // Matcher for when profile is updated, only updates the user object.
       .addMatcher(authApi.endpoints.updateProfile.matchFulfilled, (state, { payload }) => {
         const user = extractUserFromPayload(payload)

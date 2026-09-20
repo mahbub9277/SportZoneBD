@@ -1,6 +1,6 @@
 import type { ElementType } from 'react'
 import { useEffect, useState } from 'react'
-import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, ArrowDownLeft, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
+import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
 import { motion } from 'framer-motion'
 import {
   ResponsiveContainer,
@@ -30,7 +30,7 @@ const DASHBOARD_QUERY_OPTIONS = {
   refetchOnReconnect: false,
 } as const
 
-const StatCard = ({ title, value, icon: Icon, isLoading, delay = 0, trend }: { title: string; value: string | number; icon: ElementType; isLoading: boolean; delay?: number; trend?: 'up' | 'down' | 'neutral' }) => (
+const StatCard = ({ title, value, icon: Icon, isLoading, delay = 0 }: { title: string; value: string | number; icon: ElementType; isLoading: boolean; delay?: number }) => (
   <motion.div
     initial={{ opacity: 0, y: 20, scale: 0.95 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -61,20 +61,6 @@ const StatCard = ({ title, value, icon: Icon, isLoading, delay = 0, trend }: { t
             >
               {value}
             </motion.div>
-            {trend && (
-              <motion.div
-                className={`flex items-center gap-1 text-xs font-medium ${
-                  trend === 'up' ? 'text-green-500' : trend === 'down' ? 'text-red-500' : 'text-gray-500'
-                }`}
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: delay + 0.3, duration: 0.3 }}
-              >
-                {trend === 'up' && <ArrowUpRight className="h-4 w-4" />}
-                {trend === 'down' && <ArrowDownLeft className="h-4 w-4" />}
-                <span>{trend === 'up' ? '+12%' : trend === 'down' ? '-5%' : 'Stable'}</span>
-              </motion.div>
-            )}
           </>
         )}
       </CardContent>
@@ -177,8 +163,8 @@ export default function AnalyticsPage() {
           <CardContent className="space-y-6 px-4 pb-5 pt-5 sm:px-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <MetricPill tone="accent" label="Health" value={liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} />
-              <MetricPill tone="blue" label="Active viewers" value={liveStreamHealth?.totalActiveViewers ?? 0} />
-              <MetricPill tone="green" label="Healthy" value={liveStreamHealth?.healthyViewers ?? 0} />
+              <MetricPill tone="blue" label="Live viewers" value={data?.totalLiveViewers ?? 0} />
+              <MetricPill tone="green" label="Healthy sessions" value={liveStreamHealth?.healthyViewers ?? 0} />
               <MetricPill tone="amber" label="Buffering" value={liveStreamHealth?.bufferingViewers ?? 0} />
               <MetricPill tone="red" label="Errors" value={liveStreamHealth?.errorViewers ?? 0} />
             </div>
@@ -209,7 +195,7 @@ export default function AnalyticsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard title="Ad impressions" value={adAnalytics?.impressions ?? 0} icon={Eye} isLoading={isAdAnalyticsLoading} delay={0.1} />
           <StatCard title="Watch clicks" value={adAnalytics?.watchClicks ?? 0} icon={MousePointerClick} isLoading={isAdAnalyticsLoading} delay={0.15} />
-          <StatCard title="Completed sessions" value={adAnalytics?.sessionsCompleted ?? 0} icon={CheckCircle2} isLoading={isAdAnalyticsLoading} delay={0.2} trend="up" />
+          <StatCard title="Completed sessions" value={adAnalytics?.sessionsCompleted ?? 0} icon={CheckCircle2} isLoading={isAdAnalyticsLoading} delay={0.2} />
           <StatCard title="Unique users" value={adAnalytics?.uniqueUsers ?? 0} icon={Users} isLoading={isAdAnalyticsLoading} delay={0.25} />
         </div>
         <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft) to-(--surface)"><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Timer className="h-5 w-5 text-(--accent)" />Audience and session status</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-3"><MetricPill label="Standard activity" value={adAnalytics?.standardEvents ?? 0} /><MetricPill label="Premium activity" value={adAnalytics?.premiumEvents ?? 0} /><MetricPill label="Guest activity" value={adAnalytics?.guestEvents ?? 0} /><MetricPill label="Started" value={adAnalytics?.sessionsStarted ?? 0} /><MetricPill label="Cancelled" value={adAnalytics?.sessionsCancelled ?? 0} /><MetricPill label="Total events" value={adAnalytics?.totalEvents ?? 0} /></CardContent></Card>
@@ -221,11 +207,11 @@ export default function AnalyticsPage() {
         transition={{ delay: 0.3, duration: 0.5 }}
         className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
       >
-        <StatCard title="Total Revenue" value={revenueValue} icon={DollarSign} isLoading={isLoading} delay={0.1} trend="up" />
-        <StatCard title="Total Users" value={data?.totalUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.15} trend="up" />
-        <StatCard title="Premium Users" value={data?.premiumUsers ?? 0} icon={ShieldCheck} isLoading={isLoading} delay={0.2} trend="up" />
-        <StatCard title="Successful Payments" value={data?.successfulPayments ?? 0} icon={TrendingUp} isLoading={isLoading} delay={0.25} trend="up" />
-        <StatCard title="Avg Daily Signups" value={averageSignups} icon={Users} isLoading={isChartLoading} delay={0.3} trend="neutral" />
+        <StatCard title="Total Revenue" value={revenueValue} icon={DollarSign} isLoading={isLoading} delay={0.1} />
+        <StatCard title="Total Users" value={data?.totalUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.15} />
+        <StatCard title="Premium Users" value={data?.premiumUsers ?? 0} icon={ShieldCheck} isLoading={isLoading} delay={0.2} />
+        <StatCard title="Successful Payments" value={data?.successfulPayments ?? 0} icon={TrendingUp} isLoading={isLoading} delay={0.25} />
+        <StatCard title="Avg Daily Signups" value={averageSignups} icon={Users} isLoading={isChartLoading} delay={0.3} />
         <StatCard title="Best Month" value={bestMonth.month ?? 'N/A'} icon={BarChart} isLoading={isChartLoading} delay={0.35} />
       </motion.div>
 

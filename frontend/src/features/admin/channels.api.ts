@@ -50,8 +50,11 @@ export const channelsApi = emptyApi.injectEndpoints({
       }),
       transformResponse: (response: ApiResponse<{ liveViewers: number }>) => unwrapApiResponse(response),
     }),
-    getRelatedChannels: builder.query<Channel[], string>({
-      query: (id) => `/channels/${id}/related`,
+    getRelatedChannels: builder.query<Channel[], { id: string; excludeIds?: string[] }>({
+      query: ({ id, excludeIds = [] }) => ({
+        url: `/channels/${id}/related`,
+        params: excludeIds.length > 0 ? { excludeIds: excludeIds.join(',') } : undefined,
+      }),
       transformResponse: (response: ApiResponse<Channel[]>) => unwrapApiResponse(response),
       providesTags: (result) => result ? result.map(({ id }) => ({ type: 'Channels' as const, id })) : [],
     }),
@@ -177,6 +180,7 @@ export const {
   useEnterChannelViewerMutation,
   useLeaveChannelViewerMutation,
   useGetRelatedChannelsQuery,
+  useLazyGetRelatedChannelsQuery,
   useGetAdminChannelsQuery,
   useGetAdminCategoriesQuery,
   useGetChannelByIdQuery,

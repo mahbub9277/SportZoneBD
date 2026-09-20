@@ -35,6 +35,7 @@ import { useMiniPlayer } from '../../hooks/common/layouts/UserLayout'
 import { BackToTopButton } from '../../components/shared/BackToTopButton'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { toast } from 'sonner'
+import { useLazyGetRelatedChannelsQuery } from '../../features/admin/channels.api'
 
 const formatViewerCount = (count: number) => {
   if (count >= 1000000) {
@@ -65,6 +66,8 @@ export function WatchChannelPage() {
   const navigate = useNavigate()
   const channel = watchData?.channel
   const relatedChannels = useMemo(() => watchData?.relatedChannels ?? [], [watchData?.relatedChannels])
+  const [loadRelatedChannels, { isFetching: isLoadingMoreRelated }] = useLazyGetRelatedChannelsQuery()
+  const [additionalRelatedChannels, setAdditionalRelatedChannels] = useState<Channel[]>([])
 
   const favoriteChannelIds = useAppSelector(selectFavoriteChannelIds)
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
@@ -169,6 +172,7 @@ export function WatchChannelPage() {
   }
   const [relatedPage, setRelatedPage] = useState(1)
   const relatedChannelsPerPage = 6
+  const [hasMoreRelated, setHasMoreRelated] = useState(true)
 
   const isChannelLocked = channel?.isPremium && !isPremiumSubscriber
   const { data: directAdvertisement, isFetching: isAdvertisementLoading } = useGetInterstitialAdvertisementQuery('CHANNEL', { skip: isPremiumSubscriber || Boolean(channel?.isPremium) })
@@ -214,13 +218,39 @@ export function WatchChannelPage() {
 
   useEffect(() => {
     startTransition(() => setRelatedPage(1))
+    startTransition(() => setAdditionalRelatedChannels([]))
+    startTransition(() => setHasMoreRelated(true))
   }, [channel, channelId, relatedChannels.length])
 
-  const relatedTotalPages = Math.max(1, Math.ceil(relatedChannels.length / relatedChannelsPerPage))
+  const allRelatedChannels = useMemo(() => {
+    const seen = new Set<string>()
+    return [...relatedChannels, ...additionalRelatedChannels].filter((relatedChannel) => {
+      if (seen.has(relatedChannel.id) || relatedChannel.id === channelId) return false
+      seen.add(relatedChannel.id)
+      return true
+    })
+  }, [additionalRelatedChannels, channelId, relatedChannels])
+
+  const relatedTotalPages = Math.max(1, Math.ceil(allRelatedChannels.length / relatedChannelsPerPage))
   const paginatedRelatedChannels = useMemo(() => {
     const start = (relatedPage - 1) * relatedChannelsPerPage
-    return relatedChannels.slice(start, start + relatedChannelsPerPage)
-  }, [relatedChannels, relatedPage])
+    return allRelatedChannels.slice(start, start + relatedChannelsPerPage)
+  }, [allRelatedChannels, relatedPage])
+
+  const handleLoadMoreRelated = async () => {
+    if (!channelId || isLoadingMoreRelated) return
+    const excludeIds = [channelId, ...allRelatedChannels.map((relatedChannel) => relatedChannel.id)]
+    try {
+      const nextChannels = await loadRelatedChannels({ id: channelId, excludeIds }).unwrap()
+      const uniqueNextChannels = nextChannels.filter((next) => !excludeIds.includes(next.id))
+      if (uniqueNextChannels.length > 0) {
+        setAdditionalRelatedChannels((current) => [...current, ...uniqueNextChannels])
+      }
+      if (nextChannels.length < relatedChannelsPerPage) setHasMoreRelated(false)
+    } catch {
+      toast.error('Could not load more related channels.')
+    }
+  }
 
   useEffect(() => {
     // When the channel data is successfully loaded, add it to the recent list.
@@ -312,8 +342,11 @@ export function WatchChannelPage() {
               whileHover={{ scale: 1.06, rotate: 2 }}
             >
               <img
+                width={96}
+                height={96}
                 src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })}
                 alt={`${channel.name} logo`}
+                onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
                 className="h-full w-full rounded-xl object-contain"
               />
             </motion.div>
@@ -354,8 +387,11 @@ export function WatchChannelPage() {
                     loading="lazy"
                     decoding="async"
                     fetchPriority="low"
-                    src={buildCloudinaryUrl(relatedChannel.logo, { width: 64, height: 64, crop: 'fill' })}
+                    width={80}
+                    height={80}
+                    src={buildCloudinaryUrl(relatedChannel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })}
                     alt={relatedChannel.name}
+                      onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
                     className="mb-2 h-16 w-16 rounded-full border border-border bg-surface-soft object-contain p-1"
                   />
                   <p className="text-sm font-medium">{relatedChannel.name}</p>
@@ -400,6 +436,12 @@ export function WatchChannelPage() {
               </Pagination>
             </div>
           )}
+
+          {hasMoreRelated && <div className="mt-6 flex justify-center">
+            <Button type="button" variant="outline" onClick={() => void handleLoadMoreRelated()} disabled={isLoadingMoreRelated}>
+              {isLoadingMoreRelated ? 'Loading channels...' : 'Load More'}
+            </Button>
+          </div>}
         </div>
       )}
 
@@ -516,7 +558,7 @@ function ChannelsBrowser() {
                 {(category.channels ?? []).map((channel) => (
                   <Card key={channel.id} className="flex flex-col items-center justify-center p-4 text-center h-full relative group">
                     <Link to={`/watch/${channel.id}`} className="flex flex-col items-center justify-center h-full w-full">
-                      <img loading="lazy" decoding="async" fetchPriority="low" src={buildCloudinaryUrl(channel.logo, { width: 64, height: 64, crop: 'fill' })} alt={channel.name} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1 mb-2" />
+                      <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1 mb-2" />
                       <p className="text-sm font-medium">{channel.name}</p>
                     </Link>
                   </Card>
@@ -540,7 +582,7 @@ function ChannelsBrowser() {
                   {paginatedChannels.map((channel) => (
               <Card key={channel.id} className="flex flex-col items-center justify-center p-4 text-center h-full relative group">
                 <Link to={`/watch/${channel.id}`} className="flex flex-col items-center justify-center h-full w-full"> 
-                  <img loading="lazy" decoding="async" fetchPriority="low" src={buildCloudinaryUrl(channel.logo, { width: 64, height: 64, crop: 'fill' })} alt={channel.name} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1 mb-2" />
+                  <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1 mb-2" />
                   <p className="text-sm font-medium">{channel.name}</p>
                 </Link>
               </Card>

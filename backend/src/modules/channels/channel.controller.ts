@@ -91,7 +91,10 @@ export const getRelatedChannels = asyncHandler(async (req: Request, res: Respons
     throw new NotFoundError('Channel not found or is not active')
   }
 
-  const relatedChannels = await service.getRelatedChannels(req.params.id, channel.categoryId)
+  const excludeIds = typeof req.query.excludeIds === 'string'
+    ? req.query.excludeIds.split(',').map((id) => id.trim()).filter(Boolean)
+    : []
+  const relatedChannels = await service.getRelatedChannels(req.params.id, channel.categoryId, excludeIds)
 
   res.json(successResponse(relatedChannels))
 })

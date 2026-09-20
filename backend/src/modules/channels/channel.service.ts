@@ -159,20 +159,22 @@ export const getChannelsByIds = (ids: string[]) => {
   })
 }
 
-export const getRelatedChannels = (channelId: string, categoryId: string) => {
-  return prisma.channel.findMany({
+export const getRelatedChannels = async (channelId: string, categoryId: string, excludeIds: string[] = []) => {
+  const candidates = await prisma.channel.findMany({
     where: {
       categoryId,
-      id: {
-        not: channelId,
-      },
+      id: { notIn: [channelId, ...excludeIds] },
       status: 'ACTIVE',
     },
-    take: 6, // Limit to 6 related channels
-    orderBy: {
-      name: 'asc',
-    },
+    take: 36,
   })
+
+  for (let index = candidates.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    ;[candidates[index], candidates[randomIndex]] = [candidates[randomIndex], candidates[index]]
+  }
+
+  return candidates.slice(0, 6)
 }
 
 // Admin Category Services

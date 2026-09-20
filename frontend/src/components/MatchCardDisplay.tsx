@@ -78,33 +78,29 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
               {matchStatus === 'LIVE' ? <span className="text-rose-500 dark:text-rose-300">{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
             </time>
           </div>
-          <div className="flex items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden sm:h-18 sm:w-18">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 sm:gap-4">
+            <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {homeTeam.logo && !homeLogoFailed ? (
                   <img src={homeTeam.logo} alt={homeTeam.name} className="h-full w-full object-contain p-1.5" onError={() => setHomeLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{homeTeam.name.slice(0, 2)}</span>
                 )}
               </div>
-              <div className="min-w-0 flex-1 pt-1">
-                <p className="wrap-break-word text-[11px] font-semibold leading-4 text-(--text-primary) sm:text-[14px] sm:leading-5">{homeTeam.name}</p>
-              </div>
+              <p className="w-full wrap-break-word text-xs font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{homeTeam.name}</p>
             </div>
 
-            <div className="shrink-0 px-1 text-[12px] font-black text-(--accent) sm:text-[15px]">VS</div>
+            <div className="pt-8 text-[11px] font-black uppercase tracking-[0.16em] text-(--accent) sm:pt-10 sm:text-xs">VS</div>
 
-            <div className="flex min-w-0 flex-1 items-start justify-end gap-2 sm:gap-3">
-              <div className="min-w-0 flex-1 pt-1 text-right">
-                <p className="wrap-break-word text-[11px] font-semibold leading-4 text-(--text-primary) sm:text-[14px] sm:leading-5">{awayTeam.name}</p>
-              </div>
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden sm:h-18 sm:w-18">
+            <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {awayTeam.logo && !awayLogoFailed ? (
                   <img src={awayTeam.logo} alt={awayTeam.name} className="h-full w-full object-contain p-1.5" onError={() => setAwayLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{awayTeam.name.slice(0, 2)}</span>
                 )}
               </div>
+              <p className="w-full wrap-break-word text-xs font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{awayTeam.name}</p>
             </div>
           </div>
         </div>

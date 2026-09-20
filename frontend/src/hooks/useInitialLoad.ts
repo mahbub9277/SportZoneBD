@@ -1,6 +1,6 @@
 import { useAppSelector } from '@/app/hooks'
-import { useGetMeQuery } from '@/features/auth/auth.api.ts'
-import { selectIsInitializing, selectIsAuthenticated } from '@/features/auth/auth.slice'
+import { useGetMeQuery, useRefreshSessionQuery } from '@/features/auth/auth.api.ts'
+import { selectCurrentToken, selectIsAuthenticated, selectIsInitializing } from '@/features/auth/auth.slice'
 
 /**
  * A custom hook to manage the initial loading state of the application.
@@ -8,14 +8,19 @@ import { selectIsInitializing, selectIsAuthenticated } from '@/features/auth/aut
  */
 export function useInitialLoad() {
   const isAuthInitializing = useAppSelector(selectIsInitializing)
+  const accessToken = useAppSelector(selectCurrentToken)
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
 
+  const { isLoading: isRefreshLoading } = useRefreshSessionQuery(undefined, {
+    skip: Boolean(accessToken) || !isAuthenticated,
+  })
+
   const { isLoading: isSessionLoading } = useGetMeQuery(undefined, {
-    skip: !isAuthenticated,
+    skip: !accessToken,
     selectFromResult: ({ isLoading }) => ({ isLoading }),
   })
 
   return {
-    isLoading: isAuthInitializing || isSessionLoading,
+    isLoading: isAuthInitializing || isRefreshLoading || isSessionLoading,
   }
 }
