@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/Tabs'
 import { LoginForm } from './components/LoginForm'
 import { RegisterForm } from './components/RegisterForm'
-import brandMark from '../../assets/logo.png.jpeg'
+import brandMark from '../../assets/logo.png.webp'
 
 const LoginPage = () => {
   const shouldReduceMotion = useReducedMotion()

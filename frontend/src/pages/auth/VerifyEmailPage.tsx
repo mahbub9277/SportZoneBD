@@ -10,7 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../components/ui/Form';
 import { useVerifyEmailMutation, useResendOtpMutation } from '../../features/auth/auth.api.ts';
 import { AlertCircle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
-import brandMark from '../../assets/logo.png.jpeg'
+import brandMark from '../../assets/logo.png.webp'
 import { OtpCodeInput } from '../../components/auth/OtpCodeInput'
 
 const verifyEmailSchema = z.object({

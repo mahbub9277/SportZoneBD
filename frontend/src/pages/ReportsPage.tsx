@@ -105,8 +105,8 @@ export default function ReportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div>
-              <Label className="mb-2 block">What problem are you having?</Label>
+            <fieldset>
+              <legend className="mb-2 block text-sm font-medium text-text-primary">1. What problem are you having?</legend>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {categoryOptions.map(({ value, label, icon: Icon }) => {
                 const isActive = category === value
@@ -130,11 +130,12 @@ export default function ReportsPage() {
                 )
               })}
               </div>
-            </div>
+              <p className="mt-2 text-xs text-text-muted">Selected: <span className="font-semibold text-accent">{categoryOptions.find((option) => option.value === category)?.label}</span></p>
+            </fieldset>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="report-summary">Short summary</Label>
+                <Label htmlFor="report-summary">2. Short summary</Label>
                 <Input
                   id="report-summary"
                   value={summary}
@@ -144,7 +145,7 @@ export default function ReportsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="report-details">What happened?</Label>
+                <Label htmlFor="report-details">3. What happened?</Label>
                 <DescriptionGenerator entityType="REPORT" title={summary || category} context={{ category, details, page: window.location.pathname }} onGenerated={setDetails} />
                 <Textarea
                   id="report-details"

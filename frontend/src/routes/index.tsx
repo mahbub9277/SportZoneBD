@@ -70,6 +70,11 @@ const PaymentHistoryPage = lazyRoute(() => import('@/pages/PaymentHistoryPage'),
 const ProfilePage = lazyRoute(() => import('@/pages/user/ProfilePage'), 'ProfilePage')
 const UnauthorizedPage = lazyRoute(() => import('@/features/errors/UnauthorizedPage'), 'UnauthorizedPage')
 const NotFoundPage = lazyRoute(() => import('@/features/errors/NotFoundPage'), 'NotFoundPage')
+const BadRequestPage = lazyRoute(() => import('@/features/errors/StatusPages'), 'BadRequestPage')
+const SessionExpiredPage = lazyRoute(() => import('@/features/errors/StatusPages'), 'SessionExpiredPage')
+const ForbiddenPage = lazyRoute(() => import('@/features/errors/StatusPages'), 'ForbiddenPage')
+const ServerErrorPage = lazyRoute(() => import('@/features/errors/StatusPages'), 'ServerErrorPage')
+const ServiceUnavailablePage = lazyRoute(() => import('@/features/errors/StatusPages'), 'ServiceUnavailablePage')
 const AllMatchesPage = lazyRoute(() => import('@/pages/matches/AllMatchesPage'), 'AllMatchesPage')
 const MatchPage = lazyRoute(() => import('@/pages/matches/MatchPage'), 'MatchPage')
 const VerifyEmailPage = lazyRoute(() => import('@/pages/auth/VerifyEmailPage'), 'VerifyEmailPage')
@@ -274,6 +279,11 @@ export const router = createBrowserRouter([
         // Route for users who are authenticated but not authorized for a specific page
         path: '/unauthorized', element: <UnauthorizedPage />,
       },
+      { path: '/400', element: <BadRequestPage /> },
+      { path: '/401', element: <SessionExpiredPage /> },
+      { path: '/403', element: <ForbiddenPage /> },
+      { path: '/500', element: <ServerErrorPage /> },
+      { path: '/503', element: <ServiceUnavailablePage /> },
       {
         // Separate login route for admins
         path: '/admin/login',

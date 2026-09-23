@@ -47,7 +47,7 @@ export const rtkQueryErrorLogger: Middleware = () => (next) => (action) => {
     const payload = action.payload as { status?: unknown; data?: unknown }
     const status = payload?.status
     const data = payload?.data
-    const isAuthSessionRequest = endpointName === 'getMe' || endpointName === 'refresh'
+    const isAuthSessionRequest = endpointName === 'getMe' || endpointName === 'refresh' || endpointName === 'refreshSession'
     const isExpectedGuestAuthFailure = status === 401 && isAuthSessionRequest
 
     const logPayload: Record<string, unknown> = {

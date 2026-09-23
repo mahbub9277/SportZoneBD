@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/Button'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../components/ui/Form'
 import { Input } from '../../components/ui/Input'
 import { useResetPasswordMutation } from '../../features/auth/auth.api'
-import brandMark from '../../assets/logo.png.jpeg'
+import brandMark from '../../assets/logo.png.webp'
 import { OtpCodeInput } from '../../components/auth/OtpCodeInput'
 
 const resetPasswordSchema = z.object({

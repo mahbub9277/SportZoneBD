@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { DynamicIcon } from '../../components/DynamicIcon'
 import { navSections, type NavLink as NavLinkType } from './config/sidebar.config'
-import localLogo from '../../assets/logo.png.jpeg'
+import localLogo from '../../assets/logo.png.webp'
 
 export function AdminSidebar({ isMobile = false, onNavigate }: { isMobile?: boolean; onNavigate?: () => void }) {
   const { theme } = useTheme()

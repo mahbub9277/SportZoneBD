@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
-import { useGetAdminHighlightsQuery, useCreateHighlightMutation, useDeleteHighlightMutation } from '../../features/admin/adminHighlights.api'
+import { useGetAdminHighlightsQuery, useCreateHighlightMutation, useUpdateHighlightMutation, useDeleteHighlightMutation } from '../../features/admin/adminHighlights.api'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useUploadFilesMutation } from '../../features/admin/uploads.api'
@@ -18,16 +18,22 @@ export function HighlightsManagementPage() {
   const highlights = highlightsQuery.data?.items ?? emptyHighlights
   const { isLoading: isLoadingHighlights, isError: isHighlightsError } = highlightsQuery
   const [createHighlight, { isLoading: isCreating }] = useCreateHighlightMutation()
+  const [updateHighlight, { isLoading: isUpdating }] = useUpdateHighlightMutation()
   const [deleteHighlight, { isLoading: isDeleting }] = useDeleteHighlightMutation()
   const [uploadFiles, { isLoading: isUploadingThumbnail }] = useUploadFilesMutation()
 
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null)
   const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null)
   const [isUploadingVideo, setIsUploadingVideo] = useState(false)
+  const [editingHighlightId, setEditingHighlightId] = useState<string | null>(null)
   const selectedThumbnailPreviewUrl = useMemo(
     () => selectedThumbnailFile ? URL.createObjectURL(selectedThumbnailFile) : null,
     [selectedThumbnailFile],
   )
+
+  useEffect(() => () => {
+    if (selectedThumbnailPreviewUrl) URL.revokeObjectURL(selectedThumbnailPreviewUrl)
+  }, [selectedThumbnailPreviewUrl])
 
   const [form, setForm] = useState({
     title: '',
@@ -86,24 +92,42 @@ export function HighlightsManagementPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!window.confirm(`Create the highlight "${form.title || 'Untitled highlight'}"?`)) {
+    const actionLabel = editingHighlightId ? 'Update' : 'Create'
+    if (!window.confirm(`${actionLabel} the highlight "${form.title || 'Untitled highlight'}"?`)) {
       return
     }
 
     try {
-      await createHighlight({
-        ...form,
-        thumbnail: form.thumbnail || null,
-        duration: form.duration || null,
-        category: form.category || null,
-      }).unwrap()
-      toast.success('New highlight created!')
+      const payload = { ...form, thumbnail: form.thumbnail || null, duration: form.duration || null, category: form.category || null }
+      if (editingHighlightId) {
+        await updateHighlight({ id: editingHighlightId, ...payload }).unwrap()
+        toast.success('Highlight updated successfully.')
+      } else {
+        await createHighlight(payload).unwrap()
+        toast.success('New highlight created!')
+      }
       setForm({ title: '', url: '', thumbnail: '', duration: '', category: '' })
       setSelectedThumbnailFile(null)
       setSelectedVideoFile(null)
+      setEditingHighlightId(null)
     } catch {
       toast.error('Failed to create highlight.')
     }
+  }
+
+  const handleEdit = (highlight: Highlight) => {
+    setEditingHighlightId(highlight.id)
+    setForm({ title: highlight.title, url: highlight.url, thumbnail: highlight.thumbnail ?? highlight.thumbnailUrl ?? '', duration: highlight.duration ?? '', category: highlight.category ?? '' })
+    setSelectedThumbnailFile(null)
+    setSelectedVideoFile(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingHighlightId(null)
+    setForm({ title: '', url: '', thumbnail: '', duration: '', category: '' })
+    setSelectedThumbnailFile(null)
+    setSelectedVideoFile(null)
   }
 
   const handleDelete = async (id: string, title: string) => {
@@ -125,7 +149,7 @@ export function HighlightsManagementPage() {
     <div className="space-y-6">
       <Card className="border-brand-border bg-brand-surface/50 p-6 shadow-xl">
         <CardHeader>
-          <CardTitle className="text-2xl text-brand-text-primary">Create Highlight</CardTitle>
+          <CardTitle className="text-2xl text-brand-text-primary">{editingHighlightId ? 'Edit Highlight' : 'Create Highlight'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -230,7 +254,10 @@ export function HighlightsManagementPage() {
               )}
             </div>
             <div className="md:col-span-2">
-              <Button type="submit" disabled={isCreating || isUploadingThumbnail}>{isCreating ? 'Creating...' : 'Create Highlight'}</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={isCreating || isUpdating || isUploadingThumbnail || isUploadingVideo}>{isCreating || isUpdating ? 'Saving...' : editingHighlightId ? 'Save Changes' : 'Create Highlight'}</Button>
+                {editingHighlightId && <Button type="button" variant="outline" onClick={handleCancelEdit} disabled={isCreating || isUpdating || isUploadingVideo}>Cancel</Button>}
+              </div>
             </div>
           </form>
         </CardContent>
@@ -265,14 +292,10 @@ export function HighlightsManagementPage() {
                     <p className="text-xs text-text-muted">{highlight.category || 'General highlight'}</p>
                   </div>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDelete(highlight.id, highlight.title)}
-                  disabled={isDeleting}
-                >
-                  Delete
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="outline" size="sm" onClick={() => handleEdit(highlight)} disabled={isDeleting || isUpdating}>Edit</Button>
+                  <Button variant="destructive" size="sm" onClick={() => handleDelete(highlight.id, highlight.title)} disabled={isDeleting || isUpdating}>Delete</Button>
+                </div>
               </div>
             ))
           )}

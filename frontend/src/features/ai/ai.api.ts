@@ -15,6 +15,8 @@ export interface ParseMatchRequest {
   input: string
 }
 
+export type AiConfidenceLevel = 'high' | 'medium' | 'low'
+
 export interface ParsedMatchDetails {
   title: string | null
   tournamentName: string | null
@@ -32,7 +34,7 @@ export interface ParsedMatchDetails {
   preStartWindowMinutes: number | null
   primaryStreamUrl: string | null
   quality: string | null
-  confidence: Record<string, 'high' | 'medium' | 'low'>
+  confidence: Record<string, AiConfidenceLevel>
   warnings: string[]
 }
 

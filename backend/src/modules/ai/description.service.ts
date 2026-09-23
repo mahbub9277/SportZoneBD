@@ -388,16 +388,27 @@ export async function parseMatchDetails(request: MatchParseRequest): Promise<Mat
         const explicitQuality = extractExplicitQuality(request.input)
         const normalizedSport = result.sport
         const normalizedDuration = result.expectedDurationMinutes ?? getSportDuration(normalizedSport)
-        const historicalMatches = await prisma.match.findMany({
+        const [reusableTeams, historicalMatches] = await Promise.all([
+          prisma.team.findMany({
+            where: { deletedAt: null },
+            select: { name: true, logoUrl: true },
+            orderBy: { updatedAt: 'desc' },
+            take: 200,
+          }),
+          prisma.match.findMany({
           where: { deletedAt: null },
           select: { homeTeamName: true, awayTeamName: true, homeTeamLogo: true, awayTeamLogo: true },
           orderBy: { updatedAt: 'desc' },
           take: 200,
-        })
-        const historicalTeams = historicalMatches.flatMap((match) => [
+          }),
+        ])
+        const historicalTeams = [
+          ...reusableTeams.map((team) => ({ name: team.name, logo: team.logoUrl })),
+          ...historicalMatches.flatMap((match) => [
           { name: match.homeTeamName, logo: match.homeTeamLogo },
           { name: match.awayTeamName, logo: match.awayTeamLogo },
-        ])
+          ]),
+        ]
         const resolvedHomeName = explicitTeams.homeTeamName ?? result.homeTeamName
         const resolvedAwayName = explicitTeams.awayTeamName ?? result.awayTeamName
         const homeLogo = resolveHistoricalTeamLogo(resolvedHomeName, historicalTeams)

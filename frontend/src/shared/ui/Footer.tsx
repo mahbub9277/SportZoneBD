@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { FaFacebookF, FaInstagram, FaTiktok, FaYoutube } from 'react-icons/fa6'
 import { appRoutes } from '../lib/routes'
-import localLogo from '../../assets/logo.png.jpeg'
+import localLogo from '../../assets/logo.png.webp'
 
 const socialLinks = [
   {

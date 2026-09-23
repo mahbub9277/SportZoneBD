@@ -15,6 +15,7 @@ interface DescriptionGeneratorProps {
 
 export function DescriptionGenerator({ entityType, title, subtitle, context, currentDescription, onGenerated, disabled = false }: DescriptionGeneratorProps) {
   const [generateDescription, { isLoading }] = useGenerateDescriptionMutation()
+  const hasContext = Object.values(context ?? {}).some((value) => value !== null && value !== undefined && String(value).trim() !== '')
   const handleGenerate = async () => {
     const normalizedTitle = title.trim()
     if (!normalizedTitle) {
@@ -37,9 +38,12 @@ export function DescriptionGenerator({ entityType, title, subtitle, context, cur
   }
 
   return (
-    <Button type="button" variant="outline" size="sm" onClick={() => void handleGenerate()} disabled={disabled || isLoading} aria-label={isLoading ? 'Generating description' : 'Generate description with AI'} title="Generate description with AI" className="gap-2">
-      {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-      {isLoading ? 'Generating...' : 'Generate with AI'}
-    </Button>
+    <div className="flex items-center gap-2">
+      <span className="hidden text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted sm:inline">{hasContext ? 'Context ready' : 'AI assist'}</span>
+      <Button type="button" variant="outline" size="sm" onClick={() => void handleGenerate()} disabled={disabled || isLoading} aria-label={isLoading ? 'Generating description' : 'Generate description with AI'} title="Generate description with AI" className="gap-2 border-accent/30 hover:border-accent/60 hover:bg-accent/5">
+        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+        {isLoading ? 'Drafting...' : 'Generate with AI'}
+      </Button>
+    </div>
   )
 }

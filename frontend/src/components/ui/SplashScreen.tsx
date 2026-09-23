@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
-import localLogo from '../../assets/site.logo.png'
+import localLogo from '../../assets/site.logo.webp'
 
 interface SplashScreenProps {
   isDataLoading: boolean

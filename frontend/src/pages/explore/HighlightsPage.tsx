@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, PictureInPicture2, PlayCircle, X } from 'lucide-react'
+import { ArrowRight, PlayCircle, X } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Card } from '../../components/ui/Card'
@@ -7,7 +7,6 @@ import { PageHero } from '../../components/shared/PageHero'
 import { CustomVideoPlayer } from '../../components/player/CustomVideoPlayer'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useGetHighlightsQuery } from '../../features/highlights/highlights.api'
-import { useMiniPlayer } from '../../hooks/common/layouts/UserLayout'
 
 const resolvePosterUrl = (thumbnail?: string | null, thumbnailUrl?: string | null) => {
   const source = thumbnail ?? thumbnailUrl
@@ -24,7 +23,6 @@ const resolvePosterUrl = (thumbnail?: string | null, thumbnailUrl?: string | nul
 
 export function HighlightsPage() {
   const shouldReduceMotion = useReducedMotion()
-  const { setActivePlayer } = useMiniPlayer()
   const { data, isLoading, isError } = useGetHighlightsQuery({ page: 1, limit: 50 })
   const highlights = data?.items ?? []
   const [selectedHighlight, setSelectedHighlight] = useState<(typeof highlights)[number] | null>(null)
@@ -33,16 +31,6 @@ export function HighlightsPage() {
     () => resolvePosterUrl(selectedHighlight?.thumbnail, selectedHighlight?.thumbnailUrl),
     [selectedHighlight],
   )
-
-  const openMiniPlayer = (highlight: (typeof highlights)[number]) => {
-    if (!highlight.url) return
-
-    setActivePlayer({
-      url: highlight.url,
-      title: highlight.title,
-      playbackRoute: '/highlights',
-    })
-  }
 
   return (
     <div className="app-page space-y-3">
@@ -71,50 +59,30 @@ export function HighlightsPage() {
         <>
           {selectedHighlight && selectedHighlight.url ? (
             <motion.section
+              aria-labelledby="highlight-player-title"
               initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: shouldReduceMotion ? 0 : 0.26, ease: 'easeOut' }}
-              className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/30 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+              className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.18)]"
             >
-              <div className="flex flex-col gap-3 border-b border-white/10 bg-surface-soft/80 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-soft/70 p-4">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted sm:text-[11px]">
-                    Highlight player
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                    Now playing
                   </p>
-                  <h3 className="mt-1 truncate text-base font-semibold text-white sm:text-lg">
+                  <h3 id="highlight-player-title" className="mt-1 truncate text-base font-semibold text-text-primary sm:text-lg">
                     {selectedHighlight.title}
                   </h3>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => openMiniPlayer(selectedHighlight)}
-                    className="inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-400/20"
-                  >
-                    <PictureInPicture2 className="h-3.5 w-3.5" />
-                    Mini player
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedHighlight(null)}
-                    aria-label="Close highlight player"
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+                <button type="button" onClick={() => setSelectedHighlight(null)} aria-label="Close highlight player" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-surface text-text-muted transition-colors hover:border-accent/50 hover:text-text-primary">
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              <div className="relative mx-auto w-full overflow-hidden bg-black">
-                <div className="aspect-video w-full min-h-65 sm:min-h-95 lg:min-h-130" aria-label={`${selectedHighlight.title} video`}>
-                  <CustomVideoPlayer
-                    url={selectedHighlight.url}
-                    title={selectedHighlight.title}
-                    poster={selectedPoster}
-                    autoPlay
-                  />
+              <div className="bg-black">
+                <div className="aspect-video w-full" aria-label={`${selectedHighlight.title} video`}>
+                  <CustomVideoPlayer url={selectedHighlight.url} title={selectedHighlight.title} poster={selectedPoster} autoPlay />
                 </div>
               </div>
             </motion.section>

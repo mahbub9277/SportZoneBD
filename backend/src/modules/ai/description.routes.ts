@@ -10,9 +10,15 @@ const descriptionLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 })
+const matchParseLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
 
 aiRouter.use(authenticate)
 aiRouter.post('/description/generate', descriptionLimiter, generateDescriptionController)
-aiRouter.post('/match/parse', descriptionLimiter, parseMatchController)
+aiRouter.post('/match/parse', matchParseLimiter, parseMatchController)
 
 export { aiRouter }

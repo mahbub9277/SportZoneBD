@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '../../components/ui/Input';
 import { useForgotPasswordMutation } from '../../features/auth/auth.api.ts';
 import { AlertCircle, ArrowRight, CheckCircle2, Mail } from 'lucide-react';
-import brandMark from '../../assets/logo.png.jpeg'
+import brandMark from '../../assets/logo.png.webp'
 
 const forgotPasswordSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),

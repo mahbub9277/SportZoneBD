@@ -74,6 +74,8 @@ function TeamNameField({ form, nameField, idField, logoField, label, placeholder
   const [isOpen, setIsOpen] = useState(false)
   const name = form.watch(nameField) ?? ''
   const selectedId = form.watch(idField) ?? ''
+  const selectedLogo = form.watch(logoField)
+  const selectedLogoPreview = useLogoPreview(selectedLogo)
   const debouncedName = useDebounce(name, 300)
 
   useEffect(() => {
@@ -93,7 +95,10 @@ function TeamNameField({ form, nameField, idField, logoField, label, placeholder
       <FormItem className={flatFormItemClass}>
         <FormLabel>{label}</FormLabel>
         <div className="relative">
-          <FormControl><Input placeholder={placeholder} className="min-h-11" {...field} value={field.value ?? ''} disabled={disabled} onFocus={() => setIsOpen(true)} onChange={(event) => { field.onChange(event); form.setValue(idField, null); form.setValue(logoField, null); setIsOpen(true) }} /></FormControl>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface/70 p-1.5 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/15">
+            {selectedLogoPreview ? <img src={selectedLogoPreview} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-accent/25 bg-surface-soft object-contain p-1" /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-soft text-[10px] font-semibold text-text-muted">{name.trim().slice(0, 2).toUpperCase() || 'TM'}</span>}
+            <FormControl><Input placeholder={placeholder} className="min-h-9 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0" {...field} value={field.value ?? ''} disabled={disabled} onFocus={() => setIsOpen(true)} onChange={(event) => { field.onChange(event); form.setValue(idField, null); form.setValue(logoField, null); setIsOpen(true) }} /></FormControl>
+          </div>
           {isOpen && name.trim().length >= 2 && !selectedId && <div className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-xl">
             {isFetching && <p className="px-3 py-2 text-xs text-text-muted">Searching teams...</p>}
             {!isFetching && results.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">No existing team found. Upload a new logo below.</p>}
@@ -103,7 +108,7 @@ function TeamNameField({ form, nameField, idField, logoField, label, placeholder
             </button>)}
           </div>}
         </div>
-        {selectedId && <p className="text-xs text-success">Using existing team logo</p>}
+        {selectedId && <p className="flex items-center gap-1.5 text-xs font-medium text-success"><span className="grid h-4 w-4 place-items-center rounded-full bg-success-soft">✓</span> Existing team selected · logo reused from Cloudinary</p>}
         <FormMessage />
       </FormItem>
     )} />
@@ -469,22 +474,23 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
       <div className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-accent/10 blur-3xl" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="relative min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-text-primary"><span className="grid h-7 w-7 place-items-center rounded-lg bg-accent/15 text-accent"><Sparkles className="h-4 w-4" /></span> AI Match Assistant</div>
-          <p className="mt-2 max-w-2xl text-xs leading-5 text-text-muted">Describe teams, competition, sport, date, and kickoff time in English, Bangla, Banglish, or mixed language. AI suggests fields for your review and never saves the match.</p>
+          <div className="flex items-center gap-2 text-sm font-semibold text-text-primary"><span className="grid h-8 w-8 place-items-center rounded-xl bg-accent/15 text-accent shadow-sm"><Sparkles className="h-4 w-4" /></span><span>AI Match Copilot</span><span className="rounded-full border border-success/25 bg-success-soft px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-success">Ready</span></div>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-text-muted">Describe the fixture naturally. The assistant extracts trusted details for review and never saves anything by itself.</p>
         </div>
-        <span className="relative self-start rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">Admin assistant</span>
+        <span className="relative self-start rounded-full border border-border bg-surface/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Human review required</span>
       </div>
       <div className="relative mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-stretch">
-        <Input value={input} onChange={(event) => setInput(event.target.value)} maxLength={2000} aria-label="Describe match for AI autofill" placeholder="আজ Real Madrid vs Barcelona football রাত 11:30 La Liga" disabled={disabled || isLoading} className="min-h-11 min-w-0 bg-background/35 pr-4" />
+        <Input value={input} onChange={(event) => setInput(event.target.value)} maxLength={2000} aria-label="Describe match for AI autofill" placeholder="Real Madrid vs Barcelona, La Liga, tonight at 11:30" disabled={disabled || isLoading} className="min-h-11 min-w-0 bg-background/35 pr-4" />
         <Button type="button" onClick={() => void handleParse()} disabled={disabled || isLoading} className="min-h-11 shrink-0 gap-2 px-5 shadow-md shadow-accent/10 sm:min-w-40">
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           {isLoading ? 'Autofilling...' : 'Autofill with AI'}
         </Button>
       </div>
+      <div className="relative mt-3 flex flex-wrap items-center gap-2 text-[10px] text-text-muted"><span className="font-semibold uppercase tracking-[0.14em] text-text-secondary">Try:</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">Teams + competition</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">Sport + kickoff</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">English · Bangla · Banglish</span></div>
       {lastResult && !isLoading && (
         <div className="relative mt-3 flex flex-col gap-2 rounded-xl border border-border/70 bg-background/25 px-3 py-2.5 text-xs sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-2"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success-soft text-success">✓</span><div className="min-w-0"><p className="truncate text-text-secondary">Suggestion applied{lastResult.title ? ` for ${lastResult.title}` : ''}. Review before saving.</p><div className="mt-2 flex flex-wrap gap-1.5"><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.homeTeamName || 'Team 1 unresolved'}</span><span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] text-accent">{lastResult.sport || 'Sport review'}</span><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.awayTeamName || 'Team 2 unresolved'}</span></div></div></div>
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-text-muted"><span>{lastResult.timezone}</span>{lastResult.kickoffDate && lastResult.kickoffTime && <span>{lastResult.kickoffDate} {lastResult.kickoffTime}</span>}{lastResult.expectedDurationMinutes && <span>{lastResult.expectedDurationMinutes} min</span>}{reviewCount > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{reviewCount} manual review{reviewCount === 1 ? '' : 's'}</span>}{lastResult.warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{lastResult.warnings.length} review note{lastResult.warnings.length === 1 ? '' : 's'}</span>}</div>
+          <div className="flex min-w-0 flex-1 items-start gap-2"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success-soft text-success">✓</span><div className="min-w-0"><p className="truncate font-medium text-text-primary">Draft details extracted{lastResult.title ? ` for ${lastResult.title}` : ''}</p><p className="mt-0.5 text-[11px] text-text-muted">Review the highlighted fields before saving.</p><div className="mt-2 flex flex-wrap gap-1.5"><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.homeTeamName || 'Team 1 unresolved'}</span><span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] text-accent">{lastResult.sport || 'Sport review'}</span><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.awayTeamName || 'Team 2 unresolved'}</span></div></div></div>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-text-muted"><span>{lastResult.timezone}</span>{lastResult.kickoffDate && lastResult.kickoffTime && <span>{lastResult.kickoffDate} {lastResult.kickoffTime}</span>}{lastResult.expectedDurationMinutes && <span>{lastResult.expectedDurationMinutes} min</span>}<span className="rounded-full bg-success-soft px-2 py-0.5 text-success">{Object.values(lastResult.confidence).filter((level) => level === 'high').length} high-confidence</span>{reviewCount > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{reviewCount} manual review{reviewCount === 1 ? '' : 's'}</span>}{lastResult.warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{lastResult.warnings.length} review note{lastResult.warnings.length === 1 ? '' : 's'}</span>}</div>
         </div>
       )}
     </section>

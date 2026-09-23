@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import localLogo from '../../../assets/logo.png.jpeg'
+import localLogo from '../../../assets/logo.png.webp'
 
 export function SidebarHeader() {
   return (

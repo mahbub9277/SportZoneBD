@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { buildCloudinaryUrl } from '../../utils/cloudinary.ts'
 import { SearchBox } from './SearchBox.tsx'
 import { CommandKMenu } from '../../components/shared/CommandKMenu.tsx'
-import localLogo from '../../assets/logo.png.jpeg'
+import localLogo from '../../assets/logo.png.webp'
 
 interface HeaderProps {
   onMenuClick: () => void
