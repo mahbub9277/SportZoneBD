@@ -8,13 +8,7 @@ const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '
 
 const baseQuery = fetchBaseQuery({
   baseUrl: apiBaseUrl,
-  // This ensures that cookies are sent with every request
   credentials: 'include',
-  prepareHeaders: (headers, { getState }) => {
-    const token = (getState() as { auth?: { token?: string | null } }).auth?.token
-    if (token) headers.set('Authorization', `Bearer ${token}`)
-    return headers
-  },
 })
 
 // Create a generic action to signal that the user is unauthenticated.
@@ -66,11 +60,7 @@ export const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, Fetch
         )
 
         if (refreshResult.data) {
-          const refreshedToken = (refreshResult.data as { accessToken?: unknown }).accessToken
-          if (typeof refreshedToken === 'string') {
-            api.dispatch({ type: 'auth/setAccessToken', payload: refreshedToken })
-          }
-          // The backend has set new cookies. Retry the original request.
+          // The backend has rotated the httpOnly cookies. Retry the original request.
           result = await baseQuery(args, api, extraOptions) // Re-run the original query with the new token
         } else {
           const message = 'Your session has expired. Please log in again.'

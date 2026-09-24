@@ -254,7 +254,6 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
 
   adminNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth.token
-      || socket.handshake.headers.authorization?.split(' ')[1]
       || getCookieValue(socket.handshake.headers.cookie, ACCESS_TOKEN_COOKIE)
     if (!token) {
       return next(new Error('Authentication error: No token provided'))
@@ -292,7 +291,6 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token
-      || socket.handshake.headers.authorization?.split(' ')[1]
       || getCookieValue(socket.handshake.headers.cookie, ACCESS_TOKEN_COOKIE)
     if (!token) return next()
     try {

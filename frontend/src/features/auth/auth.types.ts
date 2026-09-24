@@ -51,11 +51,7 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  [x: string]: unknown;
   user: User;
-  accessToken?: string;
 }
 
-export interface RefreshResponse {
-  accessToken: string;
-}
+export type RefreshResponse = Record<string, never>

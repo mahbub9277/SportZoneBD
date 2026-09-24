@@ -20,15 +20,6 @@ export interface AuthenticatedRequest extends Request {
 }
 
 function getAccessToken(req: Request): string | undefined {
-  const authorization = req.headers.authorization?.trim()
-  if (authorization) {
-    const [scheme, ...tokenParts] = authorization.split(/\s+/)
-    if (scheme?.toLowerCase() === 'bearer' && tokenParts.length > 0) {
-      const token = tokenParts.join(' ').trim()
-      if (token) return token
-    }
-  }
-
   const cookieToken = req.cookies?.accessToken
   return typeof cookieToken === 'string' && cookieToken.trim() ? cookieToken.trim() : undefined
 }
@@ -37,7 +28,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   const token = getAccessToken(req)
 
   if (!token) {
-    next(new UnauthorizedError('Missing bearer token'))
+    next(new UnauthorizedError('Authentication required'))
     return
   }
 

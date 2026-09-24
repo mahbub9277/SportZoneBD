@@ -50,7 +50,7 @@ const setAuthCookies = (res: Response, accessToken: string, refreshToken: string
  * @param res The Express Response object.
  * @param userId The ID of the user for whom to create the session.
  */
-export async function createSessionAndSetCookies(res: Response, userId: string) {
+export async function createSessionAndSetCookies(res: Response, userId: string): Promise<void> {
   // Use a transaction to ensure session creation and token hashing are atomic.
   const { accessToken, refreshToken } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // 1. Create a new session in the database
@@ -68,7 +68,6 @@ export async function createSessionAndSetCookies(res: Response, userId: string) 
     return { accessToken, refreshToken: newRefreshToken }
   });
   setAuthCookies(res, accessToken, refreshToken)
-  return accessToken
 }
 
 export async function registerUser(req: Request, res: Response) {
@@ -159,9 +158,9 @@ export async function loginUser(req: Request, res: Response) {
   }
 
   const userProfile = await getUserProfile(user.id)
-  const accessToken = await createSessionAndSetCookies(res, user.id)
+  await createSessionAndSetCookies(res, user.id)
 
-  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Login successful'))
+  return res.status(200).json(successResponse({ user: userProfile }, 'Login successful'))
 }
 
 export async function loginAdmin(req: Request, res: Response) {
@@ -190,8 +189,8 @@ export async function loginAdmin(req: Request, res: Response) {
   }
 
   const userProfile = await getUserProfile(user.id)
-  const accessToken = await createSessionAndSetCookies(res, user.id)
-  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Admin login successful'))
+  await createSessionAndSetCookies(res, user.id)
+  return res.status(200).json(successResponse({ user: userProfile }, 'Admin login successful'))
 }
 
 export async function verifyEmail(req: Request, res: Response) {
@@ -216,9 +215,9 @@ export async function verifyEmail(req: Request, res: Response) {
   })
 
   const userProfile = await getUserProfile(user.id)
-  const accessToken = await createSessionAndSetCookies(res, user.id)
+  await createSessionAndSetCookies(res, user.id)
 
-  return res.status(200).json(successResponse({ user: userProfile, accessToken }, 'Email verified successfully.'))
+  return res.status(200).json(successResponse({ user: userProfile }, 'Email verified successfully.'))
 }
 
 export async function resendOtp(req: Request, res: Response) {
@@ -463,7 +462,7 @@ export async function refreshAccessToken(req: Request, res: Response) {
       return newAccessToken
     })
 
-    return res.status(200).json(successResponse({ accessToken: newAccessToken }, 'Token refreshed successfully'))
+    return res.status(200).json(successResponse({}, 'Token refreshed successfully'))
   } catch (error) {
     // Only clear cookies for authorization errors. Let other errors (e.g., database)
     // be handled by the global error handler.
@@ -481,6 +480,6 @@ export async function refreshAccessToken(req: Request, res: Response) {
 
 export async function googleCallback(req: any, res: Response) {
   const { user } = req
-  const accessToken = await createSessionAndSetCookies(res, user.id)
-  res.redirect(`${FRONTEND_URL.replace(/\/$/, '')}/auth/google/callback#accessToken=${encodeURIComponent(accessToken)}`)
+  await createSessionAndSetCookies(res, user.id)
+  res.redirect(`${FRONTEND_URL.replace(/\/$/, '')}/auth/google/callback`)
 }

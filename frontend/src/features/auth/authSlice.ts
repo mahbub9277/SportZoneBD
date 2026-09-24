@@ -7,8 +7,6 @@ import { accountRestricted, unauthenticated } from '../../app/api/baseQueryWithR
 
 export interface AuthState {
   isAuthenticated: boolean
-  // The JWT token is best managed by httpOnly cookies for security.
-  token: string | null
   user: User | null
   isInitializing: boolean
   accountStatus: 'active' | 'suspended' | 'banned' | 'deactivated' | null
@@ -17,7 +15,6 @@ export interface AuthState {
 
 const initialState: AuthState = {
   ...loadAuthState(),
-  token: null, // Token is not persisted in localStorage for security
   isInitializing: true,
   accountStatus: null,
   accountStatusMessage: null,
@@ -43,7 +40,6 @@ const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginRes
   const user = extractUserFromPayload(payload)
 
   state.user = user
-  if (isLoginResponse(payload) && payload.accessToken) state.token = payload.accessToken
   state.isAuthenticated = true
   state.isInitializing = false
   state.accountStatus = null
@@ -58,20 +54,16 @@ const authSlice = createSlice({
     },
     setCredentials: (
       state,
-      action: PayloadAction<{ user: User; rememberMe?: boolean; accessToken?: string }>,
+      action: PayloadAction<{ user: User; rememberMe?: boolean }>,
     ) => {
-      const { user, rememberMe = false, accessToken } = action.payload
+      const { user, rememberMe = false } = action.payload
 
       state.user = user
-      if (accessToken) state.token = accessToken
       state.isAuthenticated = true
       state.isInitializing = false
       state.accountStatus = null
       state.accountStatusMessage = null
       saveAuthState(user, null, rememberMe)
-    },
-    setAccessToken: (state, action: PayloadAction<string | null>) => {
-      state.token = action.payload
     },
     setUser: (state, action: PayloadAction<{ user: User }>) => {
       const { user } = action.payload
@@ -84,7 +76,6 @@ const authSlice = createSlice({
     },
     logout: (state) => {
       state.isAuthenticated = false
-      state.token = null
       state.user = null
       state.isInitializing = false
       clearAuthState()
@@ -102,8 +93,8 @@ const authSlice = createSlice({
         ),
         handleAuthSuccess,
       )
-      .addMatcher(authApi.endpoints.refreshSession.matchFulfilled, (state, { payload }) => {
-        state.token = payload.accessToken
+      .addMatcher(authApi.endpoints.refreshSession.matchFulfilled, (state) => {
+        state.isInitializing = true
       })
       // Matcher for when profile is updated, only updates the user object.
       .addMatcher(authApi.endpoints.updateProfile.matchFulfilled, (state, { payload }) => {
@@ -140,10 +131,9 @@ const authSlice = createSlice({
   },
 })
 
-export const { setAuthInitializing, setCredentials, setAccessToken, setUser, logout } = authSlice.actions
+export const { setAuthInitializing, setCredentials, setUser, logout } = authSlice.actions
 
 export const selectIsAuthenticated = (state: RootState) => state.auth.isAuthenticated
-export const selectCurrentToken = (state: RootState) => state.auth.token
 export const selectCurrentUser = (state: RootState) => state.auth.user
 export const selectAccountStatus = (state: RootState) => state.auth.accountStatus
 export const selectAccountStatusMessage = (state: RootState) => state.auth.accountStatusMessage

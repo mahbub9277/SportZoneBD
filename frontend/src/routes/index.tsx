@@ -11,7 +11,7 @@ import AuthLayout from '@/hooks/common/layouts/AuthLayout'
 
 import { store } from '@/app/store'
 import { authApi } from '@/features/auth/auth.api.ts'
-import { selectCurrentToken, setAccessToken, setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
+import { setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
 import { useGetMeQuery } from '@/features/auth/auth.api'
 // Lazy-loaded Pages
 const lazyRoute = (factory: () => Promise<Record<string, unknown>>, exportName: string) =>
@@ -109,19 +109,7 @@ const GuestRoute = () => {
 const GoogleAuthCallback = () => {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const currentToken = useAppSelector(selectCurrentToken)
-  const accessTokenFromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('accessToken')
-  const shouldWaitForHashToken = Boolean(accessTokenFromHash && !currentToken)
-  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, { skip: shouldWaitForHashToken || !currentToken })
-
-  useEffect(() => {
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-    const accessToken = hashParams.get('accessToken')
-    if (accessToken) {
-      dispatch(setAccessToken(accessToken))
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
-    }
-  }, [dispatch])
+  const { data: user, isLoading, isFetching, isError } = useGetMeQuery()
 
   useEffect(() => {
     if (isError) {

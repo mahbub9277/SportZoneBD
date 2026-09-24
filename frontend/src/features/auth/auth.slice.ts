@@ -10,4 +10,3 @@ export {
   selectIsInitializing as selectIsAuthInitializing, // Alias for use in App.tsx
   selectIsAdmin,
 } from './authSlice'
-export { selectCurrentToken } from './authSlice' 

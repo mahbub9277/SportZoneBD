@@ -2,7 +2,7 @@ import React, { createContext, startTransition, useCallback, useContext, useEffe
 import { io, type Socket } from 'socket.io-client'
 import { useAppSelector } from '../app/hooks'
 import { useAppDispatch } from '../app/hooks'
-import { selectCurrentToken, selectIsAuthenticated } from '../features/auth/authSlice'
+import { selectIsAuthenticated } from '../features/auth/authSlice'
 import { notificationsApi } from '../features/notifications/notification.api'
 import type { Notification } from '../features/notifications/notification.types'
 import { matchesApi } from '../features/matches/matches.api'
@@ -133,7 +133,6 @@ const getSocketBackendUrl = () => {
 }
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const authToken = useAppSelector(selectCurrentToken)
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
   const dispatch = useAppDispatch()
   const [socket, setSocket] = useState<AppSocket | null>(null)
@@ -238,7 +237,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       reconnectionDelayMax: 3000,
       timeout: 20000,
       autoConnect: true,
-      ...(authToken ? { auth: { token: authToken } } : {}),
     }) as AppSocket
 
     adminSocketRef.current = adminSocketInstance
@@ -267,7 +265,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsAdminConnected(false)
       })
     }
-  }, [authToken, isAuthenticated, socketBackendUrl])
+  }, [isAuthenticated, socketBackendUrl])
 
   const value = useMemo(
     () => ({ socket, adminSocket, isConnected, isAdminConnected }),

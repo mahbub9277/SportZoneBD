@@ -37,7 +37,7 @@ async function reservePremiumDevice(req: Request, res: Response, userId: string,
 }
 
 async function verifyPremiumAccess(req: Request, res: Response): Promise<void> {
-  if (!req.headers.authorization && !req.cookies?.accessToken) {
+  if (!req.cookies?.accessToken) {
     throw new PremiumRequiredError()
   }
 
