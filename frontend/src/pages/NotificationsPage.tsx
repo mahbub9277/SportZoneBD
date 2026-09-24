@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowUpRight, BellRing, CheckCircle, AlertTriangle, Info, Loader2, Trash2 } from 'lucide-react'
+import { ArrowUpRight, BellRing, CheckCircle, AlertTriangle, Info, Loader2, Trash2, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useDeleteAllNotificationsMutation, useDeleteNotificationMutation, useGetNotificationsQuery, useMarkAllNotificationsAsReadMutation, useMarkNotificationAsReadMutation } from '../features/notifications/notification.api'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -17,7 +17,12 @@ const notificationIcons = {
   default: <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center"><BellRing className="h-5 w-5 text-(--text-muted)" /></motion.div>,
 }
 
-export function NotificationsPage() {
+interface NotificationsPageProps {
+  embedded?: boolean
+  onClose?: () => void
+}
+
+export function NotificationsPage({ embedded = false, onClose }: NotificationsPageProps) {
   const [page, setPage] = useState(1)
   const shouldReduceMotion = useReducedMotion()
   const { data, isLoading, isFetching, isError, refetch } = useGetNotificationsQuery({ page, limit: 25 })
@@ -38,12 +43,16 @@ export function NotificationsPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page w-full min-w-0 space-y-3 px-4 pb-8 sm:px-6 lg:p-8">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight text-(--text-primary)">Notifications</h1>
-        <div className="flex items-center gap-2">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0 space-y-3', embedded ? 'h-full overflow-y-auto p-4 sm:p-5' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className={cn('flex items-center justify-between gap-3', embedded ? 'border-b border-border/70 pb-4' : 'app-page-section')}>
+        <div className="min-w-0">
+          <h1 className={cn('font-bold tracking-tight text-(--text-primary)', embedded ? 'text-xl' : 'text-3xl')}>Notifications</h1>
+          {embedded && <p className="mt-1 text-xs text-(--text-muted)">Your latest account and match updates</p>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
           {notifications.some((n) => !n.isRead) && <Button variant="outline" size="sm" onClick={() => markAllAsRead()} disabled={isMarkingAllAsRead} isLoading={isMarkingAllAsRead}>{isMarkingAllAsRead ? 'Marking as read...' : 'Mark all as read'}</Button>}
           {notifications.length > 0 && <Button type="button" variant="ghost" size="icon" onClick={() => deleteAllNotifications()} disabled={isDeletingAll} aria-label="Delete all notifications" title="Delete all notifications"><Trash2 className={cn('h-4 w-4', isDeletingAll && 'animate-pulse')} /></Button>}
+          {embedded && <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close notifications" title="Close notifications"><X className="h-5 w-5" /></Button>}
         </div>
       </motion.div>
 

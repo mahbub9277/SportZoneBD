@@ -15,10 +15,20 @@ import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
 import { filterMatches, getMatchStatus, sortMatches } from '../matches/matchOrdering'
 import { formatMatchKickoff } from '../../utils/matchDateTime'
 
+const HOMEPAGE_MATCH_LIMIT = 24
+
+const optimizeCloudinaryUrl = (url?: string | null, width = 1600) => {
+  if (!url) return url ?? ''
+
+  if (!/cloudinary\.com/i.test(url)) return url
+
+  return url.replace(/\/upload\//, `/upload/f_auto,q_auto,w_${width},dpr_auto,c_fill,g_center/`)
+}
+
 export function HomePage() {
   const { data: matchesData, isLoading, isError } = useGetMatchesQuery({
     page: 1,
-    limit: 100,
+    limit: HOMEPAGE_MATCH_LIMIT,
     sort: 'date-asc',
     activeOnly: true,
   })
@@ -31,7 +41,11 @@ export function HomePage() {
     const live = filterMatches(sortedMatches, 'LIVE')
     const upcoming = filterMatches(sortedMatches, 'UPCOMING')
 
-    return { liveMatches: live, upcomingMatches: upcoming, allMatches: sortedMatches };
+    return {
+      liveMatches: live.slice(0, 8),
+      upcomingMatches: upcoming.slice(0, 8),
+      allMatches: sortedMatches.slice(0, HOMEPAGE_MATCH_LIMIT),
+    }
   }, [matches])
 
   const stats = useMemo(() => {
@@ -87,15 +101,17 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
   const banner = banners[activeIndex % banners.length]
   const isVideo = banner.type === 'VIDEO' && Boolean(banner.videoUrl)
   const bannerLink = banner.ctaUrl?.trim() || ''
+  const bannerImage = optimizeCloudinaryUrl(banner.imageUrl ?? null, 1800)
+  const bannerPoster = optimizeCloudinaryUrl(banner.posterUrl ?? banner.imageUrl ?? null, 1600)
   const openBannerLink = () => { if (bannerLink) window.location.assign(bannerLink) }
   const selectBanner = (index: number) => {
     setSlideDirection(index >= activeIndex ? 1 : -1)
     setActiveIndex(index)
   }
-  return <motion.section role={bannerLink ? 'link' : undefined} tabIndex={bannerLink ? 0 : undefined} onClick={bannerLink ? openBannerLink : undefined} onKeyDown={bannerLink ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openBannerLink() } } : undefined} aria-label={bannerLink ? `Open ${banner.title}` : undefined} className={cn('relative w-full aspect-16/6.5 min-h-56 overflow-hidden bg-(--surface-strong) px-3 sm:aspect-16/5 sm:min-h-64 sm:px-0 lg:min-h-0', bannerLink && 'cursor-pointer')} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
+  return <motion.section role={bannerLink ? 'link' : undefined} tabIndex={bannerLink ? 0 : undefined} onClick={bannerLink ? openBannerLink : undefined} onKeyDown={bannerLink ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openBannerLink() } } : undefined} aria-label={bannerLink ? `Open ${banner.title}` : undefined} className={cn('relative w-full overflow-hidden rounded-3xl border border-white/10 bg-(--surface-strong) px-3 shadow-premium sm:px-0', 'aspect-16/8 min-h-60 sm:aspect-16/6 lg:aspect-[16/5.2]', bannerLink && 'cursor-pointer')} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
     <AnimatePresence initial={false} mode="wait" custom={slideDirection}>
       <motion.div key={banner.id} custom={slideDirection} variants={{ enter: (direction: number) => ({ opacity: 0, x: direction * 44, scale: 1.025 }), center: { opacity: 1, x: 0, scale: 1 }, exit: (direction: number) => ({ opacity: 0, x: direction * -44, scale: 0.99 }) }} initial="enter" animate="center" exit="exit" transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} className="absolute inset-0">
-        {isVideo ? <video src={banner.videoUrl ?? undefined} poster={banner.posterUrl ?? banner.imageUrl ?? undefined} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover object-center" onError={(event) => { event.currentTarget.style.display = 'none' }} /> : banner.imageUrl ? <img src={banner.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-center" fetchPriority="high" /> : null}
+        {isVideo ? <video src={banner.videoUrl ?? undefined} poster={bannerPoster || undefined} autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 h-full w-full object-cover object-center" onError={(event) => { event.currentTarget.style.display = 'none' }} /> : bannerImage ? <img src={bannerImage} alt={banner.title} className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" fetchPriority="high" decoding="async" /> : null}
         <div className="absolute inset-0 bg-linear-to-r from-black/85 via-black/45 to-transparent" /><div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/35 to-transparent" />
         <div className="relative z-10 flex h-full items-end p-3 sm:p-8 sm:pb-8 lg:p-12"><motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }} className="max-w-2xl space-y-2 sm:space-y-4">{banner.badge && banner.badge !== 'SportZoneBD' && <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white sm:text-xs sm:tracking-[0.28em]">{banner.badge}</p>}<h1 className="text-xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">{banner.title}</h1>{banner.subtitle && <p className="max-w-xl text-[11px] leading-5 text-white sm:text-base sm:leading-7">{banner.subtitle}</p>}</motion.div></div>
       </motion.div>
@@ -106,18 +122,18 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
 
 const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
   const isLive = featuredMatch ? getMatchStatus(featuredMatch) === 'LIVE' : false
-  const homeLogo = featuredMatch?.homeTeamLogo
-  const awayLogo = featuredMatch?.awayTeamLogo
+  const homeLogo = featuredMatch ? optimizeCloudinaryUrl(featuredMatch.homeTeamLogo, 180) : undefined
+  const awayLogo = featuredMatch ? optimizeCloudinaryUrl(featuredMatch.awayTeamLogo, 180) : undefined
 
   return (
-    <motion.section className="home-page-section relative min-h-105 overflow-hidden rounded-4xl border border-border bg-(--surface) shadow-premium sm:min-h-120" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
+    <motion.section className="home-page-section relative min-h-60 overflow-hidden rounded-4xl border border-border bg-(--surface) shadow-premium sm:min-h-75" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
       <div className="absolute inset-0 bg-linear-to-br from-surface-strong via-surface to-accent/10" />
       <div className="relative z-10 flex min-h-105 items-end p-6 sm:min-h-120 sm:p-10 lg:p-14">
         <div className="max-w-2xl space-y-5">
           {featuredMatch && <div className="flex items-center gap-5" aria-label={`${featuredMatch.homeTeamName ?? 'Team 1'} versus ${featuredMatch.awayTeamName ?? 'Team 2'}`}>
-            {homeLogo && <img src={homeLogo} alt={featuredMatch.homeTeamName ?? 'Team 1'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" />}
+            {homeLogo && <img src={homeLogo} alt={featuredMatch.homeTeamName ?? 'Team 1'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" />}
             <span className="text-xl font-black text-accent sm:text-3xl">VS</span>
-            {awayLogo && <img src={awayLogo} alt={featuredMatch.awayTeamName ?? 'Team 2'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" />}
+            {awayLogo && <img src={awayLogo} alt={featuredMatch.awayTeamName ?? 'Team 2'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" />}
           </div>}
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.28em] text-(--accent)"><span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-rose-400 motion-safe:animate-pulse' : 'bg-(--accent)')} />{isLive ? 'Live now' : 'Next on SportZoneBD'}</p>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">{featuredMatch?.title ?? 'Every match, one clear view.'}</h1>

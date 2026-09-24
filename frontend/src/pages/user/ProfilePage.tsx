@@ -79,17 +79,20 @@ export function ProfilePage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-3">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary">My Profile</h1>
-          <p className="mt-1 text-sm text-text-muted">Your home for favorites, account details, and quick access to the best live content.</p>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-4 overflow-x-hidden sm:space-y-5">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section relative overflow-hidden rounded-3xl border border-border bg-linear-to-br from-surface via-surface/90 to-accent/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-accent/8 blur-3xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Account center</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl">My Profile</h1>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-text-muted">Your home for favorites, account details, and quick access to the best live content.</p>
         </div>
         <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline">
-              <span className="flex items-center gap-2">
-                <Edit size={16} /> Edit Profile
+            <Button variant="outline" className="w-full shrink-0 sm:w-auto">
+              <span className="flex items-center justify-center gap-2">
+                <Edit size={16} aria-hidden="true" /> Edit Profile
               </span>
             </Button>
           </DialogTrigger>
@@ -101,21 +104,22 @@ export function ProfilePage() {
             <EditProfileForm user={user} onSubmit={handleProfileUpdate} isLoading={isUpdating} onCancel={() => setIsEditModalOpen(false)} />
           </DialogContent>
         </Dialog>
+        </div>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="app-page-card overflow-hidden border-border bg-surface/70 p-0">
-        <div className="flex flex-col gap-6 p-6 md:flex-row md:items-center md:justify-between md:p-8">
-          <div className="flex items-center gap-5">
-            <Avatar className="h-20 w-20 border-2 border-accent" isLoading={isUpdating}>
-              <AvatarImage src={user.avatar ? buildCloudinaryUrl(user.avatar) : undefined} alt={user.fullName ?? 'User Profile'} />
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="app-page-card overflow-hidden border-border bg-surface/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
+        <div className="flex flex-col gap-6 p-5 sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
+          <div className="flex min-w-0 items-center gap-4 sm:gap-5">
+            <Avatar className="h-16 w-16 shrink-0 border-2 border-accent shadow-[0_10px_30px_rgba(4,116,196,0.2)] sm:h-20 sm:w-20" isLoading={isUpdating}>
+              <AvatarImage src={user.avatar ? buildCloudinaryUrl(user.avatar, { width: 160, height: 160, crop: 'fill', gravity: 'face' }) : undefined} alt={user.fullName ?? 'User Profile'} />
               <AvatarFallback name={user.fullName ?? user.email ?? ''} className="text-2xl" />
             </Avatar>
-            <div>
-              <CardTitle className="text-2xl">{user.fullName}</CardTitle>
-              <p className="text-text-muted">{user.email}</p>
+            <div className="min-w-0">
+              <CardTitle className="truncate text-xl sm:text-2xl">{user.fullName}</CardTitle>
+              <p className="truncate text-sm text-text-muted sm:text-base">{user.email}</p>
               {isPremium && (
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-surface-soft/80 px-3 py-1 text-sm text-text-primary">
-                  <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+                <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-accent/30 bg-surface-soft/80 px-3 py-1 text-xs text-text-primary sm:text-sm">
+                  <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex shrink-0 items-center justify-center rounded-full bg-accent/12 p-1">
                     <ShieldCheck className="h-4 w-4 text-accent" />
                   </motion.div>
                   Premium member
@@ -123,10 +127,10 @@ export function ProfilePage() {
               )}
             </div>
           </div>
-          <div className="grid w-full gap-3 sm:grid-cols-2 md:w-auto">
+          <div className="grid w-full gap-3 sm:grid-cols-2 md:max-w-md md:shrink-0">
             <div className="rounded-2xl border border-border bg-surface-soft/80 p-4">
               <div className="flex items-center gap-2 text-sm text-text-primary">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/12">
                   <CalendarClock className="h-4 w-4 text-accent" />
                 </motion.div>
                 Member since
@@ -135,7 +139,7 @@ export function ProfilePage() {
             </div>
             <div className="rounded-2xl border border-border bg-surface-soft/80 p-4">
               <div className="flex items-center gap-2 text-sm text-text-primary">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/12">
                   <BellRing className="h-4 w-4 text-accent" />
                 </motion.div>
                 Alerts
@@ -147,9 +151,9 @@ export function ProfilePage() {
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="app-page-section grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card className="border-border bg-surface-soft/70 p-5">
+        <Card className="border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <div className="flex items-center gap-2 text-text-primary">
-            <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+            <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
               <Sparkles className="h-4 w-4 text-accent" />
             </motion.div>
             <h2 className="text-lg font-semibold">Quick access</h2>
@@ -162,16 +166,16 @@ export function ProfilePage() {
             </motion.div>
           </Link>
         </Card>
-        <Card className="flex flex-col border-border bg-surface-soft/70 p-5">
+        <Card className="flex min-w-0 flex-col border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <CardContent className="grow p-0">
             <div className="flex items-center gap-2 text-text-primary">
-              <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+              <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/12">
                 <Crown className="h-4 w-4 text-accent" />
               </motion.div>
-              <h2 className="text-lg font-semibold">Subscription Status</h2>
+              <h2 className="text-lg font-semibold">Subscription status</h2>
             </div>
             {isPremium && activeSubscription ? (
-              <p className="mt-2 text-sm text-text-muted">
+              <p className="mt-2 wrap-break-word text-sm leading-6 text-text-muted">
                 Status: <strong>ACTIVE</strong>. Plan: <strong>{activeSubscription.plan.name}</strong>. Price: <strong>{activeSubscription.plan.price} BDT</strong>. Started: <strong>{new Date(activeSubscription.startedAt).toLocaleString()}</strong>. Your access is valid until{' '}
                 <strong>{subscriptionEndDate}</strong>.
               </p>
@@ -191,16 +195,18 @@ export function ProfilePage() {
           </CardFooter>
         </Card>
 
-        <Card className="border-border bg-surface-soft/70 p-5">
+        <Card className="border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <div className="flex items-center gap-2 text-text-primary">
-            <BellRing className="h-4 w-4 text-accent" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
+              <BellRing className="h-4 w-4 text-accent" />
+            </span>
             <h2 className="text-lg font-semibold">Preferences</h2>
           </div>
           <p className="mt-2 text-sm text-text-muted">Custom alerts and saved matches are kept ready for your next session.</p>
         </Card>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
         <div className="flex items-center gap-2 text-text-primary">
           <h2 className="text-lg font-semibold">Recently Watched</h2>
         </div>
@@ -209,9 +215,9 @@ export function ProfilePage() {
         </div>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
         <div className="flex items-center gap-2 text-text-primary">
-          <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center">
+          <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
             <CreditCard className="h-4 w-4 text-accent" />
           </motion.div>
           <h2 className="text-lg font-semibold">Billing</h2>

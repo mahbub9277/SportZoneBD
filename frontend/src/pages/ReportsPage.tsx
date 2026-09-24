@@ -107,7 +107,7 @@ export default function ReportsPage() {
           <CardContent>
             <fieldset>
               <legend className="mb-2 block text-sm font-medium text-text-primary">1. What problem are you having?</legend>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="flex flex-wrap gap-2">
               {categoryOptions.map(({ value, label, icon: Icon }) => {
                 const isActive = category === value
                 return (
@@ -116,10 +116,10 @@ export default function ReportsPage() {
                     type="button"
                     onClick={() => setCategory(value)}
                     aria-pressed={isActive}
-                    className={`flex items-center gap-2 rounded-2xl border px-3 py-3 text-left text-sm transition ${
+                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-sm transition ${
                       isActive ?
-                        'border-accent/40 bg-accent/10 text-accent' :
-                        'border-border bg-surface-soft/70 text-text-muted hover:text-text-primary'
+                        'border-accent/40 bg-accent/10 text-accent shadow-[0_8px_24px_rgba(4,116,196,0.12)]' :
+                        'border-border bg-surface-soft/70 text-text-muted hover:border-accent/30 hover:text-text-primary'
                     }`}
                   >
                     <motion.div whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>

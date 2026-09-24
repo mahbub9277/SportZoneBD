@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Bell, ChevronDown, Crown, Menu, MoonStar, Search, Settings, SunMedium } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
@@ -22,6 +22,8 @@ import { SearchBox } from './SearchBox.tsx'
 import { CommandKMenu } from '../../components/shared/CommandKMenu.tsx'
 import localLogo from '../../assets/logo.png.webp'
 
+const NotificationsPage = lazy(() => import('../../pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })))
+
 interface HeaderProps {
   onMenuClick: () => void
 }
@@ -33,6 +35,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const hasActiveSubscription = Boolean(user?.subscription && user.subscription.status === 'ACTIVE' && new Date(user.subscription.expiresAt).getTime() > now)
   const { theme, toggleTheme } = useTheme()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [logout] = useLogoutMutation()
   const { data: notificationData } = useGetUnreadNotificationCountQuery(undefined, {
     skip: !isAuthenticated,
@@ -44,6 +47,17 @@ export function Header({ onMenuClick }: HeaderProps) {
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
   }, [user?.subscription, user?.subscription?.expiresAt])
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsNotificationsOpen(false)
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isNotificationsOpen])
 
   const handleLogout = async () => {
     try {
@@ -122,18 +136,24 @@ export function Header({ onMenuClick }: HeaderProps) {
             />
           </Button>
 
-          <Link to="/notifications" className="relative hidden sm:inline-flex" aria-label="View notifications">
-            <Button variant="ghost" size="icon" asChild>
-              <span className="relative flex h-9 w-9 items-center justify-center rounded-full">
-                <Bell className={cn('h-7 w-7 transition-all', notificationData && notificationData.count > 0 && 'fill-accent text-accent')} />
-              </span>
+          <div className="relative inline-flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full"
+              onClick={() => setIsNotificationsOpen((isOpen) => !isOpen)}
+              aria-label="View notifications"
+              aria-expanded={isNotificationsOpen}
+              aria-controls="notifications-panel"
+            >
+              <Bell className={cn('h-7 w-7 transition-all', notificationData && notificationData.count > 0 && 'fill-accent text-accent')} />
             </Button>
             {notificationData && notificationData.count > 0 && (
               <span className="pointer-events-none absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
                 {notificationData.count > 9 ? '9+' : notificationData.count}
               </span>
             )}
-          </Link>
+          </div>
 
           {isAuthenticated && user ? (
             <DropdownMenu>
@@ -205,6 +225,22 @@ export function Header({ onMenuClick }: HeaderProps) {
       </div>
 
       <CommandKMenu isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+
+      {isNotificationsOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Close notifications"
+            className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]"
+            onClick={() => setIsNotificationsOpen(false)}
+          />
+          <aside id="notifications-panel" aria-label="Notifications panel" className="fixed right-2 top-22 z-50 h-[min(720px,calc(100vh-6.5rem))] w-[min(42rem,calc(100vw-1rem))] overflow-hidden rounded-3xl border border-border bg-surface/95 shadow-[0_24px_90px_rgba(0,0,0,0.35)] backdrop-blur-2xl sm:right-5">
+            <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
+              <NotificationsPage embedded onClose={() => setIsNotificationsOpen(false)} />
+            </Suspense>
+          </aside>
+        </>
+      )}
     </header>
   )
 }

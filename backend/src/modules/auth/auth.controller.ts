@@ -19,20 +19,25 @@ const FRONTEND_URL = process.env.FRONTEND_URL ?? process.env.BASE_URL ?? 'http:/
 const ACCESS_TOKEN_COOKIE = 'accessToken'
 const REFRESH_TOKEN_COOKIE = 'refreshToken'
 const REFRESH_TOKEN_PATH = '/api/v1/auth'
+const isProduction = process.env.NODE_ENV === 'production'
+const cookieSecure = process.env.COOKIE_SECURE === 'true' || isProduction
+const cookieSameSite: 'none' | 'lax' = isProduction ? 'none' : 'lax'
+const cookieDomain = process.env.COOKIE_DOMAIN?.trim() || undefined
 
 const sharedCookieOptions = {
   httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
+  secure: cookieSecure,
+  sameSite: cookieSameSite,
+  ...(cookieDomain ? { domain: cookieDomain } : {}),
 }
 
 const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
-
   res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
     ...sharedCookieOptions,
     path: '/',
     maxAge: 15 * 60 * 1000, // 15 minutes
-  });
+  })
+
   res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
     ...sharedCookieOptions,
     path: '/api/v1/auth', // Important: Path should be specific to refresh/logout routes
