@@ -22,7 +22,14 @@ const REFRESH_TOKEN_PATH = '/api/v1/auth'
 const isProduction = process.env.NODE_ENV === 'production'
 const cookieSecure = process.env.COOKIE_SECURE === 'true' || isProduction
 const cookieSameSite: 'none' | 'lax' = isProduction ? 'none' : 'lax'
-const cookieDomain = process.env.COOKIE_DOMAIN?.trim() || undefined
+const configuredCookieDomain = process.env.COOKIE_DOMAIN?.trim()
+const cookieDomain = configuredCookieDomain && !configuredCookieDomain.includes('://') && !configuredCookieDomain.includes('/')
+  ? configuredCookieDomain
+  : undefined
+
+if (configuredCookieDomain && !cookieDomain) {
+  logger.warn('Ignoring invalid COOKIE_DOMAIN. Use a hostname only or leave it unset for a host-only cookie.')
+}
 
 const sharedCookieOptions = {
   httpOnly: true,
