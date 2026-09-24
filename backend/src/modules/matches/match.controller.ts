@@ -1,7 +1,8 @@
 import * as matchService from './match.service.js';
 import { prisma } from '../../core/prisma.js';
+import type { NextFunction, Request, Response } from 'express'
 
-export const getAllMatches = async (req, res, next) => {
+export const getAllMatches = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const matches = await matchService.getMatches();
     res.status(200).json(matches);
@@ -11,7 +12,7 @@ export const getAllMatches = async (req, res, next) => {
   }
 };
 
-export const updateMatch = async (req, res, next) => {
+export const updateMatch = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { body, files } = req;
@@ -34,7 +35,7 @@ export const updateMatch = async (req, res, next) => {
   }
 };
 
-export const createMatch = async (req, res, next) => {
+export const createMatch = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { body } = req;
     const matchData = { ...body };
@@ -52,14 +53,14 @@ export const createMatch = async (req, res, next) => {
   }
 };
 
-export const getMatchById = async (req, res, next) => {
+export const getMatchById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const match = await matchService.getMatchById(id);
     res.status(200).json(match);
-  } catch (error) {
+  } catch (error: unknown) {
     // If service throws 'Match not found', this will be a 404
-    res.status(error.message === 'Match not found' ? 404 : 500);
+    res.status(error instanceof Error && error.message === 'Match not found' ? 404 : 500);
     next(error);
   }
 };

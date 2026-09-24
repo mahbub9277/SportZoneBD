@@ -76,6 +76,10 @@ export const triggerManualSync = asyncHandler(async (req: Request, res: Response
     // Update job status to running
     const job = await ensureAutomationJob()
 
+    if (job.status === 'RUNNING') {
+      return res.status(409).json(errorResponse('An automation sync is already running.', 'SYNC_IN_PROGRESS'))
+    }
+
     await prisma.automationJob.update({
       where: { id: job.id },
       data: { status: 'RUNNING' },

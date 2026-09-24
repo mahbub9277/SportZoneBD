@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getPaginatedData } from '../services/pagination.service.js';
 import { successResponse } from '../core/api-response.js';
 import { hasPremiumAccess } from '../core/premiumGuard.js';
+import type { Prisma } from '@prisma/client'
 
 const getAllMatchesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -32,27 +33,25 @@ const getAllMatchesQuerySchema = z.object({
  * @access  Public
  */
 export const getAllMatches = asyncHandler(async (req, res) => {
-  const query = getAllMatchesQuerySchema.parse(req.query);
-  if (!query.sortBy && query.sort) {
-    const [field, order] = query.sort.includes(':') ? query.sort.split(':') : query.sort.split('-')
+  const parsedQuery = getAllMatchesQuerySchema.parse(req.query);
+  const { status, premium, activeOnly, sort, ...paginationQuery } = parsedQuery
+  let sortBy = parsedQuery.sortBy
+  if (!sortBy && sort) {
+    const [field, order] = sort.includes(':') ? sort.split(':') : sort.split('-')
     const sortableFields = new Set(['date', 'kickoffAt', 'title', 'createdAt'])
     const normalizedOrder = order === 'desc' ? 'desc' : 'asc'
     if (sortableFields.has(field)) {
-      query.sortBy = `${field === 'date' ? 'kickoffAt' : field}:${normalizedOrder}`
+      sortBy = `${field === 'date' ? 'kickoffAt' : field}:${normalizedOrder}`
     }
   }
-  delete query.sort
-  query.sortBy ??= 'createdAt:desc'
-  const where = {
-    ...(query.status ? { status: query.status } : query.activeOnly ? { status: { in: ['LIVE', 'UPCOMING'] } } : {}),
-    ...(query.premium !== undefined ? { premium: query.premium } : {}),
+  sortBy ??= 'createdAt:desc'
+  const where: Prisma.MatchWhereInput = {
+    ...(status ? { status } : activeOnly ? { status: { in: ['LIVE', 'UPCOMING'] as ('LIVE' | 'UPCOMING')[] } } : {}),
+    ...(premium !== undefined ? { premium } : {}),
   }
-  delete query.status
-  delete query.premium
-  delete query.activeOnly
   const { items, meta } = await getPaginatedData({
     model: 'match',
-    query,
+    query: { ...paginationQuery, sortBy },
     where,
     searchableFields: ['title', 'tournamentName', 'homeTeamName', 'awayTeamName'],
     include: {

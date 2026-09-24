@@ -130,7 +130,7 @@ export function loadAuthState(): StoredAuthState {
       return { user: null, isAuthenticated: false }
     }
 
-    return { user: parsedUser, isAuthenticated: true }
+    return { user: parsedUser, isAuthenticated: false }
   } catch (error) {
     console.error('Failed to load auth state', error)
     clearAuthState()

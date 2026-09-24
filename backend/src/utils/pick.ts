@@ -9,7 +9,7 @@
  *   pick({ a: 1, b: 2, c: 3 }, ['a', 'c']) // => { a: 1, c: 3 }
  *   pick(null, ['a']) // => {}
  */
-export const pick = (object, keys) => {
+export const pick = (object: Record<string, unknown> | null | undefined, keys: string[]): Record<string, unknown> => {
   if (!Array.isArray(keys)) {
     throw new TypeError('Keys argument must be an array');
   }
@@ -18,7 +18,7 @@ export const pick = (object, keys) => {
     return {};
   }
 
-  return keys.reduce((result, key) => {
+  return keys.reduce<Record<string, unknown>>((result, key) => {
     if (typeof key !== 'string') {
       return result;
     }

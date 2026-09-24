@@ -102,7 +102,8 @@ import type { User } from '@/features/auth/auth.types'
  * It redirects authenticated users to the home page.
  */
 const GuestRoute = () => {
-  const { isAuthenticated } = useAppSelector((state: RootState) => state.auth)
+  const { isAuthenticated, isInitializing } = useAppSelector((state: RootState) => state.auth)
+  if (isInitializing) return null
   return isAuthenticated ? <Navigate to="/" replace /> : <Outlet />
 }
 

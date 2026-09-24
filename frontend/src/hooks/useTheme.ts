@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { selectTheme, toggleTheme as toggleThemeAction } from '../features/settings/theme.slice'
 
@@ -10,8 +10,5 @@ export function useTheme() {
     dispatch(toggleThemeAction())
   }, [dispatch])
 
-  return useMemo(
-    () => ({ theme, toggleTheme }),
-    [theme, toggleTheme],
-  )
+  return { theme, toggleTheme }
 }

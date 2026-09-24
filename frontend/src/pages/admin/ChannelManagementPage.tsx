@@ -297,7 +297,7 @@ export function ChannelManagementPage() {
                       <img src={buildCloudinaryUrl(channel.logo, { width: 64, height: 64, crop: 'fill' })} alt={channel.name} className="h-16 w-16 rounded-full object-contain bg-gray-700 p-1" />
                       <p className="text-sm font-medium text-center">{channel.name}</p>
                       <div className="flex items-center gap-2 text-[10px] text-text-muted"><span>👍 {channel.reactionCounts?.like ?? 0}</span><span>👎 {channel.reactionCounts?.dislike ?? 0}</span></div>
-                      <div className="absolute top-1 right-1 flex opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="absolute right-1 top-1 flex rounded-full border border-border/70 bg-surface/90 p-0.5 opacity-100 shadow-sm backdrop-blur-sm transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                         <Button variant="ghost" size="icon" onClick={() => handleEditChannel(channel)} aria-label={`Edit channel ${channel.name}`}>
                           <Edit className="h-4 w-4" />
                         </Button>

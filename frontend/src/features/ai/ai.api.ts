@@ -9,6 +9,8 @@ export interface GenerateDescriptionRequest {
   title: string | null
   subtitle?: string
   context?: Record<string, unknown>
+  language?: 'auto' | 'en' | 'bn' | 'banglish'
+  tone?: 'professional' | 'concise' | 'friendly'
 }
 
 export interface ParseMatchRequest {

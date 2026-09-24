@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell, ChevronDown, Crown, Menu, MoonStar, Search, Settings, SunMedium } from 'lucide-react'
+import { Bell, BellRing, ChevronDown, Crown, Menu, MoonStar, Search, Settings, SunMedium } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { cn } from '../../lib/utils'
 import { useAppSelector } from '../../app/hooks'
@@ -235,9 +235,18 @@ export function Header({ onMenuClick }: HeaderProps) {
             onClick={() => setIsNotificationsOpen(false)}
           />
           <aside id="notifications-panel" aria-label="Notifications panel" className="fixed right-2 top-22 z-50 h-[min(720px,calc(100vh-6.5rem))] w-[min(42rem,calc(100vw-1rem))] overflow-hidden rounded-3xl border border-border bg-surface/95 shadow-[0_24px_90px_rgba(0,0,0,0.35)] backdrop-blur-2xl sm:right-5">
-            <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
-              <NotificationsPage embedded onClose={() => setIsNotificationsOpen(false)} />
-            </Suspense>
+            {isAuthenticated && user ? (
+              <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
+                <NotificationsPage embedded onClose={() => setIsNotificationsOpen(false)} />
+              </Suspense>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent"><BellRing className="h-7 w-7" /></span>
+                <h2 className="mt-4 text-lg font-semibold text-text-primary">Sign in to view notifications</h2>
+                <p className="mt-2 max-w-xs text-sm leading-6 text-text-muted">Create an account or sign in to receive match, highlight, and account updates.</p>
+                <Button asChild className="mt-5 rounded-full px-5" onClick={() => setIsNotificationsOpen(false)}><Link to="/login">Sign in</Link></Button>
+              </div>
+            )}
           </aside>
         </>
       )}

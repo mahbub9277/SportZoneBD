@@ -178,7 +178,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       dispatch(notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
         draft.count += 1
       }))
-      dispatch(notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25 }, (draft) => {
+      dispatch(notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25, unreadOnly: true }, (draft) => {
         if (draft.items.some((notification) => notification.id === payload.id)) return
 
         draft.items.unshift({

@@ -7,6 +7,8 @@ export interface ThemeState {
   theme: Theme
 }
 
+let themeSwitchFrame: number | undefined
+
 const getInitialTheme = (): Theme => {
   if (typeof window !== 'undefined' && window.localStorage) {
     const storedTheme = window.localStorage.getItem('theme')
@@ -28,13 +30,23 @@ const initialState: ThemeState = {
 
 const syncTheme = (theme: Theme) => {
   if (typeof document !== 'undefined') {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.style.colorScheme = theme
+    const root = document.documentElement
+    root.classList.add('theme-switching')
+    root.classList.toggle('dark', theme === 'dark')
+    root.style.colorScheme = theme
     if (theme === 'light') {
-      document.documentElement.dataset.theme = 'light'
+      root.dataset.theme = 'light'
     } else {
-      document.documentElement.removeAttribute('data-theme')
+      root.removeAttribute('data-theme')
     }
+
+    if (themeSwitchFrame !== undefined) window.cancelAnimationFrame(themeSwitchFrame)
+    themeSwitchFrame = window.requestAnimationFrame(() => {
+      themeSwitchFrame = window.requestAnimationFrame(() => {
+        root.classList.remove('theme-switching')
+        themeSwitchFrame = undefined
+      })
+    })
   }
   if (typeof window !== 'undefined' && window.localStorage) {
     try {

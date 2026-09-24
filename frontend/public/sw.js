@@ -23,7 +23,10 @@ self.addEventListener('push', (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'SportZoneBD', options),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const siteIsFocused = clientList.some((client) => client.visibilityState === 'visible' || client.focused)
+      return siteIsFocused ? undefined : self.registration.showNotification(data.title || 'SportZoneBD', options)
+    }),
   )
 })
 

@@ -12,14 +12,11 @@
     "types": ["node"],
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "allowJs": true,
-    "checkJs": false,
     "strict": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.js",
     "src/**/*.d.ts"
   ],
   "exclude": [

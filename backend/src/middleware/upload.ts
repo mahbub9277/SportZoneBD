@@ -1,4 +1,6 @@
 import multer from 'multer';
+import type { Field, FileFilterCallback } from 'multer'
+import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { ValidationError } from '../core/errors.js';
 
 // Configure multer to store files in memory.
@@ -30,7 +32,7 @@ const magicNumbers = {
   avi: [0x52, 0x49, 0x46, 0x46],
 };
 
-const validateFileMagicBytes = (buffer, mimeType) => {
+const validateFileMagicBytes = (buffer: Buffer, mimeType: string): boolean => {
   const bytes = buffer.slice(0, 4);
 
   if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
@@ -92,24 +94,24 @@ const validateFileMagicBytes = (buffer, mimeType) => {
   return false;
 };
 
-const fileFilter = (req, file, cb) => {
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback): void => {
   if (!file.mimetype || !allowedMimeTypes.has(file.mimetype.toLowerCase())) {
-    return cb(new ValidationError('Only JPG, PNG, WEBP images, or common video files are allowed.', { file: 'Invalid file type' }), false);
+    return cb(new ValidationError('Only JPG, PNG, WEBP images, or common video files are allowed.', { file: 'Invalid file type' }) as any, false);
   }
 
   cb(null, true);
 };
 
-const videoFileFilter = (req, file, cb) => {
+const videoFileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback): void => {
   if (!file.mimetype || !file.mimetype.toLowerCase().startsWith('video/')) {
-    return cb(new ValidationError('Only video files are allowed for video uploads.', { file: 'Invalid video type' }), false);
+    return cb(new ValidationError('Only video files are allowed for video uploads.', { file: 'Invalid video type' }) as any, false);
   }
 
   cb(null, true);
 };
 
-const validateUploadedFiles = (req) => {
-  const files = [];
+const validateUploadedFiles = (req: Request): void => {
+  const files: Express.Multer.File[] = [];
   if (req.file) files.push(req.file);
   if (Array.isArray(req.files)) files.push(...req.files);
   if (req.files && !Array.isArray(req.files)) {
@@ -123,7 +125,7 @@ const validateUploadedFiles = (req) => {
   }
 };
 
-const withContentValidation = (middleware) => (req, res, next) => {
+const withContentValidation = (middleware: RequestHandler): RequestHandler => (req: Request, res: Response, next: NextFunction) => {
   middleware(req, res, (error) => {
     if (error) return next(error);
     try {
@@ -143,9 +145,9 @@ const multerVideoUpload = multer({
 });
 
 export const upload = {
-  single: (field) => withContentValidation(multerUpload.single(field)),
-  array: (field, maxCount) => withContentValidation(multerUpload.array(field, maxCount)),
-  videoArray: (field) => withContentValidation(multerVideoUpload.array(field, 1)),
-  fields: (fields) => withContentValidation(multerUpload.fields(fields)),
+  single: (field: string) => withContentValidation(multerUpload.single(field)),
+  array: (field: string, maxCount: number) => withContentValidation(multerUpload.array(field, maxCount)),
+  videoArray: (field: string) => withContentValidation(multerVideoUpload.array(field, 1)),
+  fields: (fields: Field[]) => withContentValidation(multerUpload.fields(fields)),
 };
 

@@ -8,6 +8,8 @@ export const descriptionRequestSchema = z.object({
     (context) => Object.keys(context).length <= 24,
     'Too many context fields were provided.',
   ),
+  language: z.enum(['auto', 'en', 'bn', 'banglish']).default('auto'),
+  tone: z.enum(['professional', 'concise', 'friendly']).default('professional'),
 })
 
 export type DescriptionRequest = z.infer<typeof descriptionRequestSchema>

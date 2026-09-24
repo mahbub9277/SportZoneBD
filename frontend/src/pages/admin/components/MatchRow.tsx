@@ -6,6 +6,8 @@ import type { Match } from '../../../features/matches/matches.types'
 import { formatMatchKickoff } from '../../../utils/matchDateTime'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 
+const teamLogoTransform = { width: 96, height: 96, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const }
+
 interface MatchRowProps {
   match: Match
   onEdit: (match: Match) => void
@@ -31,20 +33,20 @@ export const MatchRow = memo(function MatchRow({ match, onEdit, onDelete }: Matc
       <td className="p-2 align-middle">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-28 shrink-0 items-center justify-center gap-1 rounded-xl border border-(--border) bg-(--surface-soft) px-1 text-[10px] font-bold text-(--text-muted)">
-            {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { width: 64, height: 64, crop: 'fit' })} alt="" className="h-8 w-8 rounded-full bg-surface object-contain" /> : <span>{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+            {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, teamLogoTransform)} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
             <span className="text-(--accent)">VS</span>
-            {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { width: 64, height: 64, crop: 'fit' })} alt="" className="h-8 w-8 rounded-full bg-surface object-contain" /> : <span>{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+            {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, teamLogoTransform)} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
           </div>
           <div className="min-w-0">
             <div className="truncate font-semibold text-(--text-primary)">{match.title}</div>
             <div className="flex min-w-0 items-center gap-2 text-xs text-(--text-muted)">
               <div className="flex shrink-0 items-center gap-1">
-                {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-5 w-5 rounded-full bg-surface object-contain" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+                {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
                 <span className="max-w-32 wrap-break-word">{match.homeTeamName || 'Team 1'}</span>
               </div>
               <span className="shrink-0 text-(--accent)">vs</span>
               <div className="flex min-w-0 items-center gap-1">
-                {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-5 w-5 rounded-full bg-surface object-contain" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+                {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
                 <span className="max-w-32 wrap-break-word">{match.awayTeamName || 'Team 2'}</span>
               </div>
             </div>

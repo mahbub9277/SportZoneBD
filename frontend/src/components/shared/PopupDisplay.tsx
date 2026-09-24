@@ -132,9 +132,12 @@ export function PopupDisplay() {
       <div className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto rounded-4xl border border-(--border) bg-(--surface)/95 p-4 shadow-[0_40px_100px_rgba(2,6,23,0.3)] sm:p-7">
         {currentPopup.imageUrl && (
           <img
-            src={buildCloudinaryUrl(currentPopup.imageUrl)}
+            src={buildCloudinaryUrl(currentPopup.imageUrl, { width: 1280, height: 720, crop: 'fill', gravity: 'auto', quality: 'auto', format: 'auto' })}
             alt={currentPopup.title}
-            className="mb-5 max-h-56 w-full rounded-3xl object-cover sm:h-72 sm:max-h-none"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            className="mb-5 aspect-video max-h-56 w-full rounded-3xl object-cover object-center sm:h-72 sm:max-h-none"
           />
         )}
 

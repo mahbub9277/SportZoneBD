@@ -58,6 +58,20 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
   const logoPreviewUrl = uploadedLogoPreviewUrl ?? editingChannel?.logo ?? null
 
   useEffect(() => {
+    if (!isOpen) return
+
+    form.reset({
+      name: editingChannel?.name ?? '',
+      logo: undefined,
+      url: editingChannel?.url ?? '',
+      viewers: editingChannel?.viewers ?? 1280,
+      categoryId: editingChannel?.categoryId ?? '',
+      isPremium: editingChannel?.isPremium ?? false,
+      status: editingChannel?.status ?? 'active',
+    })
+  }, [editingChannel, form, isOpen])
+
+  useEffect(() => {
     return () => {
       if (uploadedLogoPreviewUrl && uploadedLogoPreviewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(uploadedLogoPreviewUrl)
@@ -70,19 +84,7 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
 
     if (!nextIsOpen) {
       setUploadedLogoPreviewUrl(null)
-      return
     }
-
-    form.reset({
-      name: editingChannel?.name ?? '',
-      logo: undefined,
-      url: editingChannel?.url ?? '',
-      viewers: editingChannel?.viewers ?? 1280,
-      categoryId: editingChannel?.categoryId ?? '',
-      isPremium: editingChannel?.isPremium ?? false,
-      status: editingChannel?.status ?? 'active',
-    })
-    setUploadedLogoPreviewUrl(null)
   }
 
   const onSubmit = async (values: z.infer<typeof channelSchema>) => {

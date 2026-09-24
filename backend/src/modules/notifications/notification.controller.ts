@@ -87,15 +87,22 @@ export const getNotifications = asyncHandler(async (req: RequestWithUser, res: R
   const pagination = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(25),
+    unreadOnly: z.coerce.boolean().default(false),
   }).safeParse(req.query)
   if (!pagination.success) return res.status(400).json(errorResponse('Invalid notification pagination.'))
 
-  const { page, limit } = pagination.data
+  const { page, limit, unreadOnly } = pagination.data
   const skip = (page - 1) * limit
+  const notificationWhere = {
+    userId,
+    channel: 'IN_APP' as const,
+    deletedAt: null,
+    ...(unreadOnly ? { isRead: false } : {}),
+  }
 
   const [notifications, total] = await prisma.$transaction([
     prisma.notification.findMany({
-      where: { userId, channel: 'IN_APP', deletedAt: null },
+      where: notificationWhere,
       select: {
         id: true,
         userId: true,
@@ -112,7 +119,7 @@ export const getNotifications = asyncHandler(async (req: RequestWithUser, res: R
       skip,
     }),
     prisma.notification.count({
-      where: { userId, channel: 'IN_APP', deletedAt: null },
+      where: notificationWhere,
     }),
   ])
 

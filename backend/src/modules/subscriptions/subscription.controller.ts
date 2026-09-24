@@ -3,6 +3,7 @@ import { successResponse, errorResponse } from '../../core/api-response.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { Prisma } from '@prisma/client';
 import { invalidateTags } from '../../core/cache.js'
+import type { Request, Response } from 'express'
 
 export const getPlans = asyncHandler(async (req, res) => {
   const includeDeleted = req.query.includeDeleted === 'true' && ['admin', 'super_admin'].includes(req.user?.roles?.[0]?.name);
@@ -36,12 +37,13 @@ export const createPlan = asyncHandler(async (req, res) => {
     const newPlan = await subscriptionService.createNewPlan(req.body);
     await invalidateTags(['subscription-plans'])
     return res.status(201).json(successResponse(newPlan, 'Subscription plan created successfully.'));
-  } catch (error) {
+  } catch (error: unknown) {
+    const candidate = error as { name?: string; code?: string; meta?: { target?: string | string[] } }
     const isP2002 =
-      error?.name === 'PrismaClientKnownRequestError' &&
-      error?.code === 'P2002'
+      candidate.name === 'PrismaClientKnownRequestError' &&
+      candidate.code === 'P2002'
 
-    if (isP2002 && error.meta?.target?.includes('name')) {
+    if (isP2002 && (Array.isArray(candidate.meta?.target) ? candidate.meta.target.includes('name') : candidate.meta?.target?.includes('name'))) {
       return res.status(409).json(errorResponse('A subscription plan with that name already exists.'))
     }
     throw error

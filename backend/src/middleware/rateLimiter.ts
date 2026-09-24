@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import type { Request, Response } from 'express'
 
 const rateLimitResponse = {
   error: 'Too many requests. Please wait a moment and try again.',
@@ -11,7 +12,7 @@ export const generalLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: false,
   message: rateLimitResponse,
-  handler: (_req, res) => {
+  handler: (_req: Request, res: Response) => {
     res.status(429).json({
       ...rateLimitResponse,
       retryAfter: res.getHeader('Retry-After'),
@@ -26,7 +27,7 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
   message: rateLimitResponse,
-  handler: (_req, res) => {
+  handler: (_req: Request, res: Response) => {
     res.status(429).json({ ...rateLimitResponse, retryAfter: res.getHeader('Retry-After') })
   },
 })
@@ -38,7 +39,7 @@ export const publicApiLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
   message: rateLimitResponse,
-  handler: (_req, res) => {
+  handler: (_req: Request, res: Response) => {
     res.status(429).json({ ...rateLimitResponse, retryAfter: res.getHeader('Retry-After') })
   },
 })

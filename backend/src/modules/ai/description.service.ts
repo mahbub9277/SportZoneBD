@@ -28,12 +28,21 @@ const cleanContext = (request: DescriptionRequest) => Object.fromEntries(
 
 const buildPrompt = (request: DescriptionRequest) => {
   const context = JSON.stringify(cleanContext(request))
+  const languageInstruction = request.language === 'bn'
+    ? 'Write entirely in natural Bangla script.'
+    : request.language === 'banglish'
+      ? 'Write in natural Banglish: Bangla language written with Latin characters. Do not mix in awkward literal translations.'
+      : request.language === 'en'
+        ? 'Write entirely in natural English.'
+        : 'Match the language used in the supplied title and context. Prefer natural wording over literal translation.'
   return [
     'You are SportZoneBD\'s contextual description generator.',
     `Entity type: ${request.entityType}.`,
     `Title: ${request.title}.`,
     request.subtitle ? `Existing subtitle or supporting text: ${request.subtitle}.` : '',
     `Verified context: ${context}.`,
+    `Language: ${request.language}. ${languageInstruction}`,
+    `Tone: ${request.tone}. Keep the wording appropriate for a sports platform.`,
     'Generate a concise, natural description for this exact entity and context.',
     'Use only supplied information. Do not invent facts, people, teams, dates, statistics, rights, URLs, features, benefits, or claims.',
     'Do not generate a match summary, recap, analysis, commentary, score, or result summary.',

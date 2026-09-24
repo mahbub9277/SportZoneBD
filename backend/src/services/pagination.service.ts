@@ -19,6 +19,7 @@ export interface PaginatedResult<T> {
 interface GetPaginatedDataOptions<T> {
   model: keyof typeof prisma;
   query: PaginatedQuery;
+  where?: Prisma.MatchWhereInput | Prisma.UserWhereInput | Prisma.StreamWhereInput | Prisma.HighlightWhereInput;
   searchableFields?: string[];
   include?: any;
   select?: any;
@@ -38,7 +39,7 @@ interface GetPaginatedDataOptions<T> {
 export async function getPaginatedData<T>(
   options: GetPaginatedDataOptions<T>,
 ): Promise<PaginatedResult<T>> {
-  const { model, query, searchableFields = [], include, select } = options;
+  const { model, query, where: baseWhere, searchableFields = [], include, select } = options;
   const requestedPage = Number(query.page ?? 1)
   const requestedLimit = Number(query.limit ?? 10)
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
@@ -72,7 +73,7 @@ export async function getPaginatedData<T>(
 
   const skip = (page - 1) * limit;
 
-  const whereClause: any = { ...queryWhere };
+  const whereClause: any = { ...baseWhere, ...queryWhere };
 
   if (search && searchableFields.length > 0) {
     whereClause.OR = searchableFields.map((field: string) => ({

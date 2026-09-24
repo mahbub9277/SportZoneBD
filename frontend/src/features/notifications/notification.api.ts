@@ -21,8 +21,8 @@ export const notificationsApi = emptyApi.injectEndpoints({
       // Use a specific tag for the count to avoid unnecessary refetches.
       providesTags: ['Notifications'],
     }),
-    getNotifications: builder.query<PaginatedResult<Notification>, { page: number, limit?: number }>({
-      query: ({ page, limit = 25 }) => `/notifications?page=${page}&limit=${limit}`,
+      getNotifications: builder.query<PaginatedResult<Notification>, { page: number, limit?: number; unreadOnly?: boolean }>({
+        query: ({ page, limit = 25, unreadOnly = false }) => `/notifications?page=${page}&limit=${limit}&unreadOnly=${unreadOnly}`,
       transformResponse: (response: ApiResponse<PaginatedResult<Notification>>) =>
         unwrapApiResponse(response) ?? { items: [], meta: { totalItems: 0, itemCount: 0, itemsPerPage: 25, totalPages: 1, currentPage: 1 } },
       // Safely provide tags for the list and individual items.
@@ -65,7 +65,7 @@ export const notificationsApi = emptyApi.injectEndpoints({
           }),
         )
         const listPatchResult = dispatch(
-          notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25 }, (draft) => {
+          notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25, unreadOnly: true }, (draft) => {
             draft.items.forEach((notification) => {
               notification.isRead = true
             })

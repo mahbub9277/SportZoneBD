@@ -55,6 +55,7 @@ export type CreateMatchFormValues = {
 const flatFormItemClass = 'space-y-2 border-0 bg-transparent p-0 shadow-none hover:shadow-none sm:p-0'
 const sectionClass = 'min-w-0 space-y-4 rounded-3xl border border-(--border)/80 bg-linear-to-br from-(--surface-soft)/85 via-(--surface-soft)/55 to-(--surface) p-4 shadow-[0_18px_45px_rgba(2,6,23,0.12)] sm:p-5'
 const inputClass = 'min-h-11 border-(--border) bg-(--surface)/75 shadow-inner shadow-black/5 transition-colors placeholder:text-(--text-muted)/70 focus:border-(--accent)/60 focus:ring-2 focus:ring-(--accent)/15'
+const teamLogoTransform = { width: 128, height: 128, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const }
 
 function useLogoPreview(value: File | string | null | undefined) {
   const preview = useMemo(() => {
@@ -96,14 +97,14 @@ function TeamNameField({ form, nameField, idField, logoField, label, placeholder
         <FormLabel>{label}</FormLabel>
         <div className="relative">
           <div className="flex items-center gap-2 rounded-xl border border-border bg-surface/70 p-1.5 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/15">
-            {selectedLogoPreview ? <img src={selectedLogoPreview} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-accent/25 bg-surface-soft object-contain p-1" /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-soft text-[10px] font-semibold text-text-muted">{name.trim().slice(0, 2).toUpperCase() || 'TM'}</span>}
+            {selectedLogoPreview ? <img src={selectedLogoPreview.startsWith('blob:') ? selectedLogoPreview : buildCloudinaryUrl(selectedLogoPreview, teamLogoTransform)} alt="" className="h-9 w-9 shrink-0 rounded-full border border-accent/25 bg-surface-soft object-cover p-0.5" /> : <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-soft text-[10px] font-semibold text-text-muted">{name.trim().slice(0, 2).toUpperCase() || 'TM'}</span>}
             <FormControl><Input placeholder={placeholder} className="min-h-9 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0" {...field} value={field.value ?? ''} disabled={disabled} onFocus={() => setIsOpen(true)} onChange={(event) => { field.onChange(event); form.setValue(idField, null); form.setValue(logoField, null); setIsOpen(true) }} /></FormControl>
           </div>
           {isOpen && name.trim().length >= 2 && !selectedId && <div className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-xl">
             {isFetching && <p className="px-3 py-2 text-xs text-text-muted">Searching teams...</p>}
             {!isFetching && results.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">No existing team found. Upload a new logo below.</p>}
             {!isFetching && results.map((team) => <button key={`${team.id ?? team.normalizedName}`} type="button" className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-surface-soft" onMouseDown={(event) => event.preventDefault()} onClick={() => selectTeam(team)}>
-              {team.logoUrl ? <img src={buildCloudinaryUrl(team.logoUrl, { width: 64, height: 64, crop: 'fit', quality: 'auto', format: 'auto' })} alt="" className="h-8 w-8 rounded-md object-contain" /> : <span className="grid h-8 w-8 place-items-center rounded-md bg-surface-soft text-xs">{team.name.slice(0, 2).toUpperCase()}</span>}
+              {team.logoUrl ? <img src={buildCloudinaryUrl(team.logoUrl, teamLogoTransform)} alt="" className="h-9 w-9 rounded-full bg-surface-soft object-cover p-0.5" /> : <span className="grid h-9 w-9 place-items-center rounded-full bg-surface-soft text-xs">{team.name.slice(0, 2).toUpperCase()}</span>}
               <span className="min-w-0"><span className="block truncate text-sm text-text-primary">{team.name}</span><span className="block text-[11px] text-text-muted">Existing team</span></span>
             </button>)}
           </div>}
@@ -367,7 +368,14 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
   const [input, setInput] = useState('')
   const [lastResult, setLastResult] = useState<ParsedMatchDetails | null>(null)
   const [reviewCount, setReviewCount] = useState(0)
+  const [appliedFieldCount, setAppliedFieldCount] = useState(0)
   const [parseMatch, { isLoading }] = useParseMatchMutation()
+
+  const examplePrompts = [
+    { label: 'English', value: 'Bangladesh vs India, cricket, tomorrow at 7:30 PM, Asia Cup' },
+    { label: 'বাংলা', value: 'বাংলাদেশ বনাম ভারত, ক্রিকেট, আগামীকাল রাত ৭:৩০, এশিয়া কাপ' },
+    { label: 'Banglish', value: 'Bangladesh vs India cricket, agamikal rat 7:30, Asia Cup' },
+  ]
 
   const getAiErrorMessage = (error: unknown) => {
     if (!error || typeof error !== 'object') return 'AI match detection failed. Please try again.'
@@ -446,7 +454,15 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
       }
     }
 
-    setReviewCount(needsReview)
+    const missingReviewFields = [
+      result.homeTeamName,
+      result.awayTeamName,
+      result.sport,
+      result.kickoffDate,
+      result.kickoffTime,
+    ].filter((value) => !value).length
+    setAppliedFieldCount(applied)
+    setReviewCount(needsReview + missingReviewFields)
     toast.success(`AI applied ${applied} trusted match field${applied === 1 ? '' : 's'}.`)
     if (needsReview > 0) toast.warning(`${needsReview} low-confidence suggestion${needsReview === 1 ? '' : 's'} needs manual review.`)
     if (skipped > 0) toast.info(`${skipped} existing field${skipped === 1 ? '' : 's'} stayed unchanged.`)
@@ -486,11 +502,26 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
           {isLoading ? 'Autofilling...' : 'Autofill with AI'}
         </Button>
       </div>
-      <div className="relative mt-3 flex flex-wrap items-center gap-2 text-[10px] text-text-muted"><span className="font-semibold uppercase tracking-[0.14em] text-text-secondary">Try:</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">Teams + competition</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">Sport + kickoff</span><span className="rounded-full border border-border bg-surface/60 px-2 py-1">English · Bangla · Banglish</span></div>
+      <div className="relative mt-3 flex flex-wrap items-center gap-2 text-[10px] text-text-muted">
+        <span className="font-semibold uppercase tracking-[0.14em] text-text-secondary">Try a language:</span>
+        {examplePrompts.map((example) => <button key={example.label} type="button" onClick={() => setInput(example.value)} disabled={disabled || isLoading} className="rounded-full border border-border bg-surface/60 px-2.5 py-1 transition-colors hover:border-accent/40 hover:bg-accent/8 hover:text-accent">{example.label}</button>)}
+      </div>
       {lastResult && !isLoading && (
-        <div className="relative mt-3 flex flex-col gap-2 rounded-xl border border-border/70 bg-background/25 px-3 py-2.5 text-xs sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-2"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-success-soft text-success">✓</span><div className="min-w-0"><p className="truncate font-medium text-text-primary">Draft details extracted{lastResult.title ? ` for ${lastResult.title}` : ''}</p><p className="mt-0.5 text-[11px] text-text-muted">Review the highlighted fields before saving.</p><div className="mt-2 flex flex-wrap gap-1.5"><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.homeTeamName || 'Team 1 unresolved'}</span><span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] text-accent">{lastResult.sport || 'Sport review'}</span><span className="rounded-full border border-border bg-surface-soft px-2 py-1 text-[10px] text-text-muted">{lastResult.awayTeamName || 'Team 2 unresolved'}</span></div></div></div>
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-text-muted"><span>{lastResult.timezone}</span>{lastResult.kickoffDate && lastResult.kickoffTime && <span>{lastResult.kickoffDate} {lastResult.kickoffTime}</span>}{lastResult.expectedDurationMinutes && <span>{lastResult.expectedDurationMinutes} min</span>}<span className="rounded-full bg-success-soft px-2 py-0.5 text-success">{Object.values(lastResult.confidence).filter((level) => level === 'high').length} high-confidence</span>{reviewCount > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{reviewCount} manual review{reviewCount === 1 ? '' : 's'}</span>}{lastResult.warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{lastResult.warnings.length} review note{lastResult.warnings.length === 1 ? '' : 's'}</span>}</div>
+        <div className="relative mt-3 space-y-3 rounded-xl border border-border/70 bg-background/25 p-3 text-xs">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="wrap-break-word font-medium text-text-primary">Draft details extracted{lastResult.title ? ` for ${lastResult.title}` : ''}</p>
+              <p className="mt-0.5 text-[11px] text-text-muted">The assistant filled untouched fields only. Review everything before saving.</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-success-soft px-2 py-1 text-[10px] font-medium text-success">{appliedFieldCount} field{appliedFieldCount === 1 ? '' : 's'} applied</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Direction</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.homeTeamName || 'Team 1'} <span className="text-accent">vs</span> {lastResult.awayTeamName || 'Team 2'}</p></div>
+            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Competition</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.tournamentName || lastResult.title || 'Needs review'}</p></div>
+            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Kickoff</span><p className="mt-1 font-medium text-text-primary">{lastResult.kickoffDate && lastResult.kickoffTime ? `${lastResult.kickoffDate} ${lastResult.kickoffTime}` : 'Needs review'} <span className="text-[10px] text-text-muted">{lastResult.timezone}</span></p></div>
+            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Sport / stream</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.sport || 'Needs review'}{lastResult.primaryStreamUrl ? ` · ${lastResult.quality || 'stream found'}` : ' · No stream found'}</p></div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-text-muted"><span className="rounded-full bg-success-soft px-2 py-0.5 text-success">{Object.values(lastResult.confidence).filter((level) => level === 'high').length} high-confidence</span>{reviewCount > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{reviewCount} review item{reviewCount === 1 ? '' : 's'}</span>}{lastResult.warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{lastResult.warnings.length} note{lastResult.warnings.length === 1 ? '' : 's'}</span>}</div>
         </div>
       )}
     </section>

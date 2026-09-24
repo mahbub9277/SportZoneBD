@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowUpRight, BellRing, CheckCircle, AlertTriangle, Info, Loader2, Trash2, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { useDeleteAllNotificationsMutation, useDeleteNotificationMutation, useGetNotificationsQuery, useMarkAllNotificationsAsReadMutation, useMarkNotificationAsReadMutation } from '../features/notifications/notification.api'
+import { useDeleteAllNotificationsMutation, useDeleteNotificationMutation, useGetNotificationsQuery, useMarkAllNotificationsAsReadMutation, useMarkNotificationAsReadMutation, useRegisterPushSubscriptionMutation } from '../features/notifications/notification.api'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -22,14 +22,23 @@ interface NotificationsPageProps {
   onClose?: () => void
 }
 
+type PushStatus = 'checking' | 'available' | 'enabled' | 'denied' | 'unsupported'
+
+const decodeVapidKey = (value: string): BufferSource => {
+  const normalized = `${value}${'='.repeat((4 - (value.length % 4)) % 4)}`.replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0)) as unknown as BufferSource
+}
+
 export function NotificationsPage({ embedded = false, onClose }: NotificationsPageProps) {
   const [page, setPage] = useState(1)
+  const [pushStatus, setPushStatus] = useState<PushStatus>('checking')
   const shouldReduceMotion = useReducedMotion()
-  const { data, isLoading, isFetching, isError, refetch } = useGetNotificationsQuery({ page, limit: 25 })
+  const { data, isLoading, isFetching, isError, refetch } = useGetNotificationsQuery({ page, limit: 25, unreadOnly: true })
   const [markAllAsRead, { isLoading: isMarkingAllAsRead }] = useMarkAllNotificationsAsReadMutation()
   const [markAsRead, { isLoading: isMarkingIndividual, originalArgs }] = useMarkNotificationAsReadMutation()
   const [deleteNotification, { isLoading: isDeletingNotification, originalArgs: deletingNotificationId }] = useDeleteNotificationMutation()
   const [deleteAllNotifications, { isLoading: isDeletingAll }] = useDeleteAllNotificationsMutation()
+  const [registerPushSubscription, { isLoading: isEnablingPush }] = useRegisterPushSubscriptionMutation()
 
   const notifications: Notification[] = data?.items ?? []
   const totalPages = data?.meta?.totalPages ?? 1
@@ -40,6 +49,64 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
 
   const handleNext = () => {
     setPage((prev) => Math.min(prev + 1, totalPages))
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    const checkPushSubscription = async () => {
+      const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
+      if (!vapidKey || !('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        if (isMounted) setPushStatus('unsupported')
+        return
+      }
+
+      if (Notification.permission === 'denied') {
+        if (isMounted) setPushStatus('denied')
+        return
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.getSubscription()
+        if (isMounted) setPushStatus(subscription ? 'enabled' : 'available')
+      } catch {
+        if (isMounted) setPushStatus('unsupported')
+      }
+    }
+
+    void checkPushSubscription()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const handleEnablePush = async () => {
+    const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
+    if (!vapidKey) return
+
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        setPushStatus(permission === 'denied' ? 'denied' : 'available')
+        return
+      }
+
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidKey(vapidKey),
+      })
+      const subscriptionJson = subscription.toJSON()
+      const p256dh = subscriptionJson.keys?.p256dh
+      const auth = subscriptionJson.keys?.auth
+      if (!subscriptionJson.endpoint || !p256dh || !auth) throw new Error('Incomplete push subscription')
+
+      await registerPushSubscription({ endpoint: subscriptionJson.endpoint, keys: { p256dh, auth } }).unwrap()
+      setPushStatus('enabled')
+    } catch {
+      setPushStatus('available')
+    }
   }
 
   return (
@@ -55,6 +122,17 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
           {embedded && <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close notifications" title="Close notifications"><X className="h-5 w-5" /></Button>}
         </div>
       </motion.div>
+
+      {pushStatus === 'available' && (
+        <Card className="flex flex-col gap-3 border-accent/25 bg-accent/6 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="font-semibold text-(--text-primary)">Turn on notifications</p>
+            <p className="mt-1 text-sm text-(--text-muted)">Allow match and highlight alerts only when you choose to receive them.</p>
+          </div>
+          <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>
+        </Card>
+      )}
+      {pushStatus === 'denied' && <p className="text-xs text-(--text-muted)">Notifications are blocked in this browser. Enable them in your site permissions to receive alerts.</p>}
 
       {isLoading ? (
         <div role="status" aria-live="polite" aria-label="Loading notifications" className="space-y-4">

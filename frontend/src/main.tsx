@@ -5,6 +5,12 @@ import AppProvider from '@/app/providers/AppProvider'
 import { App } from '@/App.tsx'
 import './index.css'
 
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined)
+  }, { once: true })
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
 root.render(
