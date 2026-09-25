@@ -4,7 +4,7 @@ import { createAction } from '@reduxjs/toolkit'
 
 // Mutex to ensure only one token refresh is in progress at a time
 const mutex = new Mutex()
-const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '')
+const apiBaseUrl = (import.meta.env.PROD ? '/api/v1' : import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '')
 
 const baseQuery = fetchBaseQuery({
   baseUrl: apiBaseUrl,

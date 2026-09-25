@@ -15,7 +15,7 @@ const LoginPage = () => {
   const handleGoogleLogin = () => {
     if (isGoogleLoginStarting) return
     setIsGoogleLoginStarting(true)
-    const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api/v1'
+    const apiBaseUrl = import.meta.env.PROD ? '/api/v1' : import.meta.env.VITE_API_URL ?? '/api/v1'
     const googleAuthUrl = `${apiBaseUrl.replace(/\/$/, '')}/auth/google`
     window.location.assign(googleAuthUrl)
   }

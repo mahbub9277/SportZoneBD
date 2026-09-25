@@ -11,7 +11,7 @@ import AuthLayout from '@/hooks/common/layouts/AuthLayout'
 
 import { store } from '@/app/store'
 import { authApi } from '@/features/auth/auth.api.ts'
-import { setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
+import { selectIsInitializing, setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
 import { useGetMeQuery } from '@/features/auth/auth.api'
 // Lazy-loaded Pages
 const lazyRoute = (factory: () => Promise<Record<string, unknown>>, exportName: string) =>
@@ -110,9 +110,12 @@ const GuestRoute = () => {
 const GoogleAuthCallback = () => {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const { data: user, isLoading, isFetching, isError } = useGetMeQuery()
+  const isAuthInitializing = useAppSelector(selectIsInitializing)
+  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, { skip: isAuthInitializing })
 
   useEffect(() => {
+    if (isAuthInitializing) return
+
     if (isError) {
       navigate('/login?error=google-session-failed', { replace: true })
     } else if (!isLoading && !isFetching) {
@@ -121,7 +124,7 @@ const GoogleAuthCallback = () => {
         navigate('/profile', { replace: true })
       }
     }
-  }, [dispatch, isError, isFetching, isLoading, navigate, user])
+  }, [dispatch, isAuthInitializing, isError, isFetching, isLoading, navigate, user])
 
   return (
     <main className="flex min-h-[60vh] items-center justify-center p-6">
