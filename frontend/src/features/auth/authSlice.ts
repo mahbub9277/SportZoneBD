@@ -1,7 +1,7 @@
 import { createSlice, type PayloadAction, createSelector, isAnyOf } from '@reduxjs/toolkit'
 import type { RootState } from '../../app/store'
 import type { LoginResponse, User } from './auth.types'
-import { loadAuthState, clearAuthState, saveAuthState } from './storage'
+import { loadAuthState, clearAuthState } from './storage'
 import { authApi } from './auth.api.ts'
 import { accountRestricted, unauthenticated } from '../../app/api/baseQueryWithReauth'
 
@@ -56,14 +56,14 @@ const authSlice = createSlice({
       state,
       action: PayloadAction<{ user: User; rememberMe?: boolean }>,
     ) => {
-      const { user, rememberMe = false } = action.payload
+      const { user } = action.payload
 
       state.user = user
       state.isAuthenticated = true
       state.isInitializing = false
       state.accountStatus = null
       state.accountStatusMessage = null
-      saveAuthState(user, null, rememberMe)
+      clearAuthState()
     },
     setUser: (state, action: PayloadAction<{ user: User }>) => {
       const { user } = action.payload

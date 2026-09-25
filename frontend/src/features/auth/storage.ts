@@ -9,14 +9,6 @@ interface StoredAuthState {
 }
 
 /**
- * Authentication persistence belongs to the server-managed HttpOnly cookies.
- * Clear older profile snapshots so stale user data cannot be mistaken for a session.
- */
-export function saveAuthState(_user: User, _token: string | null, _rememberMe: boolean): void {
-  clearAuthState()
-}
-
-/**
  * Clears all authentication state from both storage types.
  */
 export function clearAuthState(): void {
