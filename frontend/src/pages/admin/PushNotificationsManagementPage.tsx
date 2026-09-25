@@ -31,6 +31,7 @@ type TemplateFormData = z.infer<typeof templateSchema>
 export default function PushNotificationsManagementPage() {
   const [deletingTemplate, setDeletingTemplate] = useState<PushNotificationTemplate | null>(null)
   const [editingTemplate, setEditingTemplate] = useState<PushNotificationTemplate | null>(null)
+  const [deliveryChannel, setDeliveryChannel] = useState<'PUSH' | 'IN_APP' | 'BOTH'>('PUSH')
 
   const { data: templates = [], isLoading: isLoadingTemplates, isError: isTemplatesError } = useGetPushNotificationTemplatesQuery()
   const [createTemplate, { isLoading: isCreating }] = useCreatePushNotificationTemplateMutation()
@@ -87,10 +88,11 @@ export default function PushNotificationsManagementPage() {
 
   const sendTemplate = async (template: PushNotificationTemplate) => {
     if (!template.enabled || isBroadcasting) return
-    if (!window.confirm(`Send "${template.title}" to all active users?`)) return
+    const deliveryLabel = deliveryChannel === 'PUSH' ? 'subscribed browser/PWA devices' : deliveryChannel === 'IN_APP' ? 'in-app inboxes' : 'in-app inboxes and subscribed browser/PWA devices'
+    if (!window.confirm(`Send "${template.title}" to ${deliveryLabel}?`)) return
     try {
-      const result = await broadcastNotification({ title: template.title, body: template.body, type: 'info', link: template.link || undefined, targetAudience: template.targetAudience }).unwrap()
-      toast.success(`Notification sent to ${result.createdCount} user${result.createdCount === 1 ? '' : 's'}.`)
+      const result = await broadcastNotification({ title: template.title, body: template.body, type: 'info', link: template.link || undefined, targetAudience: template.targetAudience, channel: deliveryChannel }).unwrap()
+      toast.success(`Notification queued for ${result.createdCount} user${result.createdCount === 1 ? '' : 's'}.`)
     } catch (error) {
       toast.error(getErrorMessage(error))
     }
@@ -136,6 +138,15 @@ export default function PushNotificationsManagementPage() {
               <FormField control={form.control} name="link" render={({ field }) => (
                 <FormItem><FormLabel>Notification link</FormLabel><FormControl><Input placeholder="/events/example or https://..." {...field} /></FormControl><FormMessage /></FormItem>
               )} />
+              <div className="space-y-2">
+                <label htmlFor="push-delivery-channel" className="text-sm font-medium text-(--text-primary)">Delivery channel</label>
+                <select id="push-delivery-channel" value={deliveryChannel} onChange={(event) => setDeliveryChannel(event.target.value as typeof deliveryChannel)} className="flex h-10 w-full rounded-xl border border-(--border) bg-(--surface-soft) px-3 text-sm text-(--text-primary)">
+                  <option value="PUSH">Browser / installed PWA push</option>
+                  <option value="IN_APP">In-app notification inbox</option>
+                  <option value="BOTH">Both channels</option>
+                </select>
+                <p className="text-xs leading-5 text-(--text-muted)">Push is delivered only to users who enabled notifications on a supported browser or installed PWA.</p>
+              </div>
             </div>
 
             <div className="space-y-4 rounded-3xl border border-(--border) bg-(--surface)/50 p-4">

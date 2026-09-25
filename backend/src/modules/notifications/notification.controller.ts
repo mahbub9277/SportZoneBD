@@ -227,7 +227,7 @@ export const markNotificationAsRead = asyncHandler(async (req: RequestWithUser, 
 })
 
 export const broadcastSystemNotification = asyncHandler(async (req: RequestWithUser, res: Response) => {
-  const { title, body, type, userId, link, targetAudience } = req.body ?? {}
+  const { title, body, type, userId, link, targetAudience, channel } = req.body ?? {}
 
   if (typeof title !== 'string' || title.trim().length < 3) {
     return res.status(400).json(errorResponse('Notification title is required.'))
@@ -248,6 +248,9 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
   if (targetAudience !== undefined && !['ALL', 'PREMIUM', 'FREE'].includes(targetAudience)) {
     return res.status(400).json(errorResponse('Invalid notification audience.'))
   }
+  if (channel !== undefined && !['IN_APP', 'PUSH', 'BOTH'].includes(channel)) {
+    return res.status(400).json(errorResponse('Invalid notification delivery channel.'))
+  }
 
   const createdCount = await createAdminBroadcastNotification({
     userId: typeof userId === 'string' ? userId : undefined,
@@ -256,6 +259,7 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
     type: typeof type === 'string' ? type : 'info',
     link: typeof link === 'string' ? link.trim() : undefined,
     targetAudience: targetAudience as 'ALL' | 'PREMIUM' | 'FREE' | undefined,
+    channel: channel as 'IN_APP' | 'PUSH' | 'BOTH' | undefined,
   })
 
   return res.status(201).json(successResponse({ createdCount }, 'Notification broadcast queued successfully.'))

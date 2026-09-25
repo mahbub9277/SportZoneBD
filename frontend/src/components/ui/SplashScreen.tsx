@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import localLogo from '../../assets/site.logo.webp'
+import { APP_VERSION } from '../../features/pwa/appInfo'
 
 interface SplashScreenProps {
   isDataLoading: boolean
@@ -153,7 +154,7 @@ export function SplashScreen({
           </motion.div>
 
           <p className="absolute bottom-5 text-[10px] font-medium uppercase tracking-[0.2em] text-sky-200/35">
-            v1.0.0
+            v{APP_VERSION}
           </p>
         </motion.div>
       )}

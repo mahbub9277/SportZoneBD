@@ -19,10 +19,13 @@ async function broadcastNotificationChannel(
       isSuspended: false,
       isBanned: false,
       deletedAt: null,
-      OR: [
-        { notificationPreferences: null },
-        { notificationPreferences: { is: { [event.preference]: true } } },
-      ],
+      ...(channel === 'PUSH' ? {
+        pushSubscriptions: { some: { isActive: true, deletedAt: null } },
+        OR: [
+          { notificationPreferences: null },
+          { notificationPreferences: { is: { [event.preference]: true } } },
+        ],
+      } : {}),
     },
     select: { id: true },
   })
@@ -140,7 +143,9 @@ export async function createAdminBroadcastNotification(payload: {
   type?: string
   link?: string
   targetAudience?: 'ALL' | 'PREMIUM' | 'FREE'
+  channel?: 'IN_APP' | 'PUSH' | 'BOTH'
 }): Promise<number> {
+  const channel = payload.channel ?? 'BOTH'
   const targetUsers = payload.userId
     ? [{ id: payload.userId }]
     : await prisma.user.findMany({
@@ -158,9 +163,21 @@ export async function createAdminBroadcastNotification(payload: {
         select: { id: true },
       })
 
+  const pushEligibleUserIds = channel === 'IN_APP' || targetUsers.length === 0
+    ? new Set<string>()
+    : new Set((await prisma.pushSubscription.findMany({
+        where: {
+          userId: { in: targetUsers.map(({ id }) => id) },
+          isActive: true,
+          deletedAt: null,
+        },
+        select: { userId: true },
+        distinct: ['userId'],
+      })).map(({ userId }) => userId))
+
   let createdCount = 0
   for (const user of targetUsers) {
-    const inAppResult = await enqueueUserNotification({
+    const inAppResult = channel === 'PUSH' ? null : await enqueueUserNotification({
       userId: user.id,
       title: payload.title,
       body: payload.body,
@@ -170,15 +187,17 @@ export async function createAdminBroadcastNotification(payload: {
       dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:IN_APP`,
     })
 
-    const pushResult = await enqueueUserNotification({
-      userId: user.id,
-      title: payload.title,
-      body: payload.body,
-      type: payload.type ?? 'info',
-      link: payload.link,
-      channel: 'PUSH',
-      dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
-    })
+    const pushResult = channel !== 'IN_APP' && pushEligibleUserIds.has(user.id)
+      ? await enqueueUserNotification({
+          userId: user.id,
+          title: payload.title,
+          body: payload.body,
+          type: payload.type ?? 'info',
+          link: payload.link,
+          channel: 'PUSH',
+          dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
+        })
+      : null
 
     if (inAppResult || pushResult) createdCount += 1
   }

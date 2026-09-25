@@ -10,6 +10,7 @@ export interface BroadcastNotificationInput {
   userId?: string
   link?: string
   targetAudience?: 'ALL' | 'PREMIUM' | 'FREE'
+  channel?: 'IN_APP' | 'PUSH' | 'BOTH'
 }
 
 export const notificationsApi = emptyApi.injectEndpoints({

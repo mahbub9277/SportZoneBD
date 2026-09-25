@@ -29,23 +29,25 @@ interface NotificationToastProps {
 
 const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onDismiss }) => { // Fix: Add type annotation for 'notification'
   useEffect(() => { 
-    const duration = notification.duration ?? 5000 // Default to 5 seconds
+    const duration = notification.duration ?? 5000
     const timer = setTimeout(() => {
       onDismiss()
     }, duration)
 
     return () => clearTimeout(timer)
-  }, [notification, onDismiss])
+  }, [notification.id, notification.duration, onDismiss])
 
   return (
     <div
-      className={`flex items-center justify-between rounded-md p-4 text-white shadow-lg transition-all ${
+      className={`flex max-w-[calc(100vw-2rem)] items-start justify-between gap-4 rounded-xl border border-white/15 p-4 text-sm text-white shadow-[0_18px_50px_rgba(0,0,0,0.3)] backdrop-blur-lg transition-all sm:max-w-sm ${
         notificationStyles[notification.type as keyof typeof notificationStyles]
       }`}
+      role="status"
+      aria-live="polite"
     >
-      <span>{notification.message}</span>
-      <button onClick={onDismiss} className="ml-4 font-bold">
-        &times;
+      <span className="min-w-0 wrap-break-word">{notification.message}</span>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss notification" className="shrink-0 rounded-md px-2 py-1 font-semibold hover:bg-black/10">
+        ×
       </button>
     </div>
   )

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { ArrowUpRight, BellRing, CheckCircle, AlertTriangle, Info, Loader2, Trash2, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { useDeleteAllNotificationsMutation, useDeleteNotificationMutation, useGetNotificationsQuery, useMarkAllNotificationsAsReadMutation, useMarkNotificationAsReadMutation, useRegisterPushSubscriptionMutation } from '../features/notifications/notification.api'
+import { useDeleteAllNotificationsMutation, useDeleteNotificationMutation, useGetNotificationsQuery, useMarkAllNotificationsAsReadMutation, useMarkNotificationAsReadMutation, useRegisterPushSubscriptionMutation, useUnregisterPushSubscriptionMutation } from '../features/notifications/notification.api'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { cn } from '../lib/utils'
 import type { Notification, NotificationType } from '../features/notifications/notification.types'
 import { buildCloudinaryUrl } from '../utils/cloudinary'
+import { decodeVapidPublicKey, serializePushSubscription, supportsWebPush } from '../features/notifications/pushSubscription'
 
 const notificationIcons = {
   success: <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex items-center justify-center"><CheckCircle className="h-5 w-5 text-green-500" /></motion.div>,
@@ -24,11 +25,6 @@ interface NotificationsPageProps {
 
 type PushStatus = 'checking' | 'available' | 'enabled' | 'denied' | 'unsupported'
 
-const decodeVapidKey = (value: string): BufferSource => {
-  const normalized = `${value}${'='.repeat((4 - (value.length % 4)) % 4)}`.replace(/-/g, '+').replace(/_/g, '/')
-  return Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0)) as unknown as BufferSource
-}
-
 export function NotificationsPage({ embedded = false, onClose }: NotificationsPageProps) {
   const [page, setPage] = useState(1)
   const [pushStatus, setPushStatus] = useState<PushStatus>('checking')
@@ -39,6 +35,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
   const [deleteNotification, { isLoading: isDeletingNotification, originalArgs: deletingNotificationId }] = useDeleteNotificationMutation()
   const [deleteAllNotifications, { isLoading: isDeletingAll }] = useDeleteAllNotificationsMutation()
   const [registerPushSubscription, { isLoading: isEnablingPush }] = useRegisterPushSubscriptionMutation()
+  const [unregisterPushSubscription, { isLoading: isDisablingPush }] = useUnregisterPushSubscriptionMutation()
 
   const notifications: Notification[] = data?.items ?? []
   const totalPages = data?.meta?.totalPages ?? 1
@@ -56,7 +53,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
 
     const checkPushSubscription = async () => {
       const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
-      if (!vapidKey || !('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      if (!vapidKey || !supportsWebPush()) {
         if (isMounted) setPushStatus('unsupported')
         return
       }
@@ -69,9 +66,15 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
       try {
         const registration = await navigator.serviceWorker.ready
         const subscription = await registration.pushManager.getSubscription()
-        if (isMounted) setPushStatus(subscription ? 'enabled' : 'available')
+        if (!subscription) {
+          if (isMounted) setPushStatus('available')
+          return
+        }
+
+        await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
+        if (isMounted) setPushStatus('enabled')
       } catch {
-        if (isMounted) setPushStatus('unsupported')
+        if (isMounted) setPushStatus('available')
       }
     }
 
@@ -79,7 +82,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [registerPushSubscription])
 
   const handleEnablePush = async () => {
     const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
@@ -95,17 +98,29 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: decodeVapidKey(vapidKey),
+        applicationServerKey: decodeVapidPublicKey(vapidKey),
       })
-      const subscriptionJson = subscription.toJSON()
-      const p256dh = subscriptionJson.keys?.p256dh
-      const auth = subscriptionJson.keys?.auth
-      if (!subscriptionJson.endpoint || !p256dh || !auth) throw new Error('Incomplete push subscription')
-
-      await registerPushSubscription({ endpoint: subscriptionJson.endpoint, keys: { p256dh, auth } }).unwrap()
+      await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
       setPushStatus('enabled')
     } catch {
       setPushStatus('available')
+    }
+  }
+
+  const handleDisablePush = async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+      if (!subscription) {
+        setPushStatus('available')
+        return
+      }
+
+      await unregisterPushSubscription({ endpoint: subscription.endpoint }).unwrap()
+      await subscription.unsubscribe()
+      setPushStatus('available')
+    } catch {
+      setPushStatus('enabled')
     }
   }
 
@@ -123,16 +138,21 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
         </div>
       </motion.div>
 
-      {pushStatus === 'available' && (
-        <Card className="flex flex-col gap-3 border-accent/25 bg-accent/6 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="font-semibold text-(--text-primary)">Turn on notifications</p>
-            <p className="mt-1 text-sm text-(--text-muted)">Allow match and highlight alerts only when you choose to receive them.</p>
-          </div>
-          <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>
-        </Card>
-      )}
+      <Card className="flex flex-col gap-3 border-border bg-surface-soft/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="font-semibold text-(--text-primary)">Browser push notifications</p>
+          <p className="mt-1 text-sm text-(--text-muted)">{pushStatus === 'enabled' ? 'Push alerts are enabled for this device. In-app alerts work independently.' : 'Optional alerts for matches and highlights. In-app notifications do not require permission.'}</p>
+        </div>
+        {pushStatus === 'available' && <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>}
+        {pushStatus === 'enabled' && <Button type="button" variant="outline" className="shrink-0" onClick={() => void handleDisablePush()} disabled={isDisablingPush} isLoading={isDisablingPush}>Turn off</Button>}
+        {pushStatus === 'unsupported' && <span className="shrink-0 text-xs text-text-muted">Unavailable in this browser</span>}
+      </Card>
       {pushStatus === 'denied' && <p className="text-xs text-(--text-muted)">Notifications are blocked in this browser. Enable them in your site permissions to receive alerts.</p>}
+
+      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+        <h2 className="text-base font-semibold text-(--text-primary)">In-app notifications</h2>
+        <span className="text-xs text-(--text-muted)">Unread</span>
+      </div>
 
       {isLoading ? (
         <div role="status" aria-live="polite" aria-label="Loading notifications" className="space-y-4">

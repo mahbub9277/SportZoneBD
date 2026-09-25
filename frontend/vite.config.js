@@ -1,7 +1,21 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { visualizer } from 'rollup-plugin-visualizer';
+const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+const pwaVersionPlugin = {
+    name: 'sportzonebd-pwa-version',
+    apply: 'build',
+    closeBundle() {
+        const workerPath = path.resolve(import.meta.dirname, 'dist/sw.js');
+        const worker = readFileSync(workerPath, 'utf8');
+        const versionedWorker = worker.replaceAll('__APP_VERSION__', packageJson.version);
+        if (worker === versionedWorker)
+            throw new Error('Service worker version placeholder was not found.');
+        writeFileSync(workerPath, versionedWorker);
+    },
+};
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     // Load env file based on `mode` in the current working directory.
@@ -11,6 +25,7 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
+            pwaVersionPlugin,
             // This plugin must be placed last.
             // It generates a visual report of your bundle composition.
             // To use, run: `VITE_VISUALIZE=true npm run build`

@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useState } from 'react'
-import { Palette, User, Bell } from 'lucide-react'
+import { ArrowLeft, Info, Palette, User, Bell } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
@@ -11,7 +11,10 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { useUpdateMyProfileMutation, useGetNotificationPreferencesQuery, useUpdateNotificationPreferencesMutation } from '../features/users/users.api'
 import { useRegisterPushSubscriptionMutation, useUnregisterPushSubscriptionMutation } from '../features/notifications/notification.api'
+import { decodeVapidPublicKey, serializePushSubscription, supportsWebPush } from '../features/notifications/pushSubscription'
 import { getErrorMessage } from '../utils/get-error-message'
+import { AboutSportZoneBD } from '../features/pwa/AboutSportZoneBD'
+import { APP_VERSION } from '../features/pwa/appInfo'
 
 function ProfileSettings() {
   const { user } = useAuth()
@@ -104,14 +107,32 @@ function NotificationSettings() {
   const [unregisterPushSubscription, { isLoading: isUnregisteringPush }] = useUnregisterPushSubscriptionMutation()
   const [pushSupported, setPushSupported] = useState(false)
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
+  const [pushEnabled, setPushEnabled] = useState(false)
 
   useEffect(() => {
-    const supportsPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+    const supportsPush = supportsWebPush()
     startTransition(() => {
       setPushSupported(supportsPush)
       setPushPermission(supportsPush ? Notification.permission : 'unsupported')
     })
-  }, [])
+
+    if (!supportsPush) return
+    let active = true
+    void navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then(async (subscription) => {
+        if (!active || !subscription) return
+        await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
+        if (active) setPushEnabled(true)
+      })
+      .catch(() => {
+        if (active) setPushEnabled(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [registerPushSubscription])
 
   const enableBrowserPush = async () => {
     if (!pushSupported) {
@@ -145,25 +166,14 @@ function NotificationSettings() {
         throw new Error('Missing VAPID public key for browser push notifications.')
       }
 
-      if (!existingSubscription) {
-        const subscription = await registration.pushManager.subscribe({
+      const subscription = existingSubscription ?? await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: Uint8Array.from(
-            atob(publicKey.replace(/-/g, '+').replace(/_/g, '/'))
-              .split('')
-              .map((char) => char.charCodeAt(0)),
-          ),
+          applicationServerKey: decodeVapidPublicKey(publicKey),
         })
 
-        await registerPushSubscription({
-          endpoint: subscription.endpoint,
-          keys: {
-            p256dh: btoa(String.fromCharCode(...Array.from(new Uint8Array(subscription.getKey('p256dh')!)))),
-            auth: btoa(String.fromCharCode(...Array.from(new Uint8Array(subscription.getKey('auth')!)))),
-          },
-        }).unwrap()
-      }
+      await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
 
+      setPushEnabled(true)
       setPushPermission('granted')
       toast.success('Browser push notifications enabled.')
     } catch (error) {
@@ -184,7 +194,7 @@ function NotificationSettings() {
         await existingSubscription.unsubscribe()
       }
 
-      setPushPermission('default')
+      setPushEnabled(false)
       toast.success('Browser push notifications disabled.')
     } catch (error) {
       console.error(error)
@@ -205,8 +215,8 @@ function NotificationSettings() {
   }
 
   const preferenceItems = [
-    { key: 'matchStartPush', label: 'Match Started (In-app)', description: 'Show an in-app alert when a match goes live.' },
-    { key: 'newHighlightPush', label: 'New Highlights (In-app)', description: 'Show an in-app alert when a new highlight is added.' },
+    { key: 'matchStartPush', label: 'Match start browser push', description: 'Allow browser or installed-PWA push when a match starts. In-app inbox alerts are separate.' },
+    { key: 'newHighlightPush', label: 'New highlight browser push', description: 'Allow browser or installed-PWA push for new highlights. In-app inbox alerts are separate.' },
     { key: 'matchStartEmail', label: 'Match Start (Email)', description: 'Get an email when a followed match is about to start.' },
     { key: 'newHighlightEmail', label: 'New Highlights (Email)', description: 'Get an email when new highlights are available.' },
   ] as const;
@@ -231,22 +241,24 @@ function NotificationSettings() {
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg border border-(--border) p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <Label className="font-medium">Browser Push Notifications</Label>
+            <Label className="font-medium">Browser / installed app push</Label>
             <p className="text-xs text-(--text-muted)">
               {pushSupported
-                ? pushPermission === 'granted'
-                  ? 'Push notifications are enabled on this device.'
-                  : 'Enable desktop/browser push alerts for match and highlight updates.'
+                ? pushEnabled
+                  ? 'Push is enabled on this device. In-app inbox notifications remain separate.'
+                  : pushPermission === 'denied'
+                    ? 'Permission is blocked by the browser. Change this site’s notification permission to enable push.'
+                    : 'Optional match and highlight alerts for this browser or installed PWA. In-app notifications work without enabling push.'
                 : 'This browser does not support push notifications.'}
             </p>
           </div>
           <Button
-            variant={pushPermission === 'granted' ? 'outline' : 'default'}
+            variant={pushEnabled ? 'outline' : 'default'}
             size="sm"
-            disabled={!pushSupported || isRegisteringPush || isUnregisteringPush}
-            onClick={() => (pushPermission === 'granted' ? disableBrowserPush() : enableBrowserPush())}
+            disabled={!pushSupported || pushPermission === 'denied' || isRegisteringPush || isUnregisteringPush}
+            onClick={() => (pushEnabled ? disableBrowserPush() : enableBrowserPush())}
           >
-            {pushPermission === 'granted' ? 'Disable' : 'Enable'}
+            {isRegisteringPush || isUnregisteringPush ? 'Updating...' : pushEnabled ? 'Disable push' : pushPermission === 'denied' ? 'Blocked' : 'Enable push'}
           </Button>
         </div>
 
@@ -272,18 +284,32 @@ function NotificationSettings() {
 }
 
 export function SettingsPage() {
+  const [showAbout, setShowAbout] = useState(false)
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-3">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section">
-        <h1 className="text-lg font-medium">Settings</h1>
-        <p className="text-sm text-brand-text-muted">
-          Manage your account settings and set e-mail preferences.
-        </p>
+        {showAbout ? (
+          <div className="flex items-start gap-3">
+            <Button type="button" variant="ghost" size="icon" className="-ml-2 min-h-10 min-w-10" onClick={() => setShowAbout(false)} aria-label="Back to settings"><ArrowLeft className="h-5 w-5" /></Button>
+            <div><h1 className="text-lg font-medium">About SportZoneBD</h1><p className="text-sm text-brand-text-muted">App information, updates, and legal details.</p></div>
+          </div>
+        ) : (
+          <><h1 className="text-lg font-medium">Settings</h1><p className="text-sm text-brand-text-muted">Manage your account settings and set e-mail preferences.</p></>
+        )}
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="app-page-section space-y-3">
-        <ProfileSettings />
-        <AppearanceSettings />
-        <NotificationSettings />
+        {showAbout ? <AboutSportZoneBD /> : <>
+          <ProfileSettings />
+          <AppearanceSettings />
+          <NotificationSettings />
+          <Card>
+            <button type="button" onClick={() => setShowAbout(true)} className="flex min-h-16 w-full items-center gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)" aria-label={`About SportZoneBD, version ${APP_VERSION}`}>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-(--accent)/10 text-(--accent)"><Info className="h-5 w-5" /></span>
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-(--text-primary)">About SportZoneBD</span><span className="mt-1 block text-xs text-(--text-muted)">Version {APP_VERSION} · App info, updates and legal</span></span>
+            </button>
+          </Card>
+        </>}
       </motion.div>
     </motion.div>
   )

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sportzonebd-shell-v2'
+const CACHE_NAME = 'sportzonebd-shell-__APP_VERSION__'
 const CACHE_PREFIX = 'sportzonebd-shell-'
 const SHELL_URL = '/index.html'
 
