@@ -70,7 +70,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/70 bg-surface/90 shadow-[0_18px_70px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+    <header className="relative sticky top-0 z-40 border-b border-border/70 bg-surface/90 shadow-[0_18px_70px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
       <div className="mx-auto flex h-auto min-h-20 max-w-[1600px] items-center justify-between gap-3 px-3 py-3 sm:gap-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -237,7 +237,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]"
             onClick={() => setIsNotificationsOpen(false)}
           />
-          <aside id="notifications-panel" aria-label="Notifications panel" className="fixed right-3 top-1/2 z-50 h-[min(72dvh,42rem)] w-[min(26rem,calc(100vw-3rem))] -translate-y-1/2 overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] sm:right-5 sm:w-[min(28rem,calc(100vw-3rem))]">
+          <aside id="notifications-panel" aria-label="Notifications panel" className="absolute right-3 top-full z-50 mt-3 h-[min(72dvh,42rem)] w-[88vw] max-w-sm overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] md:right-5 md:w-96">
             {isAuthenticated && user ? (
               <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
                 <NotificationsPage embedded onClose={() => setIsNotificationsOpen(false)} />
@@ -247,7 +247,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
                 <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent"><BellRing className="h-7 w-7" /></span>
                 <h2 className="mt-4 text-lg font-semibold text-text-primary">Sign in to view notifications</h2>
                 <p className="mt-2 max-w-xs text-sm leading-6 text-text-muted">Create an account or sign in to receive match, highlight, and account updates.</p>
-                <Button asChild className="mt-5 rounded-full px-5" onClick={() => setIsNotificationsOpen(false)}><Link to="/login">Sign in</Link></Button>
+                <Button asChild className="mt-5 w-full rounded-full px-5" onClick={() => setIsNotificationsOpen(false)}><Link to="/login">Sign in</Link></Button>
               </div>
             )}
           </aside>

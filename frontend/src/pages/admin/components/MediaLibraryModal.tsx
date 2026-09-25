@@ -65,7 +65,7 @@ export function MediaLibraryModal({ mediaType, onCancel, onConfirm }: MediaLibra
   }
 
   return createPortal((
-    <div data-media-library-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-labelledby="media-library-title" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onCancel() }}>
+    <div data-media-library-modal="true" className="fixed inset-0 z-100 flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-labelledby="media-library-title" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onCancel() }}>
       <div className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-5xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl sm:max-h-[calc(100dvh-3rem)]" onPointerDown={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-white/10 p-4 sm:p-6">
           <div className="min-w-0"><h2 id="media-library-title" className="flex items-center gap-2 text-xl font-semibold text-text-primary"><LayoutList className="h-5 w-5 shrink-0 text-accent" />Media Library</h2><p className="text-xs text-text-muted">Select a {selectedTypeLabel} asset before confirming the form action.</p></div>
