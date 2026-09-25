@@ -13,7 +13,7 @@ export const getUserProfile = async (userId: string) => {
 
   return cache(cacheKey, async () => {
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: userId, deletedAt: null },
       select: {
         ...publicUserSelect,
         roles: {
@@ -30,5 +30,5 @@ export const getUserProfile = async (userId: string) => {
     });
     // In a real application, you might want to sanitize the user object here
     return user;
-  }, ttlSeconds);
+  }, ttlSeconds, [`user:${userId}`]);
 };

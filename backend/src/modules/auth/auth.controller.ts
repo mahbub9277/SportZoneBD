@@ -473,12 +473,19 @@ export async function refreshAccessToken(req: Request, res: Response) {
   } catch (error) {
     // Only clear cookies for authorization errors. Let other errors (e.g., database)
     // be handled by the global error handler.
-    if (error instanceof UnauthorizedError) {
+    const isRefreshTokenVerificationFailure = error instanceof Error && (
+      error.message === 'Refresh token must be a non-empty string'
+      || error.message === 'Refresh token expired'
+      || error.message === 'Invalid refresh token'
+    )
+
+    if (error instanceof UnauthorizedError || isRefreshTokenVerificationFailure) {
+      const message = error instanceof UnauthorizedError ? error.message : 'Invalid or expired refresh token'
       return res
         .status(401)
         .clearCookie(ACCESS_TOKEN_COOKIE, { ...sharedCookieOptions, path: '/' })
         .clearCookie(REFRESH_TOKEN_COOKIE, { ...sharedCookieOptions, path: REFRESH_TOKEN_PATH })
-        .json(errorResponse(error.message))
+        .json(errorResponse(message))
     }
     // Clear cookies on any refresh error
     throw error

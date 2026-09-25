@@ -96,7 +96,14 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
 
     next()
   } catch (error) {
-    if (error instanceof Error && (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError')) {
+    const isTokenVerificationFailure = error instanceof Error && (
+      error.name === 'JsonWebTokenError'
+      || error.name === 'TokenExpiredError'
+      || error.message === 'Access token expired'
+      || error.message === 'Invalid access token'
+    )
+
+    if (isTokenVerificationFailure) {
       next(new UnauthorizedError('Invalid or expired token'))
       return
     }
