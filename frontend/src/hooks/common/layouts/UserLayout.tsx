@@ -76,7 +76,7 @@ const UserLayout = () => {
       <MiniPlayerProvider>
       <AdvertisementGateProvider>
       <div className="min-h-screen bg-(--background) text-(--text-primary)">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
+        <Header isMenuOpen={isSidebarOpen} onMenuClick={() => setSidebarOpen((isOpen) => !isOpen)} />
         <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[1600px] flex-col gap-5 px-3 py-4 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:flex-row xl:gap-8">
           <Sidebar isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
           <main className="min-w-0 flex-1 pb-28 xl:pb-0">

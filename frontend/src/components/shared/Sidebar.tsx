@@ -21,12 +21,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   useEffect(() => {
     if (!isOpen) return
 
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
   }, [isOpen, onClose])
 
   const handleLogout = async () => {
@@ -47,17 +53,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="fixed inset-0 z-40 bg-black/60 xl:hidden"
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-55 bg-black/60 xl:hidden"
             onClick={onClose}
           />
           <motion.aside
             key="sidebar"
+            id="mobile-sidebar"
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="fixed left-0 top-0 z-40 h-full w-[88vw] max-w-90 border-r border-border/10 bg-surface/90 shadow-sidebar backdrop-blur-2xl xl:hidden"
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed left-0 top-0 z-60 h-full w-[88vw] max-w-90 border-r border-border/10 bg-(--surface-strong) shadow-sidebar backdrop-blur-2xl xl:hidden"
           >
             <div className="flex h-full max-h-screen flex-col gap-5">
               <div className="flex items-center justify-between px-2 pt-3">

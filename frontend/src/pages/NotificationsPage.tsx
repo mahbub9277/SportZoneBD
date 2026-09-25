@@ -110,7 +110,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0 space-y-3', embedded ? 'h-full overflow-y-auto p-4 sm:p-5' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0 space-y-3', embedded ? 'h-full overflow-y-auto overscroll-contain p-3 sm:p-5' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className={cn('flex items-center justify-between gap-3', embedded ? 'border-b border-border/70 pb-4' : 'app-page-section')}>
         <div className="min-w-0">
           <h1 className={cn('font-bold tracking-tight text-(--text-primary)', embedded ? 'text-xl' : 'text-3xl')}>Notifications</h1>
@@ -184,12 +184,12 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: 'easeOut' }}
                 >
-                  <Card className={cn('flex items-start gap-3 p-4', !notification.isRead && 'bg-(--surface-strong)')}>
+                  <Card className={cn('flex min-w-0 items-start gap-2.5 p-3 sm:gap-3 sm:p-4', !notification.isRead && 'bg-(--surface-strong)')}>
                     <div className="shrink-0">
                       {notificationIcons[notification.type as NotificationType] ?? notificationIcons.default}
                     </div>
                     <div className="min-w-0 flex-1">
-                      {notification.match && <div className="mb-2 flex min-w-0 items-center gap-2 text-xs text-(--text-muted)">
+                      {notification.match && <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-(--text-muted) sm:gap-2">
                         {notification.match.homeTeamLogo ? <img src={buildCloudinaryUrl(notification.match.homeTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold">{notification.match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
                         <span className="max-w-32 wrap-break-word">{notification.match.homeTeamName || 'Team 1'}</span>
                         <span className="shrink-0 text-accent">vs</span>

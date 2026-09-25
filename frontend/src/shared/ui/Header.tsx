@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell, BellRing, ChevronDown, Crown, Menu, MoonStar, Search, Settings, SunMedium } from 'lucide-react'
+import { Bell, BellRing, ChevronDown, Crown, Menu, MoonStar, Search, Settings, SunMedium, X } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { cn } from '../../lib/utils'
 import { useAppSelector } from '../../app/hooks'
@@ -26,9 +26,10 @@ const NotificationsPage = lazy(() => import('../../pages/NotificationsPage').the
 
 interface HeaderProps {
   onMenuClick: () => void
+  isMenuOpen?: boolean
 }
 
-export function Header({ onMenuClick }: HeaderProps) {
+export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
   const user = useAppSelector(selectCurrentUser)
   const [now, setNow] = useState(() => Date.now())
@@ -75,11 +76,13 @@ export function Header({ onMenuClick }: HeaderProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-11 w-11 shrink-0 xl:hidden"
+            className="h-12 w-12 shrink-0 rounded-2xl xl:hidden"
             onClick={onMenuClick}
             aria-label="Open sidebar"
+            aria-expanded={isMenuOpen}
+            aria-controls="mobile-sidebar"
           >
-            <Menu className="h-7 w-7" />
+            {isMenuOpen ? <X className="h-[1.85rem] w-[1.85rem]" /> : <Menu className="h-[1.85rem] w-[1.85rem]" />}
           </Button>
 
           <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="Go to homepage">
@@ -234,7 +237,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]"
             onClick={() => setIsNotificationsOpen(false)}
           />
-          <aside id="notifications-panel" aria-label="Notifications panel" className="fixed right-2 top-22 z-50 h-[min(720px,calc(100vh-6.5rem))] w-[min(42rem,calc(100vw-1rem))] overflow-hidden rounded-3xl border border-border bg-surface/95 shadow-[0_24px_90px_rgba(0,0,0,0.35)] backdrop-blur-2xl sm:right-5">
+          <aside id="notifications-panel" aria-label="Notifications panel" className="fixed right-3 top-1/2 z-50 h-[min(72dvh,42rem)] w-[min(26rem,calc(100vw-3rem))] -translate-y-1/2 overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] sm:right-5 sm:w-[min(28rem,calc(100vw-3rem))]">
             {isAuthenticated && user ? (
               <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
                 <NotificationsPage embedded onClose={() => setIsNotificationsOpen(false)} />
