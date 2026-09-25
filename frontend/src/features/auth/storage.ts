@@ -2,7 +2,6 @@ import type { User } from './auth.types'
 
 const USER_KEY = 'sportzone-user'
 const STORAGE_VERSION_KEY = 'sportzone-storage-v'
-const CURRENT_STORAGE_VERSION = '1'
 
 interface StoredAuthState {
   user: User | null
@@ -10,75 +9,11 @@ interface StoredAuthState {
 }
 
 /**
- * Validates that a User object has required fields.
- * @param user - The user object to validate.
- * @returns True if user is valid, false otherwise.
+ * Authentication persistence belongs to the server-managed HttpOnly cookies.
+ * Clear older profile snapshots so stale user data cannot be mistaken for a session.
  */
-function isValidUser(user: unknown): user is User {
-  return (
-    typeof user === 'object' &&
-    user !== null &&
-    'id' in user &&
-    typeof (user as { id?: unknown }).id === 'string' &&
-    'email' in user &&
-    typeof (user as { email?: unknown }).email === 'string'
-  )
-}
-
-/**
- * Gets the appropriate storage object based on persistence preference.
- * @param rememberMe - Whether to use persistent storage (localStorage) or session storage.
- * @returns The selected Storage object.
- */
-function getStorage(rememberMe: boolean): Storage {
-  return rememberMe ? localStorage : sessionStorage
-}
-
-/**
- * Gets the other storage object (opposite of the selected one).
- * @param rememberMe - The current persistence preference.
- * @returns The opposite Storage object to clear.
- */
-function getOtherStorage(rememberMe: boolean): Storage {
-  return rememberMe ? sessionStorage : localStorage
-}
-
-/**
- * Checks storage version to handle migrations.
- * @param rememberMe - The current storage preference.
- * @returns True if storage version matches, false if migration needed.
- */
-/**
- * Persists user authentication state with optional persistence.
- * Clears the opposite storage to prevent conflicts.
- * @param user - The authenticated user object.
- * @param _token - The JWT token (handled by secure httpOnly cookie).
- * @param rememberMe - Whether to persist auth across browser sessions.
- * @throws Error if user validation fails.
- */
-export function saveAuthState(user: User, _token: string | null, rememberMe: boolean): void {
-  if (!isValidUser(user)) {
-    throw new Error('Invalid user object provided to saveAuthState')
-  }
-
-  const primaryStorage = getStorage(rememberMe)
-  const otherStorage = getOtherStorage(rememberMe)
-
-  try {
-    // Clear the other storage to prevent conflicts
-    otherStorage.removeItem(USER_KEY)
-    otherStorage.removeItem(STORAGE_VERSION_KEY)
-
-    // Save to primary storage
-    primaryStorage.setItem(USER_KEY, JSON.stringify(user))
-    primaryStorage.setItem(STORAGE_VERSION_KEY, CURRENT_STORAGE_VERSION)
-  } catch (error) {
-    if (error instanceof Error && error.name === 'QuotaExceededError') {
-      console.error('Storage quota exceeded', error)
-      throw new Error('Storage quota exceeded. Please clear browser cache.')
-    }
-    throw error
-  }
+export function saveAuthState(_user: User, _token: string | null, _rememberMe: boolean): void {
+  clearAuthState()
 }
 
 /**
@@ -96,45 +31,11 @@ export function clearAuthState(): void {
 }
 
 /**
- * Loads persisted authentication state from storage.
- * Checks localStorage first (persistent), then sessionStorage (session-only).
- * Validates stored data before returning.
- * @returns StoredAuthState with user and authentication status.
+ * Loads the initial unauthenticated state. The backend session is authoritative.
+ * @returns Empty auth state until refresh and /auth/me confirm the session.
  */
 export function loadAuthState(): StoredAuthState {
-  try {
-    // Try localStorage first
-    let storedUser = localStorage.getItem(USER_KEY)
-    let storageVersion = localStorage.getItem(STORAGE_VERSION_KEY)
-
-    // Fall back to sessionStorage
-    if (!storedUser) {
-      storedUser = sessionStorage.getItem(USER_KEY)
-      storageVersion = sessionStorage.getItem(STORAGE_VERSION_KEY)
-    }
-
-    // Check version compatibility
-    if (storageVersion !== CURRENT_STORAGE_VERSION) {
-      clearAuthState()
-      return { user: null, isAuthenticated: false }
-    }
-
-    if (!storedUser) {
-      return { user: null, isAuthenticated: false }
-    }
-
-    const parsedUser = JSON.parse(storedUser) as unknown
-
-    if (!isValidUser(parsedUser)) {
-      clearAuthState()
-      return { user: null, isAuthenticated: false }
-    }
-
-    return { user: parsedUser, isAuthenticated: false }
-  } catch (error) {
-    console.error('Failed to load auth state', error)
-    clearAuthState()
-    return { user: null, isAuthenticated: false }
-  }
+  clearAuthState()
+  return { user: null, isAuthenticated: false }
 }
 
