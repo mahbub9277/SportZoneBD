@@ -51,7 +51,7 @@ export function WatchChannelPage() {
   const { channelId = '' } = useParams<{ channelId: string }>()
   const { data: watchData, isLoading, isError, error } = useGetWatchChannelDataQuery(channelId, {
     skip: !channelId,
-    refetchOnMountOrArgChange: true,
+    refetchOnMountOrArgChange: 10,
   })
   const { data: reactions } = useGetChannelReactionsQuery(channelId, { skip: !channelId })
   const [toggleReaction] = useToggleChannelReactionMutation()

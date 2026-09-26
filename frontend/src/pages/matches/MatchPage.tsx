@@ -34,7 +34,7 @@ export function MatchPage() {
   const { id } = useParams<{ id: string }>()
   const { data: match, isFetching, isError, error } = useGetMatchByIdQuery(id!, {
     skip: !id,
-    refetchOnMountOrArgChange: true,
+    refetchOnMountOrArgChange: 10,
   }) as { data?: Match; isFetching: boolean; isError: boolean; error?: unknown }
 
   const [isAutoMode, setIsAutoMode] = useState(true)

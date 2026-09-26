@@ -31,7 +31,7 @@ export function MobileBottomNav() {
       className="fixed bottom-5 left-4 right-4 z-50 sm:hidden"
       style={{ bottom: 'max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))' }}
     >
-      <div className="mx-auto flex w-full max-w-lg items-center justify-around gap-1 rounded-full border border-white/15 bg-slate-900/60 px-3 py-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-lg items-center justify-around gap-1 rounded-full border border-(--mobile-nav-border) bg-(--mobile-nav-bg) px-3 py-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-xl">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = isActive(item)
@@ -45,7 +45,7 @@ export function MobileBottomNav() {
               title={item.label}
               className={cn(
                 'flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-full px-1 text-[10px] font-semibold whitespace-nowrap transition-all duration-300 ease-out active:scale-95',
-                active ? 'scale-105 bg-white/10 text-accent shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]' : 'text-gray-400 hover:text-white',
+                active ? 'scale-105 bg-(--mobile-nav-active-bg) text-accent shadow-sm' : 'text-(--mobile-nav-inactive-text) hover:bg-surface-soft hover:text-(--mobile-nav-hover-text)',
               )}
             >
               <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />

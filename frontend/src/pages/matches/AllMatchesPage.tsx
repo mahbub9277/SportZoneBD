@@ -12,6 +12,7 @@ import { MatchCardDisplay } from '../../components/MatchCardDisplay'
 import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { filterMatches, sortMatches } from '../../features/matches/matchOrdering'
+import { useMemo } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
 const emptyMatches: Match[] = []
@@ -50,18 +51,31 @@ export function AllMatchesPage() {
     status: normalizedStatus,
     premium: premium,
     activeOnly: true,
-  }, { refetchOnMountOrArgChange: true })
+  }, { refetchOnMountOrArgChange: 5 })
 
-  const activeMatches = sortMatches(filterMatches(data?.items ?? emptyMatches, undefined, premium))
-  const visibleMatches = status === 'Recent'
-    ? activeMatches.slice(0, 6)
-    : sortMatches(filterMatches(activeMatches, normalizedStatus as MatchStatus | undefined, premium))
-  const counts = {
-    Recent: Math.min(activeMatches.length, 6),
-    All: activeMatches.length,
-    LIVE: activeMatches.filter((match) => match.status?.toUpperCase() === 'LIVE').length,
-    UPCOMING: activeMatches.filter((match) => match.status?.toUpperCase() === 'UPCOMING').length,
-  }
+  const activeMatches = useMemo(
+    () => sortMatches(filterMatches(data?.items ?? emptyMatches, undefined, premium)),
+    [data?.items, premium],
+  )
+  const visibleMatches = useMemo(() => {
+    if (status === 'Recent') return activeMatches.slice(0, 6)
+    if (normalizedStatus) return filterMatches(activeMatches, normalizedStatus as MatchStatus, false)
+    return activeMatches
+  }, [activeMatches, normalizedStatus, status])
+  const counts = useMemo(() => {
+    let live = 0
+    let upcoming = 0
+    for (const match of activeMatches) {
+      if (match.status?.toUpperCase() === 'LIVE') live += 1
+      else if (match.status?.toUpperCase() === 'UPCOMING') upcoming += 1
+    }
+    return {
+      Recent: Math.min(activeMatches.length, 6),
+      All: activeMatches.length,
+      LIVE: live,
+      UPCOMING: upcoming,
+    }
+  }, [activeMatches])
   const hasNoMatches = !isLoading && (isError || visibleMatches.length === 0)
 
   return (
@@ -143,7 +157,7 @@ export function AllMatchesPage() {
         )}
         {visibleMatches.map((match, index) => (
           <motion.div
-            key={match.id || index}
+            key={match.id}
             initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: shouldReduceMotion ? 0 : 0.24, delay: shouldReduceMotion ? 0 : Math.min(index * 0.04, 0.24), ease: 'easeOut' }}

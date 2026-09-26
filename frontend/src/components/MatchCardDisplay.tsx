@@ -82,7 +82,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
             <div className="flex min-w-0 flex-col items-center gap-2 text-center">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {homeTeam.logo && !homeLogoFailed ? (
-                  <img src={homeTeam.logo} alt={homeTeam.name} className="h-full w-full object-contain p-1.5" onError={() => setHomeLogoFailed(true)} />
+                  <img src={homeTeam.logo} alt={homeTeam.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-1.5" onError={() => setHomeLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{homeTeam.name.slice(0, 2)}</span>
                 )}
@@ -95,7 +95,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
             <div className="flex min-w-0 flex-col items-center gap-2 text-center">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {awayTeam.logo && !awayLogoFailed ? (
-                  <img src={awayTeam.logo} alt={awayTeam.name} className="h-full w-full object-contain p-1.5" onError={() => setAwayLogoFailed(true)} />
+                  <img src={awayTeam.logo} alt={awayTeam.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-1.5" onError={() => setAwayLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{awayTeam.name.slice(0, 2)}</span>
                 )}

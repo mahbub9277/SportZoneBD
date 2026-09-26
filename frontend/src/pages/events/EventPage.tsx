@@ -48,7 +48,7 @@ export default function EventPage() {
   const navigate = useNavigate()
   const { data: event, isLoading, isError, error } = useGetEventBySlugQuery(slug, {
     skip: !slug,
-    refetchOnMountOrArgChange: true,
+    refetchOnMountOrArgChange: 10,
   })
   const isPremiumSubscriber = useAppSelector(selectIsPremiumSubscriber)
   const openMatch = useAdvertisementGate('MATCH')

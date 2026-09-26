@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, useMatches } from 'react-router-dom'
 import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Toaster } from 'sonner'
@@ -49,6 +49,8 @@ const USER_PREVIOUS_ROUTE_KEY = 'sportzone:user-previous-route'
 const UserLayout = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  const matches = useMatches()
+  const activeRouteId = matches[matches.length - 1]?.id ?? location.pathname
   const shouldReduceMotion = useReducedMotion()
   const previousRouteRef = useRef<string | null>(null)
 
@@ -86,7 +88,7 @@ const UserLayout = () => {
             <Suspense fallback={<GlobalLoadingIndicator force />}>
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
-                  key={location.pathname}
+                  key={activeRouteId}
                   initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: shouldReduceMotion ? 0 : -6 }}

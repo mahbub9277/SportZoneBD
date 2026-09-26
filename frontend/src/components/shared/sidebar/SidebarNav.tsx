@@ -6,7 +6,7 @@ import { useGetSidebarEventsQuery } from '../../../features/events/events.api'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 
 const navLinkVariants = cva(
-  'relative flex items-center gap-2.5 rounded-xl px-2.75 py-2.5 text-[13px] font-semibold leading-none text-text-muted transition duration-200 ease-in-out hover:bg-surface-soft hover:text-text-primary',
+  'relative flex items-center gap-2.5 rounded-xl px-2.75 py-2.5 text-sm font-semibold leading-none text-text-muted transition duration-200 ease-in-out hover:bg-surface-soft hover:text-text-primary',
   { variants: { active: { true: 'border border-accent/25 bg-accent/10 text-text-primary shadow-nav-active' } } },
 )
 
@@ -40,7 +40,7 @@ export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNav
       <div className="mt-2 pt-2">
         <NavItem href="/about" label="About" icon={Info} onClick={onNavigate} isLast />
       </div>
-      {isAuthenticated && <button onClick={() => { onNavigate?.(); onLogout() }} className="relative mt-1 flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.75 py-2.5 text-left text-[13px] font-semibold text-text-muted transition duration-200 ease-in-out hover:border-border hover:bg-surface-soft hover:text-text-primary hover:shadow-nav-active"><div className="nav-connector-main nav-connector-main-last" aria-hidden="true" /><LogOut className="relative z-10 h-6 w-6 shrink-0" /><span className="relative z-10 truncate">Logout</span></button>}
+      {isAuthenticated && <button onClick={() => { onNavigate?.(); onLogout() }} className="relative mt-1 flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.75 py-2.5 text-left text-sm font-semibold text-text-muted transition duration-200 ease-in-out hover:border-border hover:bg-surface-soft hover:text-text-primary hover:shadow-nav-active"><div className="nav-connector-main nav-connector-main-last" aria-hidden="true" /><LogOut className="relative z-10 h-6 w-6 shrink-0" /><span className="relative z-10 truncate">Logout</span></button>}
     </nav>
   )
 }

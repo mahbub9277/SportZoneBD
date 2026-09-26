@@ -32,6 +32,11 @@
   --text-muted: #8fa3c5;
   --shadow: rgba(2, 6, 23, 0.45);
   --hero-glow: rgba(247, 199, 93, 0.16);
+  --mobile-nav-bg: rgba(15, 23, 42, 0.6);
+  --mobile-nav-border: rgba(255, 255, 255, 0.15);
+  --mobile-nav-active-bg: rgba(255, 255, 255, 0.1);
+  --mobile-nav-inactive-text: #9ca3af;
+  --mobile-nav-hover-text: #ffffff;
   --radius-lg: 1rem;
   --radius-xl: 1.25rem;
   --radius-2xl: 1.5rem;
@@ -72,6 +77,11 @@
   --text-muted: #64748b;
   --shadow: rgba(15, 23, 42, 0.12);
   --hero-glow: rgba(211, 159, 18, 0.14);
+  --mobile-nav-bg: rgba(255, 255, 255, 0.96);
+  --mobile-nav-border: rgba(100, 116, 139, 0.2);
+  --mobile-nav-active-bg: rgba(211, 159, 18, 0.12);
+  --mobile-nav-inactive-text: #64748b;
+  --mobile-nav-hover-text: #111827;
 }
 
 * {
