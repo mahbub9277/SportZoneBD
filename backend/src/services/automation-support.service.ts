@@ -23,8 +23,11 @@ export async function prewarmUpcomingMatches(now = new Date()): Promise<void> {
     const matches = await prisma.match.findMany({
       where: {
         deletedAt: null,
-        status: { in: ['UPCOMING', 'LIVE'] },
-        kickoffAt: { lte: new Date(now.getTime() + PREWARM_WINDOW_MINUTES * 60 * 1000) },
+        status: 'UPCOMING',
+        kickoffAt: {
+          gt: now,
+          lte: new Date(now.getTime() + PREWARM_WINDOW_MINUTES * 60 * 1000),
+        },
       },
       orderBy: { kickoffAt: 'asc' },
       take: 50,

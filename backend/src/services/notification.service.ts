@@ -1,5 +1,5 @@
 import { prisma } from '../core/prisma.js'
-import { enqueueUserNotification } from '../core/notificationQueue.js'
+import { enqueueUserNotifications, type NotificationQueuePayload } from '../core/notificationQueue.js'
 
 interface NotificationEvent {
   title: string
@@ -13,12 +13,17 @@ async function broadcastNotificationChannel(
   event: NotificationEvent,
   channel: 'IN_APP' | 'PUSH',
 ): Promise<number> {
+  const existingNotificationWhere = event.type === 'match-reminder' || event.type === 'match-started'
+    ? { type: event.type, channel, link: event.link ?? null, deletedAt: null }
+    : { title: event.title, body: event.body, channel, link: event.link ?? null, deletedAt: null }
+
   const users = await prisma.user.findMany({
     where: {
       isActive: true,
       isSuspended: false,
       isBanned: false,
       deletedAt: null,
+      notifications: { none: existingNotificationWhere },
       ...(channel === 'PUSH' ? {
         pushSubscriptions: { some: { isActive: true, deletedAt: null } },
         OR: [
@@ -32,9 +37,7 @@ async function broadcastNotificationChannel(
 
   if (users.length === 0) return 0
 
-  const createdIds: string[] = []
-  for (const user of users) {
-    const result = await enqueueUserNotification({
+  const payloads: NotificationQueuePayload[] = users.map((user) => ({
       userId: user.id,
       title: event.title,
       body: event.body,
@@ -42,14 +45,9 @@ async function broadcastNotificationChannel(
       link: event.link,
       channel,
       dedupeKey: `${channel}:${event.title}:${event.body}:${event.link ?? ''}:${user.id}`,
-    })
-
-    if (result) {
-      createdIds.push(result)
-    }
-  }
-
-  return createdIds.length
+    }))
+  const results = await enqueueUserNotifications(payloads)
+  return results.filter(Boolean).length
 }
 
 /**
@@ -175,32 +173,36 @@ export async function createAdminBroadcastNotification(payload: {
         distinct: ['userId'],
       })).map(({ userId }) => userId))
 
-  let createdCount = 0
-  for (const user of targetUsers) {
-    const inAppResult = channel === 'PUSH' ? null : await enqueueUserNotification({
-      userId: user.id,
-      title: payload.title,
-      body: payload.body,
-      type: payload.type ?? 'info',
-      link: payload.link,
-      channel: 'IN_APP',
-      dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:IN_APP`,
-    })
+  const queuePayloads: NotificationQueuePayload[] = []
+  const recipientIndexes: number[] = []
+  targetUsers.forEach((user, index) => {
+    if (channel !== 'PUSH') {
+      queuePayloads.push({
+        userId: user.id,
+        title: payload.title,
+        body: payload.body,
+        type: payload.type ?? 'info',
+        link: payload.link,
+        channel: 'IN_APP',
+        dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:IN_APP`,
+      })
+      recipientIndexes.push(index)
+    }
 
-    const pushResult = channel !== 'IN_APP' && pushEligibleUserIds.has(user.id)
-      ? await enqueueUserNotification({
-          userId: user.id,
-          title: payload.title,
-          body: payload.body,
-          type: payload.type ?? 'info',
-          link: payload.link,
-          channel: 'PUSH',
-          dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
-        })
-      : null
+    if (channel !== 'IN_APP' && pushEligibleUserIds.has(user.id)) {
+      queuePayloads.push({
+        userId: user.id,
+        title: payload.title,
+        body: payload.body,
+        type: payload.type ?? 'info',
+        link: payload.link,
+        channel: 'PUSH',
+        dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
+      })
+      recipientIndexes.push(index)
+    }
+  })
 
-    if (inAppResult || pushResult) createdCount += 1
-  }
-
-  return createdCount
+  const results = await enqueueUserNotifications(queuePayloads)
+  return new Set(results.flatMap((result, index) => result ? [recipientIndexes[index]] : [])).size
 }

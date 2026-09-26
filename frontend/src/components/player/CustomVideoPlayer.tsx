@@ -237,7 +237,7 @@ export function CustomVideoPlayer({
       if (presenceActiveRef.current && presenceIdentity && socket.connected) {
         socket.emit('viewerHeartbeat', { streamId: presenceIdentity, kind: presenceType })
       }
-    }, 25000)
+    }, 30000)
     return () => {
       socket.off('connect', handleConnect)
       window.clearInterval(heartbeat)

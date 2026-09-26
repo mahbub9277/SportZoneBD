@@ -21,15 +21,17 @@ const notificationIcons = {
 interface NotificationsPageProps {
   embedded?: boolean
   onClose?: () => void
+  onViewAll?: () => void
 }
 
 type PushStatus = 'checking' | 'available' | 'enabled' | 'denied' | 'unsupported'
 
-export function NotificationsPage({ embedded = false, onClose }: NotificationsPageProps) {
+export function NotificationsPage({ embedded = false, onClose, onViewAll }: NotificationsPageProps) {
   const [page, setPage] = useState(1)
   const [pushStatus, setPushStatus] = useState<PushStatus>('checking')
   const shouldReduceMotion = useReducedMotion()
-  const { data, isLoading, isFetching, isError, refetch } = useGetNotificationsQuery({ page, limit: 25, unreadOnly: true })
+  const queryLimit = embedded ? 5 : 20
+  const { data, isLoading, isFetching, isError, refetch } = useGetNotificationsQuery({ page, limit: queryLimit, unreadOnly: false })
   const [markAllAsRead, { isLoading: isMarkingAllAsRead }] = useMarkAllNotificationsAsReadMutation()
   const [markAsRead, { isLoading: isMarkingIndividual, originalArgs }] = useMarkNotificationAsReadMutation()
   const [deleteNotification, { isLoading: isDeletingNotification, originalArgs: deletingNotificationId }] = useDeleteNotificationMutation()
@@ -47,6 +49,12 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
   const handleNext = () => {
     setPage((prev) => Math.min(prev + 1, totalPages))
   }
+
+  useEffect(() => {
+    if (embedded) {
+      setPage(1)
+    }
+  }, [embedded])
 
   useEffect(() => {
     let isMounted = true
@@ -124,39 +132,53 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
     }
   }
 
+  const notificationList = notifications
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0 space-y-3', embedded ? 'h-full overflow-y-auto overscroll-contain p-3 sm:p-5' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className={cn('flex items-center justify-between gap-3', embedded ? 'border-b border-border/70 pb-4' : 'app-page-section')}>
-        <div className="min-w-0">
-          <h1 className={cn('font-bold tracking-tight text-(--text-primary)', embedded ? 'text-2xl' : 'text-3xl')}>Notifications</h1>
-          {embedded && <p className="mt-1 text-sm text-(--text-muted)">Your latest account and match updates</p>}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0', embedded ? 'h-full overflow-y-auto overscroll-contain p-3 sm:p-4' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--text-muted)">Inbox</p>
+            <h2 className="mt-1 text-xl font-semibold text-(--text-primary)">Notifications</h2>
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close notifications" title="Close notifications"><X className="h-5 w-5" /></Button>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {notifications.some((n) => !n.isRead) && <Button variant="outline" size="sm" onClick={() => markAllAsRead()} disabled={isMarkingAllAsRead} isLoading={isMarkingAllAsRead}>{isMarkingAllAsRead ? 'Marking as read...' : 'Mark all as read'}</Button>}
-          {notifications.length > 0 && <Button type="button" variant="ghost" size="icon" onClick={() => deleteAllNotifications()} disabled={isDeletingAll} aria-label="Delete all notifications" title="Delete all notifications"><Trash2 className={cn('h-4 w-4', isDeletingAll && 'animate-pulse')} /></Button>}
-          {embedded && <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close notifications" title="Close notifications"><X className="h-5 w-5" /></Button>}
-        </div>
-      </motion.div>
+      ) : (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight text-(--text-primary)">Notifications</h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {notifications.some((n) => !n.isRead) && <Button variant="outline" size="sm" onClick={() => markAllAsRead()} disabled={isMarkingAllAsRead} isLoading={isMarkingAllAsRead}>{isMarkingAllAsRead ? 'Marking as read...' : 'Mark all as read'}</Button>}
+            {notifications.length > 0 && <Button type="button" variant="ghost" size="icon" onClick={() => deleteAllNotifications()} disabled={isDeletingAll} aria-label="Delete all notifications" title="Delete all notifications"><Trash2 className={cn('h-4 w-4', isDeletingAll && 'animate-pulse')} /></Button>}
+          </div>
+        </motion.div>
+      )}
 
-      <Card className="flex flex-col gap-3 border-border bg-surface-soft/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="font-semibold text-(--text-primary)">Browser push notifications</p>
-          <p className="mt-1 text-sm text-(--text-muted)">{pushStatus === 'enabled' ? 'Push alerts are enabled for this device. In-app alerts work independently.' : 'Optional alerts for matches and highlights. In-app notifications do not require permission.'}</p>
-        </div>
-        {pushStatus === 'available' && <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>}
-        {pushStatus === 'enabled' && <Button type="button" variant="outline" className="shrink-0" onClick={() => void handleDisablePush()} disabled={isDisablingPush} isLoading={isDisablingPush}>Turn off</Button>}
-        {pushStatus === 'unsupported' && <span className="shrink-0 text-xs text-text-muted">Unavailable in this browser</span>}
-      </Card>
-      {pushStatus === 'denied' && <p className="text-xs text-(--text-muted)">Notifications are blocked in this browser. Enable them in your site permissions to receive alerts.</p>}
+      {!embedded && (
+        <>
+          <Card className="mt-3 flex flex-col gap-3 border-border bg-surface-soft/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-(--text-primary)">Browser push notifications</p>
+              <p className="mt-1 text-sm text-(--text-muted)">{pushStatus === 'enabled' ? 'Push alerts are enabled for this device. In-app alerts work independently.' : 'Optional alerts for matches and highlights. In-app notifications do not require permission.'}</p>
+            </div>
+            {pushStatus === 'available' && <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>}
+            {pushStatus === 'enabled' && <Button type="button" variant="outline" className="shrink-0" onClick={() => void handleDisablePush()} disabled={isDisablingPush} isLoading={isDisablingPush}>Turn off</Button>}
+            {pushStatus === 'unsupported' && <span className="shrink-0 text-xs text-text-muted">Unavailable in this browser</span>}
+          </Card>
+          {pushStatus === 'denied' && <p className="mt-3 text-xs text-(--text-muted)">Notifications are blocked in this browser. Enable them in your site permissions to receive alerts.</p>}
 
-      <div className="flex items-center justify-between border-b border-border/60 pb-2">
-        <h2 className="text-base font-semibold text-(--text-primary)">In-app notifications</h2>
-        <span className="text-xs text-(--text-muted)">Unread</span>
-      </div>
+          <div className="mt-3 flex items-center justify-between border-b border-border/60 pb-2">
+            <h2 className="text-base font-semibold text-(--text-primary)">In-app notifications</h2>
+            <span className="text-xs text-(--text-muted)">Unread</span>
+          </div>
+        </>
+      )}
 
       {isLoading ? (
-        <div role="status" aria-live="polite" aria-label="Loading notifications" className="space-y-4">
-          {Array.from({ length: 5 }).map((_, i) => (
+        <div role="status" aria-live="polite" aria-label="Loading notifications" className={cn('space-y-4', embedded ? 'mt-4' : 'mt-3')}>
+          {Array.from({ length: embedded ? 5 : 5 }).map((_, i) => (
             <Card key={i} className="flex items-start gap-4 p-4">
               <Skeleton className="h-6 w-6 rounded-full" />
               <div className="flex-1 space-y-2">
@@ -167,14 +189,14 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
           ))}
         </div>
       ) : isError ? (
-        <Card className="p-8 text-center text-red-400">
+        <Card className={cn('mt-4 p-8 text-center text-red-400', embedded ? 'rounded-2xl' : '')}>
           <AlertTriangle className="mx-auto h-12 w-12" />
           <p className="mt-4 text-lg font-semibold">Unable to load notifications</p>
           <p>Please try again shortly.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetch()} isLoading={isFetching}>Try again</Button>
         </Card>
-      ) : notifications.length === 0 ? (
-        <Card className="p-8 text-center text-(--text-muted)">
+      ) : notificationList.length === 0 ? (
+        <Card className={cn('mt-4 p-8 text-center text-(--text-muted)', embedded ? 'rounded-2xl' : '')}>
           <BellRing className="mx-auto h-12 w-12" />
           <p className="mt-4 text-lg font-semibold">No notifications yet</p>
           <p>We&apos;ll let you know when there&apos;s something new.</p>
@@ -182,7 +204,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
       ) : (
         <>
           <motion.div
-            className="space-y-4"
+            className={cn('space-y-3', embedded ? 'mt-4' : 'mt-3')}
             initial="hidden"
             animate="visible"
             variants={{
@@ -191,7 +213,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
             }}
           >
             <AnimatePresence initial={false} mode="popLayout">
-              {notifications.map((notification) => (
+              {notificationList.map((notification) => (
                 <motion.div
                   key={notification.id}
                   layout
@@ -204,7 +226,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: 'easeOut' }}
                 >
-                  <Card className={cn('flex min-w-0 items-start gap-2.5 p-3 sm:gap-3 sm:p-4', !notification.isRead && 'bg-(--surface-strong)')}>
+                  <Card className={cn('flex min-w-0 items-start gap-2.5 p-3 sm:gap-3 sm:p-4', !notification.isRead && 'bg-(--surface-strong)', embedded ? 'rounded-2xl border-border' : '')}>
                     <div className="shrink-0">
                       {notificationIcons[notification.type as NotificationType] ?? notificationIcons.default}
                     </div>
@@ -218,9 +240,7 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
                       </div>}
                       {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="group/link inline-flex max-w-full items-center gap-1 wrap-break-word text-base font-semibold text-(--text-primary) transition-colors hover:text-accent hover:underline"><span className="wrap-break-word">{notification.title}</span><ArrowUpRight className="h-4 w-4 shrink-0 opacity-70 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" /></a> : <p className="wrap-break-word text-base font-semibold text-(--text-primary)">{notification.title}</p>}
                       {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="mt-1 block wrap-break-word text-base text-(--text-muted) transition-colors hover:text-text-primary">{notification.body}</a> : <p className="wrap-break-word text-base text-(--text-muted)">{notification.body}</p>}
-                      <p className="mt-1 text-xs text-(--text-muted)">
-                        {new Date(notification.createdAt).toLocaleString()}
-                      </p>
+                      <p className="mt-1 text-xs text-(--text-muted)">{new Date(notification.createdAt).toLocaleString()}</p>
                       {!notification.isRead && (
                         <Button
                           variant="link"
@@ -244,7 +264,16 @@ export function NotificationsPage({ embedded = false, onClose }: NotificationsPa
               ))}
             </AnimatePresence>
           </motion.div>
-          {totalPages > 1 && (
+
+          {embedded && onViewAll && (
+            <div className="mt-4 border-t border-border/70 pt-3">
+              <Button type="button" variant="outline" className="w-full justify-center rounded-xl" onClick={onViewAll}>
+                View All
+              </Button>
+            </div>
+          )}
+
+          {!embedded && totalPages > 1 && (
             <div className="flex items-center justify-between pt-4">
               <Button onClick={handlePrevious} disabled={page === 1 || isFetching}>Previous</Button>
               <span className="text-sm text-(--text-muted)">Page {page} of {totalPages}</span>

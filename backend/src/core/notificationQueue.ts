@@ -7,6 +7,13 @@ import logger from './logger.js'
 import { emitUserNotification } from './socketManager.js'
 
 export const NOTIFICATION_QUEUE_NAME = 'notification-dispatch'
+const NOTIFICATION_BATCH_SIZE = 100
+const NOTIFICATION_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: { age: 60 * 60 * 24 },
+  removeOnFail: { age: 60 * 60 * 24 * 7 },
+}
 
 export interface NotificationQueuePayload {
   userId: string
@@ -16,6 +23,8 @@ export interface NotificationQueuePayload {
   link?: string
   channel?: 'IN_APP' | 'EMAIL' | 'PUSH'
   dedupeKey?: string
+  retrySubscriptionIds?: string[]
+  retryAllPushSubscriptions?: boolean
 }
 
 const hasRedisConnection = Boolean(process.env.REDIS_URL?.trim())
@@ -40,19 +49,19 @@ const queueInstance = hasRedisConnection
   ? new Queue<NotificationQueuePayload>(NOTIFICATION_QUEUE_NAME, {
       connection: redis as any,
       defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 },
-        removeOnComplete: { age: 60 * 60 * 24 },
-        removeOnFail: { age: 60 * 60 * 24 * 7 },
+        ...NOTIFICATION_JOB_OPTIONS,
       },
     })
   : null
 
 let workerInstance: Worker<NotificationQueuePayload> | null = null
 
-async function sendPushNotification(notification: { id: string; userId: string; title: string; body: string; type: string; link?: string | null }): Promise<void> {
+async function sendPushNotification(
+  notification: { id: string; userId: string; title: string; body: string; type: string; link?: string | null },
+  subscriptionIds?: string[],
+): Promise<string[]> {
   if (!pushConfigured) {
-    return
+    return []
   }
 
   const subscriptions = await prisma.pushSubscription.findMany({
@@ -60,8 +69,10 @@ async function sendPushNotification(notification: { id: string; userId: string; 
       userId: notification.userId,
       isActive: true,
       deletedAt: null,
+      ...(subscriptionIds ? { id: { in: subscriptionIds } } : {}),
     },
     select: {
+      id: true,
       endpoint: true,
       p256dh: true,
       auth: true,
@@ -69,7 +80,7 @@ async function sendPushNotification(notification: { id: string; userId: string; 
   })
 
   if (subscriptions.length === 0) {
-    return
+    return []
   }
 
   const matchId = notification.link?.match(/^\/matches\/([0-9a-f-]{36})$/i)?.[1]
@@ -90,46 +101,66 @@ async function sendPushNotification(notification: { id: string; userId: string; 
     ...(icon ? { icon } : {}),
   })
 
-  const pushResults = await Promise.allSettled(
-    subscriptions.map(async (subscription) => {
-      await webPush.sendNotification(
-        {
-          endpoint: subscription.endpoint,
-          keys: {
-            p256dh: subscription.p256dh,
-            auth: subscription.auth,
+  const pushResults = await Promise.all(subscriptions.map(async (subscription) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await webPush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: subscription.p256dh,
+              auth: subscription.auth,
+            },
           },
-        },
-        payload,
-      )
-    }),
-  )
+          payload,
+        )
+          return { subscriptionId: subscription.id, status: 'fulfilled' as const }
+      } catch (reason) {
+        const statusCode = Number((reason as { statusCode?: unknown })?.statusCode)
+        if (statusCode === 404 || statusCode === 410 || attempt === 2) {
+          return { subscriptionId: subscription.id, status: 'rejected' as const, statusCode }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
+      }
+    }
+    return { subscriptionId: subscription.id, status: 'rejected' as const, statusCode: 0 }
+  }))
 
   const inactiveSubscriptions = subscriptions.filter((_, index) => {
     const result = pushResults[index]
-    return result.status === 'rejected' && (result.reason as any)?.statusCode === 410
+    return result.status === 'rejected' && (result.statusCode === 404 || result.statusCode === 410)
   })
+  const failedSubscriptionIds = pushResults
+    .filter((result) => result.status === 'rejected' && result.statusCode !== 404 && result.statusCode !== 410)
+    .map((result) => result.subscriptionId)
 
   const rejectedCount = pushResults.filter((result) => result.status === 'rejected').length
+  const inactiveCount = inactiveSubscriptions.length
   if (rejectedCount > 0) {
-    logger.warn({ userId: notification.userId, rejectedCount }, 'Some web push deliveries were rejected')
+    logger.warn({ userId: notification.userId, notificationId: notification.id, rejectedCount, inactiveCount }, 'Some web push deliveries failed after bounded retries')
   }
 
   if (inactiveSubscriptions.length > 0) {
-    await prisma.pushSubscription.updateMany({
-      where: {
-        userId: notification.userId,
-        endpoint: { in: inactiveSubscriptions.map((item) => item.endpoint) },
-      },
-      data: {
-        isActive: false,
-        deletedAt: new Date(),
-      },
-    })
+    try {
+      await prisma.pushSubscription.updateMany({
+        where: {
+          userId: notification.userId,
+          endpoint: { in: inactiveSubscriptions.map((item) => item.endpoint) },
+        },
+        data: {
+          isActive: false,
+          deletedAt: new Date(),
+        },
+      })
+    } catch {
+      logger.warn({ userId: notification.userId, notificationId: notification.id, inactiveCount: inactiveSubscriptions.length }, 'Could not deactivate expired push subscriptions')
+    }
   }
+
+  return failedSubscriptionIds
 }
 
-export async function dispatchUserNotification(payload: NotificationQueuePayload): Promise<{ created: boolean; id?: string }> {
+export async function dispatchUserNotification(payload: NotificationQueuePayload): Promise<{ created: boolean; id?: string; failedPushSubscriptionIds?: string[] }> {
   const notificationPayload = {
     userId: payload.userId,
     title: payload.title,
@@ -160,6 +191,10 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
   })
 
   if (existingNotification) {
+    if (notificationPayload.channel === 'PUSH' && (payload.retryAllPushSubscriptions || payload.retrySubscriptionIds?.length)) {
+      const failedPushSubscriptionIds = await sendPushNotification({ ...notificationPayload, id: existingNotification.id }, payload.retryAllPushSubscriptions ? undefined : payload.retrySubscriptionIds)
+      return { created: false, id: existingNotification.id, failedPushSubscriptionIds }
+    }
     return { created: false, id: existingNotification.id }
   }
 
@@ -168,11 +203,8 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
   })
 
   if (notificationPayload.channel === 'PUSH') {
-    try {
-      await sendPushNotification(createdNotification)
-    } catch (error) {
-      logger.warn({ err: error, userId: payload.userId, notificationId: createdNotification.id }, 'Push notification delivery failed')
-    }
+    const failedPushSubscriptionIds = await sendPushNotification(createdNotification)
+    return { created: true, id: createdNotification.id, failedPushSubscriptionIds }
   }
 
   if (notificationPayload.channel === 'IN_APP') {
@@ -191,29 +223,45 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
   return { created: true, id: createdNotification.id }
 }
 
-export async function enqueueUserNotification(payload: NotificationQueuePayload): Promise<string | null> {
-  if (!queueInstance || !process.env.REDIS_URL) {
-    const result = await dispatchUserNotification(payload)
-    return result.id ?? null
-  }
-
+function getNotificationJobId(payload: NotificationQueuePayload): string {
   const dedupeKey = payload.dedupeKey ?? `${payload.userId}:${payload.title}:${payload.body}:${payload.channel ?? 'IN_APP'}`
-  const jobId = createHash('sha256').update(dedupeKey).digest('hex')
-  try {
-    const job = await queueInstance.add('send', payload, {
-      jobId,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 1000 },
-      removeOnComplete: { age: 60 * 60 * 24 },
-      removeOnFail: { age: 60 * 60 * 24 * 7 },
-    })
+  return createHash('sha256').update(dedupeKey).digest('hex')
+}
 
-    return job?.id ?? null
-  } catch (error) {
-    logger.warn({ err: error, userId: payload.userId, channel: payload.channel ?? 'IN_APP' }, 'Notification queue unavailable; dispatching directly')
+async function dispatchNotificationsDirectly(payloads: NotificationQueuePayload[]): Promise<Array<string | null>> {
+  const ids: Array<string | null> = []
+  for (const payload of payloads) {
     const result = await dispatchUserNotification(payload)
-    return result.id ?? null
+    ids.push(result.id ?? null)
   }
+  return ids
+}
+
+export async function enqueueUserNotifications(payloads: NotificationQueuePayload[]): Promise<Array<string | null>> {
+  if (payloads.length === 0) return []
+  if (!queueInstance || !process.env.REDIS_URL) return dispatchNotificationsDirectly(payloads)
+
+  const ids: Array<string | null> = []
+  for (let offset = 0; offset < payloads.length; offset += NOTIFICATION_BATCH_SIZE) {
+    const batch = payloads.slice(offset, offset + NOTIFICATION_BATCH_SIZE)
+    try {
+      const jobs = await queueInstance.addBulk(batch.map((payload) => ({
+        name: 'send' as const,
+        data: payload,
+        opts: { jobId: getNotificationJobId(payload), ...NOTIFICATION_JOB_OPTIONS },
+      })))
+      ids.push(...jobs.map((job) => job.id ?? null))
+    } catch (error) {
+      logger.warn({ err: error, batchSize: batch.length }, 'Notification queue batch unavailable; dispatching directly')
+      ids.push(...await dispatchNotificationsDirectly(batch))
+    }
+  }
+  return ids
+}
+
+export async function enqueueUserNotification(payload: NotificationQueuePayload): Promise<string | null> {
+  const [id] = await enqueueUserNotifications([payload])
+  return id ?? null
 }
 
 export function startNotificationWorker(): void {
@@ -225,7 +273,23 @@ export function startNotificationWorker(): void {
     workerInstance = new Worker<NotificationQueuePayload>(
       NOTIFICATION_QUEUE_NAME,
       async (job: Job<NotificationQueuePayload>) => {
-        const result = await dispatchUserNotification(job.data)
+        let result: Awaited<ReturnType<typeof dispatchUserNotification>>
+        try {
+          result = await dispatchUserNotification(job.data)
+        } catch (error) {
+          if (job.data.channel === 'PUSH') {
+            await job.updateData({ ...job.data, retryAllPushSubscriptions: true, retrySubscriptionIds: undefined })
+          }
+          throw error
+        }
+        if (result.failedPushSubscriptionIds?.length) {
+          await job.updateData({
+            ...job.data,
+            retryAllPushSubscriptions: false,
+            retrySubscriptionIds: result.failedPushSubscriptionIds,
+          })
+          throw new Error(`Web Push delivery failed for ${result.failedPushSubscriptionIds.length} subscription(s)`)
+        }
         logger.info({ jobId: job.id, userId: job.data.userId, created: result.created }, 'Notification job processed')
         return result
       },
@@ -233,8 +297,9 @@ export function startNotificationWorker(): void {
         connection: redis as any,
         concurrency: 5,
         limiter: { max: 100, duration: 60_000 },
-        removeOnComplete: { age: 60 * 60 },
-        removeOnFail: { age: 60 * 60 * 24 },
+        drainDelay: 10,
+        removeOnComplete: NOTIFICATION_JOB_OPTIONS.removeOnComplete,
+        removeOnFail: NOTIFICATION_JOB_OPTIONS.removeOnFail,
       },
     )
 

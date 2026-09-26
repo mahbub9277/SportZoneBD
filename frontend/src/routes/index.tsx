@@ -58,6 +58,7 @@ const ActivityLogsManagementPage = lazyRoute(() => import('@/pages/admin/Activit
 const StorageManagementPage = lazyRoute(() => import('@/pages/admin/StorageManagementPage'), 'StorageManagementPage')
 const AnalyticsPage = lazyRoute(() => import('@/pages/admin/AnalyticsPage'), 'AnalyticsPage')
 const NotificationsPage = lazyRoute(() => import('@/pages/NotificationsPage'), 'NotificationsPage')
+const AboutPage = lazyRoute(() => import('@/features/pwa/AboutSportZoneBD'), 'AboutSportZoneBD')
 const UserSettingsPage = lazyRoute(() => import('@/pages/SettingsPage'), 'SettingsPage')
 const ReportsPage = lazyRoute(() => import('@/pages/ReportsPage'), 'ReportsPage')
 const AdvertisementsPage = lazyRoute(() => import('@/pages/AdvertisementsPage'), 'AdvertisementsPage')
@@ -192,6 +193,7 @@ export const router = createBrowserRouter([
           { path: 'standings', element: <StandingsPage /> },
           { path: 'terms-of-service', element: <TermsOfServicePage /> },
           { path: 'privacy-policy', element: <PrivacyPolicyPage /> },
+          { path: 'about', element: <AboutPage /> },
           { path: 'subscriptions', element: <SubscriptionsPage /> },
           { path: 'events/:slug', element: <EventPage /> },
           { path: 'advertisements', element: <AdvertisementsPage /> },

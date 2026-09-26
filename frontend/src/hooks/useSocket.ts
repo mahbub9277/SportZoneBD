@@ -162,6 +162,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })
 
     let hasConnectedOnce = false
+    const seenNotificationIds = new Set<string>()
     const handleConnect = () => {
       startTransition(() => setIsConnected(true))
       if (hasConnectedOnce) {
@@ -175,11 +176,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       dispatch(matchesApi.util.invalidateTags([{ type: 'Matches', id: 'LIST' }]))
     }
     const handleNotificationCreated = (payload: Parameters<ServerToClientEvents['notificationCreated']>[0]) => {
-      dispatch(notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
-        draft.count += 1
-      }))
+      if (!payload.id || seenNotificationIds.has(payload.id)) return
+      seenNotificationIds.add(payload.id)
+      if (seenNotificationIds.size > 1000) {
+        const oldestId = seenNotificationIds.values().next().value
+        if (oldestId) seenNotificationIds.delete(oldestId)
+      }
+
+      let alreadyInNotificationList = false
       dispatch(notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25, unreadOnly: true }, (draft) => {
-        if (draft.items.some((notification) => notification.id === payload.id)) return
+        if (draft.items.some((notification) => notification.id === payload.id)) {
+          alreadyInNotificationList = true
+          return
+        }
 
         draft.items.unshift({
           ...payload,
@@ -190,6 +199,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         draft.meta.totalItems += 1
         draft.meta.totalPages = Math.max(1, Math.ceil(draft.meta.totalItems / draft.meta.itemsPerPage))
       }))
+
+      if (!alreadyInNotificationList) {
+        dispatch(notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
+          draft.count += 1
+        }))
+      }
     }
 
     publicSocketInstance.on('connect', handleConnect)

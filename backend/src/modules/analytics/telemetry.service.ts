@@ -21,6 +21,7 @@ const bucketKey = (timestamp: number) => `sportzone:telemetry:bucket:${Math.floo
 const counterKey = (resource: string) => `sportzone:telemetry:counter:${resource}`
 
 let lastBroadcastAt = 0
+const TELEMETRY_BROADCAST_INTERVAL_MS = 5_000
 
 function safeNumber(value: unknown): number | undefined {
   const number = Number(value)
@@ -149,7 +150,7 @@ export async function getTelemetryHistory(minutes: number) {
 }
 
 export async function broadcastTelemetrySummary(): Promise<void> {
-  if (Date.now() - lastBroadcastAt < 1000) return
+  if (Date.now() - lastBroadcastAt < TELEMETRY_BROADCAST_INTERVAL_MS) return
   lastBroadcastAt = Date.now()
   const io = getIoInstance()
   if (!io) return
