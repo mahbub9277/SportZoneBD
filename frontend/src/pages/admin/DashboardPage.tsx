@@ -108,8 +108,8 @@ const OverviewCard = memo(function OverviewCard({ title, value, label, icon: Ico
 const AdminDashboardPage = () => {
   const { data, isLoading } = useGetDashboardStatsQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { adminSocket } = useSocket()
-  const [liveViewerCount, setLiveViewerCount] = useState(0)
-  const { data: streamHealth } = useGetStreamHealthSummaryQuery()
+  const [liveViewerCount, setLiveViewerCount] = useState<number | null>(null)
+  const { data: streamHealth, isError: isStreamHealthError } = useGetStreamHealthSummaryQuery()
   const [liveStreamHealth, setLiveStreamHealth] = useState(streamHealth)
   const { data: chartData, isLoading: isChartLoading } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
@@ -119,15 +119,23 @@ const AdminDashboardPage = () => {
   useRealtimeAutomationUpdates() // Handles all socket events and cache updates
 
   useEffect(() => {
-    const nextCount = Number(data?.totalLiveViewers)
-    if (Number.isFinite(nextCount) && nextCount >= 0) startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
+    const nextCount = data?.totalLiveViewers
+    if (typeof nextCount === 'number' && Number.isFinite(nextCount) && nextCount >= 0) {
+      startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
+    } else if (nextCount === null) {
+      startTransition(() => setLiveViewerCount(null))
+    }
   }, [data?.totalLiveViewers])
 
   useEffect(() => {
     if (!adminSocket) return
-    const handleLiveViewersUpdate = (payload: { totalLiveViewers: number }) => {
-      const nextCount = Number(payload?.totalLiveViewers)
-      if (Number.isFinite(nextCount) && nextCount >= 0) startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
+    const handleLiveViewersUpdate = (payload: { totalLiveViewers: number | null }) => {
+      const nextCount = payload?.totalLiveViewers
+      if (typeof nextCount === 'number' && Number.isFinite(nextCount) && nextCount >= 0) {
+        startTransition(() => setLiveViewerCount(Math.floor(nextCount)))
+      } else if (nextCount === null) {
+        startTransition(() => setLiveViewerCount(null))
+      }
     }
     adminSocket.on('liveViewersUpdate', handleLiveViewersUpdate)
     return () => {
@@ -158,6 +166,9 @@ const AdminDashboardPage = () => {
   const automationSuccessRate = automationTotalRuns > 0
     ? `${Math.round((automationSuccessfulRuns / automationTotalRuns) * 100)}%`
     : 'N/A'
+  const streamHealthValue = isStreamHealthError
+    ? 'Unavailable'
+    : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`
 
   const handleManualSync = async () => {
     try {
@@ -230,8 +241,8 @@ const AdminDashboardPage = () => {
           <StatCard title="Total Revenue" value={revenueValue} icon={DollarSign} isLoading={isLoading} delay={0.1} />
           <StatCard title="Total Users" value={data?.totalUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.15} />
           <StatCard title="Live Matches" value={data?.liveMatches ?? 0} icon={Radio} isLoading={isLoading} delay={0.2} />
-          <StatCard title="Live Viewers" value={liveViewerCount} icon={Users} isLoading={isLoading} delay={0.25} />
-          <StatCard title="Stream Health" value={liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} icon={Activity} isLoading={!liveStreamHealth && isLoading} delay={0.3} />
+          <StatCard title="Live Viewers" value={liveViewerCount ?? 'Unavailable'} icon={Users} isLoading={isLoading} delay={0.25} />
+          <StatCard title="Stream Health" value={streamHealthValue} icon={Activity} isLoading={!liveStreamHealth && isLoading} delay={0.3} />
           <StatCard title="Pending Payments" value={data?.pendingPayments ?? 0} icon={Clock3} isLoading={isLoading} delay={0.25} />
           <StatCard title="Active Subscriptions" value={data?.activeSubscriptions ?? 0} icon={ShieldCheck} isLoading={isLoading} delay={0.3} />
           <StatCard title="Premium Users" value={data?.premiumUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.35} />

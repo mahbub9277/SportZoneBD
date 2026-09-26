@@ -8,6 +8,7 @@ import logger from './logger.js'
 import { verifyAccessToken } from './auth.js'
 import { prisma } from './prisma.js'
 import { redis } from './redis.js'
+import { getRedisErrorCode } from './redisFailover.js'
 
 /**
  * Global Socket.IO instance manager.
@@ -29,9 +30,9 @@ export function getIoInstance(): Server<ClientToServerEvents, ServerToClientEven
  */
 export interface ServerToClientEvents {
   'stream:updated': (payload: { streamId?: string; channelId?: string; source: 'primary' | 'backup'; version: string }) => void
-  viewerCountUpdate: (payload: { channelId: string; count: number }) => void
-  resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number }) => void
-  liveViewersUpdate: (payload: { totalLiveViewers: number }) => void
+  viewerCountUpdate: (payload: { channelId: string; count: number | null }) => void
+  resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number | null }) => void
+  liveViewersUpdate: (payload: { totalLiveViewers: number | null }) => void
   'analytics:stream-health': (payload: Record<string, unknown>) => void
   automationStatusUpdate: (payload: AutomationStatus) => void
   automationMetricsUpdate: (payload: AutomationMetrics) => void
@@ -60,6 +61,8 @@ const VIEWER_TTL_SECONDS = 75
 const VIEWER_ALL_KEY = 'sportzone:live-viewers:all'
 const viewerResourceKey = (kind: string, id: string) => `sportzone:live-viewers:${kind}:${id}`
 const viewerSocketKey = (socketId: string) => `sportzone:live-viewers:socket:${socketId}`
+const unavailableViewerResources = new Set<string>()
+let totalLiveViewersUnavailable = false
 
 type ViewerPresence = { kind: 'stream' | 'channel' | 'match'; streamId: string }
 
@@ -69,25 +72,35 @@ function normalizeViewerPresence(streamId: unknown, kind: unknown): ViewerPresen
   return { kind: normalizedKind, streamId: streamId.trim() }
 }
 
-async function emitLiveViewerCount(totalLiveViewers: number): Promise<void> {
+async function emitLiveViewerCount(totalLiveViewers: number | null): Promise<void> {
   if (!ioInstance) return
+  if (totalLiveViewers === null) {
+    if (totalLiveViewersUnavailable) return
+    totalLiveViewersUnavailable = true
+    ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: null })
+    return
+  }
+  totalLiveViewersUnavailable = false
   const count = Number.isFinite(totalLiveViewers) && totalLiveViewers > 0 ? Math.floor(totalLiveViewers) : 0
   ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: count })
 }
 
-export async function getTotalLiveViewers(): Promise<number> {
+export async function getTotalLiveViewers(): Promise<number | null> {
   try {
     const now = Date.now()
     await redis.zremrangebyscore(VIEWER_ALL_KEY, 0, now)
     const total = await redis.zcount(VIEWER_ALL_KEY, now, '+inf')
-    return Number.isFinite(Number(total)) ? Math.max(0, Number(total)) : 0
+    const count = Number.isFinite(Number(total)) ? Math.max(0, Number(total)) : 0
+    if (totalLiveViewersUnavailable) await emitLiveViewerCount(count)
+    return count
   } catch (error) {
-    logger.warn({ error }, 'Unable to read live viewer presence from Redis')
-    return 0
+    logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Unable to read live viewer presence from Redis')
+    await emitLiveViewerCount(null)
+    return null
   }
 }
 
-async function removeViewerPresence(socketId: string, expected?: ViewerPresence): Promise<number> {
+async function removeViewerPresence(socketId: string, expected?: ViewerPresence): Promise<number | null> {
   try {
     const rawPresence = await redis.get(viewerSocketKey(socketId))
     const presence = rawPresence ? JSON.parse(rawPresence) as ViewerPresence : null
@@ -105,12 +118,12 @@ async function removeViewerPresence(socketId: string, expected?: ViewerPresence)
     await emitLiveViewerCount(total)
     return total
   } catch (error) {
-    logger.warn({ error, socketId }, 'Unable to remove live viewer presence')
+    logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Unable to remove live viewer presence')
     return getTotalLiveViewers()
   }
 }
 
-async function refreshViewerPresence(socketId: string, requestedPresence: ViewerPresence): Promise<number> {
+async function refreshViewerPresence(socketId: string, requestedPresence: ViewerPresence): Promise<number | null> {
   try {
     const existingRaw = await redis.get(viewerSocketKey(socketId))
     const existing = existingRaw ? JSON.parse(existingRaw) as ViewerPresence : null
@@ -128,12 +141,12 @@ async function refreshViewerPresence(socketId: string, requestedPresence: Viewer
     await emitLiveViewerCount(total)
     return total
   } catch (error) {
-    logger.warn({ error, socketId }, 'Unable to update live viewer presence')
+    logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Unable to update live viewer presence')
     return getTotalLiveViewers()
   }
 }
 
-export async function getLiveViewerCount(kind: ViewerPresence['kind'], streamId: string): Promise<number> {
+export async function getLiveViewerCount(kind: ViewerPresence['kind'], streamId: string): Promise<number | null> {
   try {
     const now = Date.now()
     const key = viewerResourceKey(kind, streamId)
@@ -141,8 +154,8 @@ export async function getLiveViewerCount(kind: ViewerPresence['kind'], streamId:
     const count = await redis.zcount(key, now, '+inf')
     return Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
   } catch (error) {
-    logger.warn({ error, kind, streamId }, 'Unable to read stream viewer presence from Redis')
-    return 0
+    logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Unable to read stream viewer presence from Redis')
+    return null
   }
 }
 
@@ -191,16 +204,24 @@ export function emitAutomationLogEntry(logEntry: AutomationLog): void {
 }
 
 /** Emits a viewer count update to a specific channel room. */
-export function emitViewerCountUpdate(channelId: string, count: number): void {
+export function emitViewerCountUpdate(channelId: string, count: number | null): void {
   if (!ioInstance) {
     logger.warn('Socket.IO instance not available for emitViewerCountUpdate.')
     return
   }
+  const unavailableKey = `channel:${channelId}`
+  if (count === null && unavailableViewerResources.has(unavailableKey)) return
+  if (count === null) unavailableViewerResources.add(unavailableKey)
+  else unavailableViewerResources.delete(unavailableKey)
   ioInstance.to(channelId).emit('viewerCountUpdate', { channelId, count })
 }
 
-export function emitResourceViewerCountUpdate(kind: ViewerPresence['kind'], resourceId: string, count: number): void {
+export function emitResourceViewerCountUpdate(kind: ViewerPresence['kind'], resourceId: string, count: number | null): void {
   if (!ioInstance) return
+  const unavailableKey = `${kind}:${resourceId}`
+  if (count === null && unavailableViewerResources.has(unavailableKey)) return
+  if (count === null) unavailableViewerResources.add(unavailableKey)
+  else unavailableViewerResources.delete(unavailableKey)
   ioInstance.to(`${kind}:${resourceId}`).emit('resourceViewerCountUpdate', { kind, resourceId, count })
 }
 

@@ -32,10 +32,10 @@ import { useResourceViewerCount } from '../../hooks/useResourceViewerCount'
 
 export function MatchPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: match, isFetching, isError } = useGetMatchByIdQuery(id!, {
+  const { data: match, isFetching, isError, error } = useGetMatchByIdQuery(id!, {
     skip: !id,
     refetchOnMountOrArgChange: true,
-  }) as { data?: Match; isFetching: boolean; isError: boolean }
+  }) as { data?: Match; isFetching: boolean; isError: boolean; error?: unknown }
 
   const [isAutoMode, setIsAutoMode] = useState(true)
   const [currentStreamUrl, setCurrentStreamUrl] = useState<string | undefined>(undefined)
@@ -48,6 +48,7 @@ export function MatchPage() {
   const { isLowPower } = useLowPowerDevice()
   const matchViewerCount = useResourceViewerCount('match', match?.id)
   const matchTimer = useCountdown(match?.status === 'LIVE' ? match.kickoffAt : null)
+  const isMissingMatch = typeof error === 'object' && error !== null && 'status' in error && error.status === 404
 
   const isMatchLocked = match?.premium === true && !isPremiumSubscriber
   const [isPlaybackAllowed, setIsPlaybackAllowed] = useState(false)
@@ -173,8 +174,8 @@ export function MatchPage() {
           <motion.div className="mx-auto mb-2 flex items-center justify-center">
             <AlertCircle className="h-10 w-10 text-(--danger)" />
           </motion.div>
-          <h3 className="text-xl font-semibold text-(--text-primary)">Could not load match</h3>
-          <p className="text-(--text-muted)">Please try again later.</p>
+          <h3 className="text-xl font-semibold text-(--text-primary)">{isMissingMatch ? 'Match not found' : 'Match temporarily unavailable'}</h3>
+          <p className="text-(--text-muted)">{isMissingMatch ? 'This match may have been removed.' : 'Please try again shortly.'}</p>
         </div>
       </div>
     )
@@ -346,7 +347,7 @@ export function MatchPage() {
                 </span>
               </div>
             </div>
-            <span className="flex items-center gap-1.5 rounded-full border border-rose-400/25 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:text-rose-300 lg:ml-auto"><span className="h-2 w-2 rounded-full bg-rose-500 motion-safe:animate-pulse" aria-hidden="true" />{matchViewerCount} watching live</span>
+            <span className="flex items-center gap-1.5 rounded-full border border-rose-400/25 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:text-rose-300 lg:ml-auto"><span className="h-2 w-2 rounded-full bg-rose-500 motion-safe:animate-pulse" aria-hidden="true" />{matchViewerCount === null ? 'Viewer count unavailable' : `${matchViewerCount} watching live`}</span>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="self-start">

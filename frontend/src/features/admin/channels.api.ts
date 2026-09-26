@@ -29,9 +29,9 @@ export const channelsApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<Channel[]>) => unwrapApiResponse(response),
       providesTags: (result) => result ? result.map(({ id }) => ({ type: 'Channels' as const, id })) : [],
     }),
-    getWatchChannelData: builder.query<{ channel: Channel; relatedChannels: Channel[]; liveViewers: number }, string>({
+    getWatchChannelData: builder.query<{ channel: Channel; relatedChannels: Channel[]; liveViewers: number | null }, string>({
       query: (id) => `/channels/watch/${id}`,
-      transformResponse: (response: ApiResponse<{ channel: Channel; relatedChannels: Channel[]; liveViewers: number }>) => unwrapApiResponse(response), 
+      transformResponse: (response: ApiResponse<{ channel: Channel; relatedChannels: Channel[]; liveViewers: number | null }>) => unwrapApiResponse(response),
       providesTags: (_result, _error, id) => [{ type: 'Channels' as const, id }],
     }),
     enterChannelViewer: builder.mutation<{ liveViewers: number }, { id: string; viewerId: string }>({

@@ -23,6 +23,7 @@ export const findActiveSubscriptionByUserId = (userId: string) => {
     where: {
       userId,
       status: 'ACTIVE',
+      deletedAt: null,
       expiresAt: {
         gt: new Date(),
       },

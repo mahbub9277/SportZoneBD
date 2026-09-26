@@ -7,9 +7,10 @@ import { emitAutomationStatusUpdate, emitAutomationMetricsUpdate, emitAutomation
 import { notifyMatchStarted, notifyMatchReminder } from './notification.service.js'
 import { cleanupMatch } from './match-cleanup.service.js'
 import { prewarmUpcomingMatches, cleanupCloudinaryOrphans } from './automation-support.service.js'
-import { redis } from '../core/redis.js'
+import { isRedisConfigured, redis } from '../core/redis.js'
 import { invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
+import { getRedisErrorCode } from '../core/redisFailover.js'
 
 const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY
 const API_FOOTBALL_BASE_URL = process.env.API_FOOTBALL_BASE_URL ?? 'https://v3.football.api-sports.io'
@@ -96,6 +97,7 @@ export class MatchAutomationService {
   private cronTask: ReturnType<typeof cron.schedule> | null = null
   private isStarted = false
   private isRunning = false
+  private hasLoggedRedisLockUnavailable = false
 
   constructor(options: MatchAutomationJobOptions = {}) {
     this.cronExpression = options.cronExpression ?? '* * * * *'
@@ -163,7 +165,25 @@ export class MatchAutomationService {
     const lockToken = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`
     let lockAcquired = false
     try {
-      const lock = await redis.set(lockKey, lockToken, 'EX', AUTOMATION_LOCK_TTL_SECONDS, 'NX')
+      if (!isRedisConfigured) {
+        if (!this.hasLoggedRedisLockUnavailable) {
+          logger.warn('Match automation skipped because its Redis lock is not configured')
+          this.hasLoggedRedisLockUnavailable = true
+        }
+        return
+      }
+
+      let lock: string | null
+      try {
+        lock = await redis.set(lockKey, lockToken, 'EX', AUTOMATION_LOCK_TTL_SECONDS, 'NX')
+      } catch (error) {
+        if (!this.hasLoggedRedisLockUnavailable) {
+          logger.warn({ code: getRedisErrorCode(error) }, 'Match automation skipped because its Redis lock is unavailable')
+          this.hasLoggedRedisLockUnavailable = true
+        }
+        return
+      }
+      this.hasLoggedRedisLockUnavailable = false
       lockAcquired = Boolean(lock)
       if (!lockAcquired) return
 
@@ -349,7 +369,7 @@ export class MatchAutomationService {
             lockToken,
           )
         } catch (error) {
-          logger.warn({ error }, 'Automation lock release failed')
+          logger.warn({ code: getRedisErrorCode(error) }, 'Automation lock release failed')
         }
       }
     }

@@ -1,13 +1,13 @@
 import { startTransition, useEffect, useState } from 'react'
 import { useSocket } from './useSocket'
 
-export function useViewerCount(channelId?: string | null, initialCount?: number) {
-  const [count, setCount] = useState<number>(initialCount ?? 0)
+export function useViewerCount(channelId?: string | null, initialCount?: number | null) {
+  const [count, setCount] = useState<number | null>(initialCount ?? null)
   const { socket } = useSocket()
 
   useEffect(() => {
     if (!channelId) {
-      startTransition(() => setCount(initialCount ?? 0))
+      startTransition(() => setCount(initialCount ?? null))
       return
     }
 
@@ -19,9 +19,9 @@ export function useViewerCount(channelId?: string | null, initialCount?: number)
 
     joinChannel()
 
-    const handleViewerCountUpdate = (data: { channelId: string; count: number }) => {
+    const handleViewerCountUpdate = (data: { channelId: string; count: number | null }) => {
       if (data.channelId === channelId) {
-        setCount(Number.isFinite(data.count) ? data.count : 0)
+        setCount(typeof data.count === 'number' && Number.isFinite(data.count) && data.count >= 0 ? data.count : null)
       }
     }
 

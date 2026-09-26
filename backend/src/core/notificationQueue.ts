@@ -2,7 +2,8 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { createHash } from 'node:crypto'
 import webPush from 'web-push'
 import { prisma } from './prisma.js'
-import { redis } from './redis.js'
+import { isRedisConfigured, redis } from './redis.js'
+import { getRedisErrorCode } from './redisFailover.js'
 import logger from './logger.js'
 import { emitUserNotification } from './socketManager.js'
 
@@ -27,7 +28,7 @@ export interface NotificationQueuePayload {
   retryAllPushSubscriptions?: boolean
 }
 
-const hasRedisConnection = Boolean(process.env.REDIS_URL?.trim())
+const hasRedisConnection = isRedisConfigured
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY?.trim() ?? ''
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY?.trim() ?? ''
 const vapidSubject = process.env.VAPID_SUBJECT?.trim() || 'mailto:support@sportzonebd.com'
@@ -239,7 +240,7 @@ async function dispatchNotificationsDirectly(payloads: NotificationQueuePayload[
 
 export async function enqueueUserNotifications(payloads: NotificationQueuePayload[]): Promise<Array<string | null>> {
   if (payloads.length === 0) return []
-  if (!queueInstance || !process.env.REDIS_URL) return dispatchNotificationsDirectly(payloads)
+  if (!queueInstance || !isRedisConfigured) return dispatchNotificationsDirectly(payloads)
 
   const ids: Array<string | null> = []
   for (let offset = 0; offset < payloads.length; offset += NOTIFICATION_BATCH_SIZE) {
@@ -252,7 +253,7 @@ export async function enqueueUserNotifications(payloads: NotificationQueuePayloa
       })))
       ids.push(...jobs.map((job) => job.id ?? null))
     } catch (error) {
-      logger.warn({ err: error, batchSize: batch.length }, 'Notification queue batch unavailable; dispatching directly')
+      logger.warn({ code: getRedisErrorCode(error), batchSize: batch.length }, 'Notification queue batch unavailable; dispatching directly')
       ids.push(...await dispatchNotificationsDirectly(batch))
     }
   }
@@ -307,7 +308,7 @@ export function startNotificationWorker(): void {
       logger.error({ jobId: job?.id, err }, 'Notification worker job failed')
     })
     workerInstance.on('error', (err) => {
-      logger.error({ err }, 'Notification worker error')
+      logger.error({ code: getRedisErrorCode(err) }, 'Notification worker error')
     })
   } catch (error) {
     workerInstance = null

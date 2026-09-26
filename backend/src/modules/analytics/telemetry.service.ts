@@ -1,6 +1,7 @@
 import { redis } from '../../core/redis.js'
 import { getIoInstance } from '../../core/socketManager.js'
 import logger from '../../core/logger.js'
+import { getRedisErrorCode } from '../../core/redisFailover.js'
 
 export const TELEMETRY_EVENT_TYPES = [
   'load_start', 'playing', 'buffering_start', 'buffering_end', 'stalled',
@@ -21,7 +22,13 @@ const bucketKey = (timestamp: number) => `sportzone:telemetry:bucket:${Math.floo
 const counterKey = (resource: string) => `sportzone:telemetry:counter:${resource}`
 
 let lastBroadcastAt = 0
+let telemetrySummaryInFlight: Promise<Awaited<ReturnType<typeof buildTelemetrySummary>>> | null = null
+let lastGlobalPruneAt = 0
+let lastResourcePruneAt = 0
+let lastPrunedResource: string | null = null
 const TELEMETRY_BROADCAST_INTERVAL_MS = 5_000
+const TELEMETRY_PRUNE_INTERVAL_MS = 60_000
+const TELEMETRY_RESOURCE_PRUNE_BATCH_SIZE = 50
 
 function safeNumber(value: unknown): number | undefined {
   const number = Number(value)
@@ -40,9 +47,15 @@ function nextState(type: TelemetryEventType, current: PlaybackState): PlaybackSt
   return current
 }
 
-async function countKey(key: string): Promise<number> {
+function beginPruneWindow(lastPrunedAt: number): boolean {
   const now = Date.now()
-  await redis.zremrangebyscore(key, 0, now)
+  if (now - lastPrunedAt < TELEMETRY_PRUNE_INTERVAL_MS) return false
+  return true
+}
+
+async function countKey(key: string, pruneExpired: boolean): Promise<number> {
+  const now = Date.now()
+  if (pruneExpired) await redis.zremrangebyscore(key, 0, now)
   return Math.max(0, Number(await redis.zcount(key, now, '+inf')) || 0)
 }
 
@@ -66,9 +79,11 @@ export async function ingestTelemetry(event: {
     const resource = safeResource(event)
     const currentState = (previous.state as PlaybackState | undefined) ?? 'HEALTHY'
     const state = nextState(event.eventType, currentState)
+    const sameResource = previous.resource === resource
+    const sameMembership = previous.state === state && sameResource
     const expiresAt = Date.now() + SESSION_TTL * 1000
 
-    if (previous.state && previous.resource) {
+    if (previous.state && previous.resource && !sameMembership) {
       await Promise.all([
         redis.zrem(stateKey(previous.state as PlaybackState), event.sessionId),
         redis.zrem(resourceKey(previous.resource, previous.state as PlaybackState), event.sessionId),
@@ -82,7 +97,7 @@ export async function ingestTelemetry(event: {
         redis.zadd(ACTIVE_KEY, expiresAt, event.sessionId),
         redis.zadd(stateKey(state), expiresAt, event.sessionId),
         redis.zadd(resourceKey(resource, state), expiresAt, event.sessionId),
-        redis.sadd(RESOURCE_SET, resource),
+        ...(sameResource ? [] : [redis.sadd(RESOURCE_SET, resource)]),
         redis.hset(key, 'state', state, 'resource', resource, 'expiresAt', String(expiresAt)),
         redis.expire(key, SESSION_TTL),
       ])
@@ -97,30 +112,66 @@ export async function ingestTelemetry(event: {
       }
 
       const bucket = bucketKey(event.timestamp)
-      await redis.hincrby(bucket, 'activeViewers', await countKey(ACTIVE_KEY))
-      await redis.hincrby(bucket, 'healthyViewers', await countKey(stateKey('HEALTHY')))
-      await redis.hincrby(bucket, 'bufferingViewers', await countKey(stateKey('BUFFERING')))
-      await redis.hincrby(bucket, 'errorViewers', await countKey(stateKey('ERROR')))
+      const pruneGlobalKeys = beginPruneWindow(lastGlobalPruneAt)
+      if (pruneGlobalKeys) lastGlobalPruneAt = Date.now()
+      await redis.hincrby(bucket, 'activeViewers', await countKey(ACTIVE_KEY, pruneGlobalKeys))
+      await redis.hincrby(bucket, 'healthyViewers', await countKey(stateKey('HEALTHY'), pruneGlobalKeys))
+      await redis.hincrby(bucket, 'bufferingViewers', await countKey(stateKey('BUFFERING'), pruneGlobalKeys))
+      await redis.hincrby(bucket, 'errorViewers', await countKey(stateKey('ERROR'), pruneGlobalKeys))
       await redis.expire(bucket, 24 * 60 * 60)
       await broadcastTelemetrySummary()
     }
   } catch (error) {
-    logger.warn({ error, eventType: event.eventType }, 'Player telemetry ingestion failed')
+    logger.warn({ code: getRedisErrorCode(error), eventType: event.eventType }, 'Player telemetry ingestion failed')
   }
 }
 
 export async function getTelemetrySummary() {
+  if (telemetrySummaryInFlight) return telemetrySummaryInFlight
+  const request = buildTelemetrySummary()
+  telemetrySummaryInFlight = request
+  try {
+    return await request
+  } finally {
+    if (telemetrySummaryInFlight === request) telemetrySummaryInFlight = null
+  }
+}
+
+async function buildTelemetrySummary() {
+  const pruneGlobalKeys = beginPruneWindow(lastGlobalPruneAt)
+  if (pruneGlobalKeys) lastGlobalPruneAt = Date.now()
   const [total, healthy, buffering, errors] = await Promise.all([
-    countKey(ACTIVE_KEY), countKey(stateKey('HEALTHY')), countKey(stateKey('BUFFERING')), countKey(stateKey('ERROR')),
+    countKey(ACTIVE_KEY, pruneGlobalKeys),
+    countKey(stateKey('HEALTHY'), pruneGlobalKeys),
+    countKey(stateKey('BUFFERING'), pruneGlobalKeys),
+    countKey(stateKey('ERROR'), pruneGlobalKeys),
   ])
   const resources = await redis.smembers(RESOURCE_SET)
+  let resourcesToPrune: string[] = []
+  if (resources.length > 0 && beginPruneWindow(lastResourcePruneAt)) {
+    lastResourcePruneAt = Date.now()
+    const orderedResources = [...resources].sort()
+    const nextIndex = lastPrunedResource === null
+      ? 0
+      : orderedResources.findIndex((resource) => resource > lastPrunedResource!)
+    const start = nextIndex < 0 ? 0 : nextIndex
+    const cleanupCount = Math.min(resources.length, TELEMETRY_RESOURCE_PRUNE_BATCH_SIZE)
+    resourcesToPrune = Array.from({ length: cleanupCount }, (_value, index) => orderedResources[(start + index) % orderedResources.length])
+    try {
+      await Promise.all(resourcesToPrune.flatMap((resource) => ['HEALTHY', 'BUFFERING', 'ERROR']
+        .map((state) => redis.zremrangebyscore(resourceKey(resource, state as PlaybackState), 0, Date.now()))))
+      lastPrunedResource = resourcesToPrune[resourcesToPrune.length - 1] ?? lastPrunedResource
+    } catch (error) {
+      logger.warn({ code: getRedisErrorCode(error) }, 'Telemetry resource pruning failed')
+    }
+  }
   const topErroredStreams = []
   for (const resource of resources.slice(0, 50)) {
     const [counter, healthy, buffering, errors] = await Promise.all([
       redis.hgetall(counterKey(resource)),
-      countKey(resourceKey(resource, 'HEALTHY')),
-      countKey(resourceKey(resource, 'BUFFERING')),
-      countKey(resourceKey(resource, 'ERROR')),
+      countKey(resourceKey(resource, 'HEALTHY'), false),
+      countKey(resourceKey(resource, 'BUFFERING'), false),
+      countKey(resourceKey(resource, 'ERROR'), false),
     ])
     const active = healthy + buffering + errors
     const errorCount = Object.entries(counter).filter(([key]) => key.includes('error')).reduce((sum, [, value]) => sum + (Number(value) || 0), 0)
@@ -141,12 +192,19 @@ export async function getTelemetrySummary() {
 export async function getTelemetryHistory(minutes: number) {
   const now = Date.now()
   const start = now - Math.min(Math.max(minutes, 15), 1440) * 60000
-  const buckets = []
+  const timestamps = []
   for (let timestamp = Math.floor(start / 60000) * 60000; timestamp <= now; timestamp += 60000) {
-    const values = await redis.hgetall(bucketKey(timestamp))
-    buckets.push({ timestamp, ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Number(value) || 0])) })
+    timestamps.push(timestamp)
   }
-  return buckets
+  const pipeline = redis.pipeline()
+  timestamps.forEach((timestamp) => pipeline.hgetall(bucketKey(timestamp)))
+  const results = await pipeline.exec()
+  return timestamps.map((timestamp, index) => {
+    const [error, rawValues] = results?.[index] ?? [new Error('Telemetry history read failed'), {}]
+    if (error) throw error
+    const values = rawValues as Record<string, string>
+    return { timestamp, ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Number(value) || 0])) }
+  })
 }
 
 export async function broadcastTelemetrySummary(): Promise<void> {

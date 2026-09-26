@@ -75,10 +75,10 @@ export default function AnalyticsPage() {
   const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: adAnalytics, isLoading: isAdAnalyticsLoading } = useGetAdvertisementAnalyticsQuery(adPeriod, DASHBOARD_QUERY_OPTIONS)
   const { adminSocket } = useSocket()
-  const { data: streamHealth, isLoading: isStreamHealthLoading } = useGetStreamHealthSummaryQuery()
-  const { data: streamHistory = [], isLoading: isStreamHistoryLoading } = useGetStreamHealthHistoryQuery(60)
+  const { data: streamHealth, isLoading: isStreamHealthLoading, isError: isStreamHealthError } = useGetStreamHealthSummaryQuery()
+  const { data: streamHistory = [], isLoading: isStreamHistoryLoading, isError: isStreamHistoryError } = useGetStreamHealthHistoryQuery(60)
   const [socketStreamHealth, setSocketStreamHealth] = useState<StreamHealthSummary | undefined>(undefined)
-  const liveStreamHealth = streamHealth ?? socketStreamHealth
+  const liveStreamHealth = isStreamHealthError ? undefined : streamHealth ?? socketStreamHealth
 
   useEffect(() => {
     if (!adminSocket) return
@@ -162,13 +162,13 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent className="space-y-6 px-4 pb-5 pt-5 sm:px-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <MetricPill tone="accent" label="Health" value={liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} />
-              <MetricPill tone="blue" label="Live viewers" value={data?.totalLiveViewers ?? 0} />
-              <MetricPill tone="green" label="Healthy sessions" value={liveStreamHealth?.healthyViewers ?? 0} />
-              <MetricPill tone="amber" label="Buffering" value={liveStreamHealth?.bufferingViewers ?? 0} />
-              <MetricPill tone="red" label="Errors" value={liveStreamHealth?.errorViewers ?? 0} />
+              <MetricPill tone="accent" label="Health" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} />
+              <MetricPill tone="blue" label="Live viewers" value={data?.totalLiveViewers ?? 'Unavailable'} />
+              <MetricPill tone="green" label="Healthy sessions" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.healthyViewers ?? 0} />
+              <MetricPill tone="amber" label="Buffering" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.bufferingViewers ?? 0} />
+              <MetricPill tone="red" label="Errors" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.errorViewers ?? 0} />
             </div>
-            {isStreamHistoryLoading ? <Skeleton className="h-64 w-full" /> : <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3"><ResponsiveContainer width="100%" height={260}><LineChart data={streamHistory}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="timestamp" tickFormatter={(value) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} stroke="var(--text-muted)" /><YAxis allowDecimals={false} stroke="var(--text-muted)" /><Tooltip contentStyle={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-primary)' }} labelFormatter={(value) => new Date(Number(value)).toLocaleString()} /><Legend wrapperStyle={{ color: 'var(--text-muted)', paddingTop: '10px' }} /><Line type="monotone" dataKey="activeViewers" stroke="var(--accent)" strokeWidth={3} dot={false} name="Active viewers" /><Line type="monotone" dataKey="bufferingViewers" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="Buffering" /><Line type="monotone" dataKey="errorViewers" stroke="#ef4444" strokeWidth={2.5} dot={false} name="Errors" /></LineChart></ResponsiveContainer></div>}
+            {isStreamHistoryLoading ? <Skeleton className="h-64 w-full" /> : isStreamHistoryError ? <p className="rounded-2xl border border-(--border) p-6 text-center text-(--text-muted)">Playback history is temporarily unavailable.</p> : <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3"><ResponsiveContainer width="100%" height={260}><LineChart data={streamHistory}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="timestamp" tickFormatter={(value) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} stroke="var(--text-muted)" /><YAxis allowDecimals={false} stroke="var(--text-muted)" /><Tooltip contentStyle={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-primary)' }} labelFormatter={(value) => new Date(Number(value)).toLocaleString()} /><Legend wrapperStyle={{ color: 'var(--text-muted)', paddingTop: '10px' }} /><Line type="monotone" dataKey="activeViewers" stroke="var(--accent)" strokeWidth={3} dot={false} name="Active viewers" /><Line type="monotone" dataKey="bufferingViewers" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="Buffering" /><Line type="monotone" dataKey="errorViewers" stroke="#ef4444" strokeWidth={2.5} dot={false} name="Errors" /></LineChart></ResponsiveContainer></div>}
             <div className="overflow-hidden rounded-2xl border border-(--border) bg-(--surface-soft)/40">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-(--border) bg-(--surface-soft)/70 text-xs uppercase tracking-[0.16em] text-(--text-muted)">
@@ -178,7 +178,7 @@ export default function AnalyticsPage() {
                     <th className="px-3 py-3">Active viewers</th>
                   </tr>
                 </thead>
-                <tbody>{(liveStreamHealth?.topErroredStreams ?? []).map((stream) => <tr key={stream.resource} className="border-b border-(--border)/60 transition-colors hover:bg-(--surface-soft)/80"><td className="max-w-140 truncate px-3 py-2.5 text-(--text-primary)">{stream.resource}</td><td className="px-3 py-2.5 text-red-300">{stream.errorCount}</td><td className="px-3 py-2.5 text-(--text-muted)">{stream.activeViewers}</td></tr>)}{!isStreamHealthLoading && (liveStreamHealth?.topErroredStreams ?? []).length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-(--text-muted)">No errored streams in the active window.</td></tr>}</tbody>
+                <tbody>{(liveStreamHealth?.topErroredStreams ?? []).map((stream) => <tr key={stream.resource} className="border-b border-(--border)/60 transition-colors hover:bg-(--surface-soft)/80"><td className="max-w-140 truncate px-3 py-2.5 text-(--text-primary)">{stream.resource}</td><td className="px-3 py-2.5 text-red-300">{stream.errorCount}</td><td className="px-3 py-2.5 text-(--text-muted)">{stream.activeViewers}</td></tr>)}{isStreamHealthError ? <tr><td colSpan={3} className="px-3 py-4 text-center text-(--text-muted)">Stream telemetry is temporarily unavailable.</td></tr> : !isStreamHealthLoading && (liveStreamHealth?.topErroredStreams ?? []).length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-(--text-muted)">No errored streams in the active window.</td></tr>}</tbody>
               </table>
             </div>
           </CardContent>

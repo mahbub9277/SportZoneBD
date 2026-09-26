@@ -30,7 +30,15 @@ export const getPublicEventBySlug = (slug: string) => prisma.event.findFirst({
     eventMatches: {
       where: { match: { deletedAt: null } },
       orderBy: { match: { kickoffAt: 'asc' } },
-      select: { match: { include: { streams: true } } },
+      select: {
+        match: {
+          include: {
+            streams: {
+              include: { channel: { select: { id: true, name: true, url: true, isPremium: true } } },
+            },
+          },
+        },
+      },
     },
   },
 })

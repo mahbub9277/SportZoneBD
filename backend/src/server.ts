@@ -18,7 +18,8 @@ import { corsOptions } from './config/cors.js'
 import { matchAutomationService } from './services/matchAutomation.service.js'
 import { setIoInstance, initializeSocketHandlers, getIoInstance } from './core/socketManager.js'
 import { createAdapter } from '@socket.io/redis-adapter'
-import { isRedisConfigured, redis } from './core/redis.js'
+import { closeRedisFailoverClients, getPrimaryRedisStatus, isRedisConfigured, redis } from './core/redis.js'
+import { getRedisErrorCode } from './core/redisFailover.js'
 import { startNotificationWorker } from './core/notificationQueue.js'
 import { prisma } from './core/prisma.js'
 
@@ -115,7 +116,7 @@ app.get(['/health', '/api/v1/health'], (_req, res) => {
 app.get(['/ready', '/api/v1/ready'], async (_req, res) => {
   const checks: { postgres: 'ok' | 'error'; redis: 'ok' | 'error' | 'not_required' } = {
     postgres: 'error',
-    redis: process.env.NODE_ENV === 'production' ? 'error' : 'not_required',
+    redis: process.env.NODE_ENV === 'production' && isRedisConfigured ? 'error' : 'not_required',
   }
 
   try {
@@ -126,16 +127,12 @@ app.get(['/ready', '/api/v1/ready'], async (_req, res) => {
   }
 
   if (process.env.NODE_ENV === 'production' && isRedisConfigured) {
-    try {
-      await redis.ping()
-      checks.redis = 'ok'
-    } catch {
-      checks.redis = 'error'
-    }
+    checks.redis = getPrimaryRedisStatus() === 'ready' ? 'ok' : 'error'
   }
 
-  const ready = checks.postgres === 'ok' && (checks.redis === 'ok' || checks.redis === 'not_required')
-  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', service: 'sportzonebd-api', checks })
+  const ready = checks.postgres === 'ok'
+  const status = !ready ? 'not_ready' : checks.redis === 'error' ? 'degraded' : 'ready'
+  res.status(ready ? 200 : 503).json({ status, service: 'sportzonebd-api', checks })
 })
 
 app.use('/api/v1', apiRouter)
@@ -154,9 +151,10 @@ async function bootstrap(): Promise<void> {
 
   if (process.env.NODE_ENV === 'production') {
     if (!isRedisConfigured) {
-      throw new Error('REDIS_URL is required in production.')
+      logger.warn('Redis primary is not configured; Redis-dependent features will use their safe fallback behavior')
+    } else if (getPrimaryRedisStatus() !== 'ready') {
+      logger.warn({ provider: 'primary' }, 'Redis primary is not ready during startup; continuing in degraded mode')
     }
-    await redis.ping()
   }
 
   let activeServer: http.Server | undefined
@@ -210,12 +208,25 @@ async function bootstrap(): Promise<void> {
       transports: ['websocket'],
     })
 
-    // Create a duplicate of the Redis client for pub/sub
-    pubClient = redis.duplicate()
-    subClient = redis.duplicate()
-    await Promise.all([waitForRedisReady(pubClient), waitForRedisReady(subClient)])
-    await Promise.all([pubClient.ping(), subClient.ping()])
-    io.adapter(createAdapter(pubClient, subClient))
+    let redisAdapterEnabled = false
+    if (isRedisConfigured) {
+      try {
+        pubClient = redis.duplicate()
+        subClient = redis.duplicate()
+        await Promise.all([waitForRedisReady(pubClient), waitForRedisReady(subClient)])
+        await Promise.all([pubClient.ping(), subClient.ping()])
+        io.adapter(createAdapter(pubClient, subClient))
+        redisAdapterEnabled = true
+      } catch (error) {
+        pubClient?.disconnect?.()
+        subClient?.disconnect?.()
+        pubClient = null
+        subClient = null
+        logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Socket.IO Redis adapter unavailable; using the process-local adapter')
+      }
+    } else {
+      logger.warn('Socket.IO Redis adapter is not configured; using the process-local adapter')
+    }
 
     // Register the io instance globally for use in services
     setIoInstance(io)
@@ -223,9 +234,9 @@ async function bootstrap(): Promise<void> {
     // Centralize all socket event handling
     initializeSocketHandlers(io)
 
-    logger.info('Socket.IO initialized and handlers are attached.')
-  } catch (err) {
-    logger.warn('Socket.io not installed; real-time viewer tracking disabled')
+    logger.info({ redisAdapter: redisAdapterEnabled ? 'enabled' : 'process-local' }, 'Socket.IO initialized and handlers are attached')
+  } catch (error) {
+    logger.warn({ errorType: error instanceof Error ? error.name : 'unknown' }, 'Socket.IO initialization unavailable')
   }
 
   startNotificationWorker()
@@ -298,6 +309,7 @@ async function bootstrap(): Promise<void> {
       await prisma.$disconnect()
       logger.info('Prisma client disconnected.')
       const { redis } = await import('./core/redis.js')
+      await closeRedisFailoverClients()
       await redis.quit()
       logger.info('Redis client disconnected.')
     } catch (error) {

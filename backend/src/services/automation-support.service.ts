@@ -1,6 +1,6 @@
 import cloudinary from '../lib/cloudinary.js'
 import { prisma } from '../core/prisma.js'
-import { redis } from '../core/redis.js'
+import { cacheRedis } from '../core/redis.js'
 import { successResponse } from '../core/api-response.js'
 import { isAssetReferenced, cleanupAssetIfUnused } from './asset-cleanup.service.js'
 import logger from '../core/logger.js'
@@ -41,7 +41,7 @@ export async function prewarmUpcomingMatches(now = new Date()): Promise<void> {
 
     for (const match of matches) {
       const key = `/api/v1/matches/${match.id}`
-      await redis.set(key, JSON.stringify(successResponse(match, 'Match retrieved successfully')), 'EX', PREWARM_TTL_SECONDS)
+      await cacheRedis.set(key, JSON.stringify(successResponse(match, 'Match retrieved successfully')), 'EX', PREWARM_TTL_SECONDS)
     }
 
     if (matches.length > 0) {

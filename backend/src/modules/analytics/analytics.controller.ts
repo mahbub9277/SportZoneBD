@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import asyncHandler from '../../utils/asyncHandler.js';
 import { prisma } from '../../core/prisma.js';
-import { successResponse } from '../../core/api-response.js';
+import { errorResponse, successResponse } from '../../core/api-response.js';
 import { z } from 'zod';
 import { TELEMETRY_EVENT_TYPES, getTelemetryHistory, getTelemetrySummary, ingestTelemetry } from './telemetry.service.js'
 
@@ -48,10 +48,18 @@ export const ingestPlayerTelemetry = asyncHandler(async (req: Request, res: Resp
 })
 
 export const getPlayerTelemetrySummary = asyncHandler(async (_req: Request, res: Response) => {
-  res.json(successResponse(await getTelemetrySummary()))
+  try {
+    res.json(successResponse(await getTelemetrySummary()))
+  } catch {
+    res.status(503).json(errorResponse('Player telemetry is temporarily unavailable'))
+  }
 })
 
 export const getPlayerTelemetryHistory = asyncHandler(async (req: Request, res: Response) => {
   const minutes = Math.min(1440, Math.max(15, Number(req.query.minutes) || 60))
-  res.json(successResponse(await getTelemetryHistory(minutes)))
+  try {
+    res.json(successResponse(await getTelemetryHistory(minutes)))
+  } catch {
+    res.status(503).json(errorResponse('Player telemetry is temporarily unavailable'))
+  }
 })

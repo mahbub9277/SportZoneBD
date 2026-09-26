@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "prisma generate && tsx watch --env-file .env src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
+    "test:redis-failover": "tsx --test src/core/redisFailover.test.ts",
     "db:migrate": "prisma migrate deploy",
     "seed": "tsx --env-file .env src/scripts/seed.ts",
     "start": "node dist/server.js"

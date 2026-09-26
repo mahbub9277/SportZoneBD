@@ -1,6 +1,7 @@
 import { prisma } from '../core/prisma.js'
 import logger from '../core/logger.js'
-import { redis } from '../core/redis.js'
+import { cacheRedis } from '../core/redis.js'
+import { getRedisErrorCode } from '../core/redisFailover.js'
 import { validateProxyTargetUrl } from '../utils/ssrfGuard.js'
 
 interface StreamManifestProxyOptions {
@@ -250,7 +251,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   }
 
   try {
-    const redisEntry = await redis.get(getRedisManifestKey(cacheKey))
+    const redisEntry = await cacheRedis.get(getRedisManifestKey(cacheKey))
     if (redisEntry) {
       const parsed = JSON.parse(redisEntry) as CacheEntry
       if (parsed.expiresAt > now && typeof parsed.body === 'string') {
@@ -262,7 +263,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
       }
     }
   } catch (error) {
-    logger.warn({ error, streamId, channelId }, 'Redis manifest cache unavailable; resolving from source')
+    logger.warn({ code: getRedisErrorCode(error) }, 'Redis manifest cache unavailable; resolving from source')
   }
 
   const existingRequest = inFlightManifestRequests.get(cacheKey)
@@ -295,8 +296,8 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
         expiresAt: Date.now() + manifestTtlMs,
       }
       manifestCache.set(cacheKey, entry)
-      await redis.set(getRedisManifestKey(cacheKey), JSON.stringify(entry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((error: unknown) => {
-        logger.warn({ error, streamId, channelId }, 'Unable to write resolved manifest cache')
+      await cacheRedis.set(getRedisManifestKey(cacheKey), JSON.stringify(entry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((error: unknown) => {
+        logger.warn({ code: getRedisErrorCode(error) }, 'Unable to write resolved manifest cache')
       })
 
       return { ...entry, cacheControl: 'public, max-age=3, stale-while-revalidate=1' }
@@ -313,8 +314,8 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
           expiresAt: Date.now() + manifestTtlMs,
         }
         manifestCache.set(cacheKey, backupEntry)
-        await redis.set(getRedisManifestKey(cacheKey), JSON.stringify(backupEntry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((cacheError: unknown) => {
-          logger.warn({ error: cacheError, streamId }, 'Unable to cache recovered backup manifest')
+        await cacheRedis.set(getRedisManifestKey(cacheKey), JSON.stringify(backupEntry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((cacheError: unknown) => {
+          logger.warn({ code: getRedisErrorCode(cacheError) }, 'Unable to cache recovered backup manifest')
         })
 
         return { ...backupEntry, cacheControl: 'public, max-age=3, stale-while-revalidate=1' }

@@ -76,18 +76,19 @@ const cleanupLiveViewerKey = async (channelId: string) => {
   await redis.expire(key, Math.ceil((LIVE_VIEWERS_WINDOW_MS * 2) / 1000))
 }
 
-const getAndUpdateViewerCount = async (channelId: string): Promise<number> => {
+const getAndUpdateViewerCount = async (channelId: string, alreadyCleaned = false): Promise<number | null> => {
   const key = getLiveViewerKey(channelId)
   const now = Date.now()
   const windowStart = now - LIVE_VIEWERS_WINDOW_MS
   try {
-    await redis.zremrangebyscore(key, 0, windowStart)
+    if (!alreadyCleaned) {
+      await redis.zremrangebyscore(key, 0, windowStart)
+      await redis.expire(key, Math.ceil((LIVE_VIEWERS_WINDOW_MS * 2) / 1000))
+    }
     const count = await redis.zcount(key, windowStart, now)
-    await redis.expire(key, Math.ceil((LIVE_VIEWERS_WINDOW_MS * 2) / 1000))
     return Number(count ?? 0)
   } catch {
-    // In case of Redis error, return 0
-    return 0
+    return null
   }
 }
 
@@ -100,29 +101,29 @@ export const trackViewerEnter = async (channelId: string, viewerId: string) => {
   const now = Date.now()
   try {
     await redis.zadd(key, now, viewerId)
-  }
-  finally {
     await cleanupLiveViewerKey(channelId)
+    return getAndUpdateViewerCount(channelId, true)
+  } catch {
+    return null
   }
-  return getAndUpdateViewerCount(channelId)
 }
 
 export const trackViewerLeave = async (channelId: string, viewerId: string) => {
   const key = getLiveViewerKey(channelId)
   try {
     await redis.zrem(key, viewerId)
-  }
-  finally {
     await cleanupLiveViewerKey(channelId)
+    return getAndUpdateViewerCount(channelId, true)
+  } catch {
+    return null
   }
-  return getAndUpdateViewerCount(channelId)
 }
 
 export const getWatchData = async (id: string) => {
   const channel = await getChannelById(id, false) // false for public user
 
   if (!channel) {
-    return { channel: null, relatedChannels: [], liveViewers: 0 }
+    return { channel: null, relatedChannels: [], liveViewers: null }
   }
 
   const relatedChannels = await getRelatedChannels(id, channel.categoryId)
@@ -134,7 +135,7 @@ export const getWatchData = async (id: string) => {
       const count = await redis.zcount(key, now, '+inf')
       return Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
     } catch {
-      return 0
+      return null
     }
   })()
 

@@ -39,7 +39,7 @@ export const getEventBySlug = asyncHandler(async (req: Request, res: Response) =
   if (!event) throw new NotFoundError('Event not found or is not active.')
   const hasPremiumContent = event.isPremium
     || event.eventChannels.some(({ channel }) => channel.isPremium)
-    || event.eventMatches.some(({ match }) => match.premium)
+    || event.eventMatches.some(({ match }) => match.premium || match.streams.some((stream) => stream.channel?.isPremium))
   const canAccessPremium = hasPremiumContent ? await hasPremiumAccess(req, res) : true
 
   res.json(successResponse({
@@ -50,9 +50,9 @@ export const getEventBySlug = asyncHandler(async (req: Request, res: Response) =
     })),
     eventMatches: event.eventMatches.map(({ match }) => ({
       ...match,
-      streams: (!canAccessPremium && (event.isPremium || match.premium))
-        ? match.streams.map((stream) => ({ ...stream, primaryUrl: '', backupUrl: null }))
-        : match.streams,
+      streams: match.streams.map((stream) => !canAccessPremium && (event.isPremium || match.premium || stream.channel?.isPremium)
+        ? { ...stream, primaryUrl: '', backupUrl: null, channel: stream.channel ? { ...stream.channel, url: null } : null }
+        : stream),
     })),
   }))
 })

@@ -51,12 +51,6 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
   }
 
   useEffect(() => {
-    if (embedded) {
-      setPage(1)
-    }
-  }, [embedded])
-
-  useEffect(() => {
     let isMounted = true
 
     const checkPushSubscription = async () => {

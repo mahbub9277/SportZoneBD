@@ -1,5 +1,6 @@
-import { redis } from './redis.js'
+import { cacheRedis } from './redis.js'
 import logger from './logger.js'
+import { getRedisErrorCode } from './redisFailover.js'
 
 // Using a prefix for tags helps organize keys in Redis.
 const TAG_PREFIX = 'tag:'
@@ -7,6 +8,7 @@ const LOCK_PREFIX = 'lock:'
 const LOCK_TTL_SECONDS = 10 // How long to hold a lock
 const LOCK_RETRY_DELAY_MS = 50 // How long to wait before retrying to get a value
 const LOCK_RETRY_ATTEMPTS = 10 // Max number of retries
+const inFlightCacheLoads = new Map<string, Promise<unknown>>()
 
 /**
  * A generic function to get a value from cache or execute a function to get it and then cache it.
@@ -26,6 +28,19 @@ export async function cache<T>(
   ttlSeconds: number,
   tags: string[] = [],
 ): Promise<T> {
+  const inFlightLoad = inFlightCacheLoads.get(key)
+  if (inFlightLoad) return inFlightLoad as Promise<T>
+
+  const pendingLoad = loadCacheValue(key, fn, ttlSeconds, tags)
+  inFlightCacheLoads.set(key, pendingLoad)
+  try {
+    return await pendingLoad
+  } finally {
+    if (inFlightCacheLoads.get(key) === pendingLoad) inFlightCacheLoads.delete(key)
+  }
+}
+
+async function loadCacheValue<T>(key: string, fn: () => Promise<T>, ttlSeconds: number, tags: string[]): Promise<T> {
   // 1. Try to get from cache
   const cachedValue = await tryGetFromCache<T>(key)
   if (cachedValue !== null) {
@@ -36,9 +51,9 @@ export async function cache<T>(
   const lockKey = `${LOCK_PREFIX}${key}`
   let lockAcquired: string | null = null
   try {
-    lockAcquired = await redis.set(lockKey, '1', 'EX', LOCK_TTL_SECONDS, 'NX')
+    lockAcquired = await cacheRedis.set(lockKey, '1', 'EX', LOCK_TTL_SECONDS, 'NX')
   } catch (error) {
-    logger.warn({ key, error }, 'Redis lock unavailable. Computing value without cache lock.')
+    logger.warn({ code: getRedisErrorCode(error) }, 'Redis lock unavailable. Computing value without cache lock.')
     return fn()
   }
 
@@ -56,7 +71,7 @@ export async function cache<T>(
     } finally {
       // 5. Release the lock
       try {
-        await redis.del(lockKey)
+        await cacheRedis.del(lockKey)
       } catch (error) {
         logger.warn({ key, error }, 'Redis lock release failed')
       }
@@ -79,13 +94,13 @@ export async function cache<T>(
 
 async function tryGetFromCache<T>(key: string): Promise<T | null> {
   try {
-    const cachedValue = await redis.get(key)
+    const cachedValue = await cacheRedis.get(key)
     if (cachedValue) {
       logger.debug({ key }, 'Cache hit')
       return JSON.parse(cachedValue) as T
     }
   } catch (error) {
-    logger.error({ key, error }, 'Failed to get value from Redis cache.')
+    logger.error({ code: getRedisErrorCode(error) }, 'Failed to get value from Redis cache.')
   }
   return null
 }
@@ -93,12 +108,12 @@ async function tryGetFromCache<T>(key: string): Promise<T | null> {
 async function setToCache<T>(key: string, result: T, ttlSeconds: number, tags: string[]): Promise<void> {
   try {
     const value = JSON.stringify(result)
-    const pipeline = redis.pipeline().set(key, value, 'EX', ttlSeconds)
+    const pipeline = cacheRedis.pipeline().set(key, value, 'EX', ttlSeconds)
     tags.forEach((tag) => pipeline.sadd(`${TAG_PREFIX}${tag}`, key))
     tags.forEach((tag) => pipeline.expire(`${TAG_PREFIX}${tag}`, ttlSeconds))
     await pipeline.exec()
   } catch (error) {
-    logger.error({ key, tags, error }, 'Failed to set value or tags in Redis cache.')
+    logger.error({ code: getRedisErrorCode(error), tagCount: tags.length }, 'Failed to set value or tags in Redis cache.')
   }
 }
 
@@ -113,7 +128,7 @@ async function setToCache<T>(key: string, result: T, ttlSeconds: number, tags: s
 export function addTagsToCache(key: string, value: string, ttlSeconds: number, tags: string[] = []) {
   void (async () => {
     try {
-      const pipeline = redis.pipeline()
+      const pipeline = cacheRedis.pipeline()
       pipeline.set(key, value, 'EX', ttlSeconds)
       if (tags.length > 0) {
         logger.debug({ key, tags }, 'Adding tags to cache key')
@@ -124,7 +139,7 @@ export function addTagsToCache(key: string, value: string, ttlSeconds: number, t
       }
       await pipeline.exec()
     } catch (error) {
-      logger.error({ key, tags, error }, 'Failed to set value or tags in Redis cache.')
+      logger.error({ code: getRedisErrorCode(error), tagCount: tags.length }, 'Failed to set value or tags in Redis cache.')
     }
   })()
 }
@@ -140,12 +155,12 @@ export async function invalidateTags(tags: string[]) {
 
   try {
     // Use SUNION to find all unique cache keys associated with the given tags.
-    const keysToInvalidate = await redis.sunion(...tagKeys)
+    const keysToInvalidate = await cacheRedis.sunion(...tagKeys)
 
     if (keysToInvalidate.length > 0) {
-      logger.debug({ keys: keysToInvalidate }, 'Invalidating cache keys')
+      logger.debug({ keyCount: keysToInvalidate.length }, 'Invalidating cache keys')
       // Use a pipeline to delete the cache entries and the tag sets atomically.
-      const pipeline = redis.pipeline()
+      const pipeline = cacheRedis.pipeline()
       pipeline.del(...keysToInvalidate) // Delete the actual data
       pipeline.del(...tagKeys) // Delete the tag sets
       await pipeline.exec()
@@ -153,6 +168,6 @@ export async function invalidateTags(tags: string[]) {
       logger.debug({ tags }, 'No cache keys found for the given tags to invalidate.')
     }
   } catch (error) {
-    logger.error({ tags, error }, 'Failed to invalidate cache tags')
+    logger.error({ code: getRedisErrorCode(error), tagCount: tags.length }, 'Failed to invalidate cache tags')
   }
 }

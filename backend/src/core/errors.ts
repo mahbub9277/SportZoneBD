@@ -49,6 +49,13 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export class ServiceUnavailableError extends AppError {
+  constructor(message = 'A required service is temporarily unavailable') {
+    super(503, message)
+    this.name = 'ServiceUnavailableError'
+  }
+}
+
 export class PremiumRequiredError extends ForbiddenError {
   isPremiumLocked: boolean
 

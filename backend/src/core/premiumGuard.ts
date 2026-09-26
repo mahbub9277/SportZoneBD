@@ -1,9 +1,11 @@
 import type { Request, Response, NextFunction } from 'express'
-import { PremiumDeviceLimitError, PremiumRequiredError } from './errors.js'
+import { PremiumDeviceLimitError, PremiumRequiredError, ServiceUnavailableError } from './errors.js'
 import { authenticate } from './middleware.js'
 import * as subscriptionService from '../modules/subscriptions/subscription.service.js'
-import { redis } from './redis.js'
+import { isRedisConfigured, redis } from './redis.js'
 import { randomUUID } from 'node:crypto'
+import logger from './logger.js'
+import { getRedisErrorCode } from './redisFailover.js'
 
 const PREMIUM_DEVICE_TTL_SECONDS = 5 * 60
 
@@ -21,18 +23,28 @@ async function reservePremiumDevice(req: Request, res: Response, userId: string,
   }
 
   const key = `sportzone:premium-devices:${userId}`
+  if (!isRedisConfigured) {
+    throw new ServiceUnavailableError('Premium device verification is temporarily unavailable')
+  }
+
   const now = Date.now()
   const expiresAt = now + PREMIUM_DEVICE_TTL_SECONDS * 1000
-  const result = await redis.eval(
-    "redis.call('zremrangebyscore', KEYS[1], '-inf', ARGV[1]); local existing = redis.call('zscore', KEYS[1], ARGV[2]); if existing then redis.call('zadd', KEYS[1], ARGV[3], ARGV[2]); redis.call('expire', KEYS[1], ARGV[4]); return 1; end; if redis.call('zcard', KEYS[1]) < tonumber(ARGV[5]) then redis.call('zadd', KEYS[1], ARGV[3], ARGV[2]); redis.call('expire', KEYS[1], ARGV[4]); return 1; end; return 0",
-    1,
-    key,
-    now,
-    deviceId,
-    expiresAt,
-    PREMIUM_DEVICE_TTL_SECONDS,
-    maxDevices,
-  )
+  let result: number
+  try {
+    result = await redis.eval(
+      "redis.call('zremrangebyscore', KEYS[1], '-inf', ARGV[1]); local existing = redis.call('zscore', KEYS[1], ARGV[2]); if existing then redis.call('zadd', KEYS[1], ARGV[3], ARGV[2]); redis.call('expire', KEYS[1], ARGV[4]); return 1; end; if redis.call('zcard', KEYS[1]) < tonumber(ARGV[5]) then redis.call('zadd', KEYS[1], ARGV[3], ARGV[2]); redis.call('expire', KEYS[1], ARGV[4]); return 1; end; return 0",
+      1,
+      key,
+      now,
+      deviceId,
+      expiresAt,
+      PREMIUM_DEVICE_TTL_SECONDS,
+      maxDevices,
+    )
+  } catch (error) {
+    logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Premium device verification failed')
+    throw new ServiceUnavailableError('Premium device verification is temporarily unavailable')
+  }
   if (Number(result) !== 1) throw new PremiumDeviceLimitError(maxDevices)
 }
 

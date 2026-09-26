@@ -49,7 +49,7 @@ const formatViewerCount = (count: number) => {
 
 export function WatchChannelPage() {
   const { channelId = '' } = useParams<{ channelId: string }>()
-  const { data: watchData, isLoading, isError } = useGetWatchChannelDataQuery(channelId, {
+  const { data: watchData, isLoading, isError, error } = useGetWatchChannelDataQuery(channelId, {
     skip: !channelId,
     refetchOnMountOrArgChange: true,
   })
@@ -78,6 +78,7 @@ export function WatchChannelPage() {
   const [gateRequested, setGateRequested] = useState(false)
   const dispatch = useAppDispatch()
   const location = useLocation()
+  const isMissingChannel = typeof error === 'object' && error !== null && 'status' in error && error.status === 404
   const isPlaybackAllowed = playbackAllowedChannelId === channelId
   const handleShare = async () => {
     const url = `${window.location.origin}/watch/${channelId}`
@@ -303,8 +304,8 @@ export function WatchChannelPage() {
       <div className="flex h-[60vh] items-center justify-center rounded-4xl border border-dashed border-(--danger)/50 bg-(--danger-soft)">
         <div className="text-center">
           <AlertCircle className="mx-auto h-12 w-12 text-(--danger)" />
-          <h2 className="mt-4 text-xl font-semibold text-(--danger)">Channel Not Found</h2>
-          <p className="mt-2 text-(--danger)/80">This channel could not be loaded or may be inactive.</p>
+          <h2 className="mt-4 text-xl font-semibold text-(--danger)">{isMissingChannel ? 'Channel Not Found' : 'Channel temporarily unavailable'}</h2>
+          <p className="mt-2 text-(--danger)/80">{isMissingChannel ? 'This channel could not be loaded or may be inactive.' : 'Please try again shortly.'}</p>
           <Button variant="outline" onClick={() => navigate('/channels')} className="mt-6 gap-2">
             <ArrowLeft size={16} /> Go to Channels
           </Button>
@@ -356,7 +357,7 @@ export function WatchChannelPage() {
                 <motion.span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 1.8 }} />
                 <span>Live channel</span>
               </div>
-              <ViewerCountDisplay channelId={channel.id} initial={watchData?.liveViewers ?? 0} />
+              <ViewerCountDisplay channelId={channel.id} initial={watchData?.liveViewers ?? null} />
             </div>
           </div>
         <button
@@ -637,9 +638,9 @@ function ChannelsBrowser() {
   )
 }
 
-function ViewerCountDisplay({ channelId, initial }: { channelId: string; initial?: number }) {
+function ViewerCountDisplay({ channelId, initial }: { channelId: string; initial?: number | null }) {
   const count = useViewerCount(channelId, initial)
-  const formattedCount = formatViewerCount(Math.max(0, count ?? 0))
+  const formattedCount = count === null ? 'Unavailable' : formatViewerCount(Math.max(0, count))
 
   return (
     <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-[0.2em] text-emerald-300/90">

@@ -69,9 +69,9 @@ export interface SocketAutomationMetrics {
 }
 
 export interface ServerToClientEvents {
-  viewerCountUpdate: (payload: { channelId: string; count: number }) => void
-  resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number }) => void
-  liveViewersUpdate: (payload: { totalLiveViewers: number }) => void
+  viewerCountUpdate: (payload: { channelId: string; count: number | null }) => void
+  resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number | null }) => void
+  liveViewersUpdate: (payload: { totalLiveViewers: number | null }) => void
   'analytics:stream-health': (payload: StreamHealthSummary) => void
   automationStatusUpdate: (payload: SocketAutomationStatus) => void
   automationMetricsUpdate: (payload: SocketAutomationMetrics) => void

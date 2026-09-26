@@ -14,9 +14,16 @@ import { upsertMedia } from '../admin/media.service.js'
 // Public Controllers
 import { successResponse } from '../../core/api-response.js'
 
+function hidePremiumChannelUrl<T extends { isPremium?: boolean; url?: string | null }>(channel: T): T {
+  return channel.isPremium ? { ...channel, url: null } : channel
+}
+
 export const getPublicChannels = asyncHandler(async (_req: Request, res: Response) => {
   const channels = await service.getPublicChannelsGroupedByCategory()
-  res.json(successResponse(channels))
+  res.json(successResponse(channels.map((category) => ({
+    ...category,
+    channels: category.channels.map(hidePremiumChannelUrl),
+  }))))
 })
 
 export const getPublicChannelCategories = asyncHandler(async (_req: Request, res: Response) => {
@@ -31,7 +38,7 @@ export const getChannelById = asyncHandler(async (req: AuthenticatedRequest, res
   if (!channel) {
     throw new NotFoundError('Channel not found or is not active')
   }
-  res.json(successResponse(channel))
+  res.json(successResponse(isAdmin ? channel : hidePremiumChannelUrl(channel)))
 })
 
 export const getWatchChannelData = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -94,7 +101,7 @@ export const getRelatedChannels = asyncHandler(async (req: Request, res: Respons
   const excludeIds = typeof req.query.excludeIds === 'string'
     ? req.query.excludeIds.split(',').map((id) => id.trim()).filter(Boolean)
     : []
-  const relatedChannels = await service.getRelatedChannels(req.params.id, channel.categoryId, excludeIds)
+  const relatedChannels = (await service.getRelatedChannels(req.params.id, channel.categoryId, excludeIds)).map(hidePremiumChannelUrl)
 
   res.json(successResponse(relatedChannels))
 })
@@ -105,7 +112,7 @@ export const getChannelsByIds = asyncHandler(async (req: Request, res: Response)
     throw new BadRequestError('Channel IDs are required as a comma-separated string.')
   }
   const channelIds = ids.split(',')
-  const channels = await service.getChannelsByIds(channelIds)
+  const channels = (await service.getChannelsByIds(channelIds)).map(hidePremiumChannelUrl)
   res.json(successResponse(channels))
 })
 

@@ -13,7 +13,7 @@ interface DashboardStats {
   premiumUsers: number
   totalRevenue: number
   liveMatches?: number
-  totalLiveViewers: number
+  totalLiveViewers: number | null
   pendingPayments?: number
   successfulPayments: number
   rejectedPayments: number

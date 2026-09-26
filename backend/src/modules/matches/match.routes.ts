@@ -18,7 +18,7 @@ matchRouter.post('/', authenticate, requireRole('admin'), upload.fields([
 
 matchRouter
   .route('/:id')
-  .get(cacheMiddleware(300, ['matches']), getMatchById)
+  .get(getMatchById)
   .patch(authenticate, requireRole('admin'), upload.fields([
     { name: 'homeTeamLogo', maxCount: 1 },
     { name: 'awayTeamLogo', maxCount: 1 },

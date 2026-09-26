@@ -54,14 +54,32 @@ export async function proxyStreamManifest(req: Request, res: Response, next: Nex
                 premium: true,
               },
             },
+            channel: {
+              select: {
+                isPremium: true,
+              },
+            },
           },
+        })
+      : null
+
+    const channel = channelId
+      ? await prisma.channel.findFirst({
+          where: { id: channelId, status: 'ACTIVE' },
+          select: { isPremium: true },
         })
       : null
 
     if (streamId && (!stream || !stream.enabled)) {
       res.status(404).json({ error: 'Stream not found or unavailable' })
       return
-    } else if (stream && stream.match?.premium) {
+    }
+    if (channelId && !channel) {
+      res.status(404).json({ error: 'Channel not found or unavailable' })
+      return
+    }
+
+    if ((stream?.match?.premium || stream?.channel?.isPremium || channel?.isPremium)) {
       await verifyPremiumAccess(req, res)
     }
 

@@ -60,7 +60,7 @@ export const getAllMatches = asyncHandler(async (req, res) => {
         orderBy: { createdAt: 'asc' },
         include: {
           channel: {
-            select: { id: true, name: true, url: true, logo: true },
+            select: { id: true, name: true, url: true, logo: true, isPremium: true },
           },
         },
       },
@@ -68,7 +68,15 @@ export const getAllMatches = asyncHandler(async (req, res) => {
       awayTeam: true,
     },
   });
-  res.status(200).json(successResponse({ items, meta }, 'Matches retrieved successfully'));
+  const safeItems = items.map((match: any) => ({
+    ...match,
+    streams: match.premium
+      ? []
+      : match.streams.map((stream: any) => stream.channel?.isPremium
+        ? { ...stream, primaryUrl: '', backupUrl: null, channel: { ...stream.channel, url: null } }
+        : stream),
+  }))
+  res.status(200).json(successResponse({ items: safeItems, meta }, 'Matches retrieved successfully'));
 });
 
 /**
@@ -90,7 +98,7 @@ export const getMatchById = asyncHandler(async (req, res) => {
         },
         include: {
           channel: {
-            select: { id: true, name: true, url: true, logo: true },
+            select: { id: true, name: true, url: true, logo: true, isPremium: true },
           },
         },
       },
@@ -108,10 +116,16 @@ export const getMatchById = asyncHandler(async (req, res) => {
     throw new NotFoundError(`Match not found with id of ${id}`);
   }
 
-  const canAccessPremium = match.premium ? await hasPremiumAccess(req, res) : true;
-  const safeMatch = canAccessPremium || !match.premium
-    ? match
-    : { ...match, streams: [] };
+  const hasPremiumStream = match.streams.some((stream) => stream.channel?.isPremium)
+  const canAccessPremium = match.premium || hasPremiumStream ? await hasPremiumAccess(req, res) : true
+  const safeMatch = {
+    ...match,
+    streams: match.premium && !canAccessPremium
+      ? []
+      : match.streams.map((stream) => stream.channel?.isPremium && !canAccessPremium
+        ? { ...stream, primaryUrl: '', backupUrl: null, channel: { ...stream.channel, url: null } }
+        : stream),
+  }
 
   res.status(200).json(successResponse(safeMatch, 'Match retrieved successfully'));
 });

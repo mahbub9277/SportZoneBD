@@ -46,20 +46,21 @@ const getMatch = (entry: unknown): Match | null => {
 export default function EventPage() {
   const { slug = '' } = useParams<{ slug: string }>()
   const navigate = useNavigate()
-  const { data: event, isLoading, isError } = useGetEventBySlugQuery(slug, {
+  const { data: event, isLoading, isError, error } = useGetEventBySlugQuery(slug, {
     skip: !slug,
     refetchOnMountOrArgChange: true,
   })
   const isPremiumSubscriber = useAppSelector(selectIsPremiumSubscriber)
   const openMatch = useAdvertisementGate('MATCH')
   const openChannel = useAdvertisementGate('CHANNEL')
+  const isMissingEvent = typeof error === 'object' && error !== null && 'status' in error && error.status === 404
 
   if (isLoading) {
     return <div className="app-page space-y-3"><Skeleton className="h-52 w-full rounded-3xl" /><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-52 w-full rounded-2xl" />)}</div></div>
   }
 
   if (isError || !event) {
-    return <motion.div className="app-page flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><AlertCircle className="h-12 w-12 text-(--danger)" /><h1 className="text-2xl font-semibold text-text-primary">Event not found</h1><p className="text-text-muted">This event is unavailable or no longer active.</p></motion.div>
+    return <motion.div className="app-page flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><AlertCircle className="h-12 w-12 text-(--danger)" /><h1 className="text-2xl font-semibold text-text-primary">{isMissingEvent ? 'Event not found' : 'Event temporarily unavailable'}</h1><p className="text-text-muted">{isMissingEvent ? 'This event is unavailable or no longer active.' : 'Please try again shortly.'}</p></motion.div>
   }
 
   return (
