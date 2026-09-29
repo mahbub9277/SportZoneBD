@@ -1,26 +1,39 @@
 import dns from 'node:dns/promises'
 import net from 'node:net'
+import type { LookupFunction } from 'node:net'
 
 const forbiddenProtocols = new Set(['ftp', 'file', 'gopher'])
 const loopbackHostnames = new Set(['localhost', 'localhost.localdomain', 'localhost6', 'ip6-localhost', 'local'])
 const localhostSuffixes = ['.localhost', '.local', '.internal']
 
 const ipv4PrivateRanges = [
+  { start: '0.0.0.0', end: '0.255.255.255' },
   { start: '10.0.0.0', end: '10.255.255.255' },
+  { start: '100.64.0.0', end: '100.127.255.255' },
   { start: '127.0.0.0', end: '127.255.255.255' },
   { start: '169.254.0.0', end: '169.254.255.255' },
   { start: '172.16.0.0', end: '172.31.255.255' },
+  { start: '192.0.0.0', end: '192.0.0.255' },
+  { start: '192.0.2.0', end: '192.0.2.255' },
+  { start: '192.88.99.0', end: '192.88.99.255' },
   { start: '192.168.0.0', end: '192.168.255.255' },
+  { start: '198.18.0.0', end: '198.19.255.255' },
+  { start: '198.51.100.0', end: '198.51.100.255' },
+  { start: '203.0.113.0', end: '203.0.113.255' },
+  { start: '224.0.0.0', end: '255.255.255.255' },
 ]
 
 const ipv6PrivateRanges = [
+  { start: '::', end: '::' },
   { start: '::1', end: '::1' },
   { start: 'fc00::', end: 'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' },
   { start: 'fe80::', end: 'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff' },
+  { start: 'ff00::', end: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' },
+  { start: '2001:db8::', end: '2001:db8:ffff:ffff:ffff:ffff:ffff:ffff' },
 ]
 
 function normalizeHostname(value: string): string {
-  return value.trim().toLowerCase().replace(/\.$/, '')
+  return value.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
 }
 
 function isLocalHostname(hostname: string): boolean {
@@ -50,27 +63,19 @@ function normalizeUrl(value: string): string {
 }
 
 function ipv4ToLong(address: string): number {
-  return address.split('.').reduce((acc, octet) => (acc << 8) + Number(octet), 0)
+  return address.split('.').reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0
 }
 
 function ipv6ToBigInt(address: string): bigint {
-  const normalized = address.includes(':') ? address : address
-  const parts = normalized.split(':')
-  const expanded: string[] = []
-  let missing = 8 - parts.length
-
-  for (const part of parts) {
-    if (part === '') {
-      expanded.push(...Array(missing).fill('0'))
-      missing = 0
-    } else {
-      expanded.push(part.padStart(4, '0'))
-    }
-  }
-
-  if (expanded.length < 8) {
-    expanded.push(...Array(8 - expanded.length).fill('0'))
-  }
+  const normalized = address.toLowerCase().replace(/(\d+\.\d+\.\d+\.\d+)$/, (ipv4) => {
+    const value = BigInt(ipv4ToLong(ipv4))
+    return `${Number((value >> 16n) & 0xffffn).toString(16)}:${Number(value & 0xffffn).toString(16)}`
+  })
+  const [left = '', right] = normalized.split('::')
+  const leftParts = left ? left.split(':') : []
+  const rightParts = right ? right.split(':') : []
+  const zeroCount = Math.max(0, 8 - leftParts.length - rightParts.length)
+  const expanded = [...leftParts, ...Array(zeroCount).fill('0'), ...rightParts]
 
   let value = 0n
   for (const part of expanded) {
@@ -99,6 +104,12 @@ function isPrivateOrLocalAddress(address: string): boolean {
   }
 
   if (net.isIP(address) === 6) {
+    const value = ipv6ToBigInt(address)
+    if (value >> 32n === 0xffffn) {
+      const mappedIpv4 = Number(value & 0xffffffffn)
+      const mappedAddress = [24, 16, 8, 0].map((shift) => (mappedIpv4 >>> shift) & 0xff).join('.')
+      return isPrivateOrLocalAddress(mappedAddress)
+    }
     return ipv6PrivateRanges.some(({ start, end }) => isAddressInRange(address, start, end))
   }
 
@@ -116,6 +127,7 @@ export async function validateProxyTargetUrl(
     trustedUrls?: string[]
     allowedDomains?: string[]
     requireAllowlist?: boolean
+    resolveHostname?: (hostname: string) => Promise<string[]>
   } = {},
 ): Promise<ValidatedTargetUrl> {
   let parsed: URL
@@ -152,6 +164,10 @@ export async function validateProxyTargetUrl(
   const allowedHosts = (options.allowedDomains ?? []).map((domain) => normalizeHostname(domain))
   const isAllowedByDomain = allowedHosts.some((domain) => domain === hostname || hostname.endsWith(`.${domain}`))
 
+  if (options.requireAllowlist && (allowedHosts.length === 0 || !isAllowedByDomain)) {
+    throw new Error(allowedHosts.length === 0 ? 'Proxy allowlist is required' : 'Host is not allowlisted')
+  }
+
   if (net.isIP(hostname) === 4 || net.isIP(hostname) === 6) {
     if (isPrivateOrLocalAddress(hostname)) {
       throw new Error('Private or local IP addresses are not allowed')
@@ -164,10 +180,6 @@ export async function validateProxyTargetUrl(
       }
     }
 
-    if (options.requireAllowlist && allowedHosts.length > 0 && !isAllowedByDomain) {
-      throw new Error('Host is not allowlisted')
-    }
-
     if (trustedUrls.length > 0 && !isTrustedUrl) {
       throw new Error('Target URL is not registered for the requested stream')
     }
@@ -178,8 +190,13 @@ export async function validateProxyTargetUrl(
     }
   }
 
-  const resolvedAddresses = await dns.lookup(hostname, { all: true })
-  const resolvedIpAddresses = resolvedAddresses.map((entry) => entry.address)
+  const resolvedIpAddresses = options.resolveHostname
+    ? await options.resolveHostname(hostname)
+    : (await dns.lookup(hostname, { all: true })).map((entry) => entry.address)
+
+  if (resolvedIpAddresses.length === 0) {
+    throw new Error('Target host did not resolve to an address')
+  }
 
   for (const address of resolvedIpAddresses) {
     if (isPrivateOrLocalAddress(address)) {
@@ -194,10 +211,6 @@ export async function validateProxyTargetUrl(
     }
   }
 
-  if (options.requireAllowlist && allowedHosts.length > 0 && !isAllowedByDomain) {
-    throw new Error('Host is not allowlisted')
-  }
-
   if (trustedUrls.length > 0 && !isTrustedUrl) {
     throw new Error('Target URL is not registered for the requested stream')
   }
@@ -206,5 +219,51 @@ export async function validateProxyTargetUrl(
     url: parsed,
     resolvedAddresses: resolvedIpAddresses,
   }
+}
+
+export function createPinnedLookup(target: ValidatedTargetUrl): LookupFunction {
+  const expectedHostname = normalizeHostname(target.url.hostname)
+  const addresses = target.resolvedAddresses.map((address) => ({ address, family: net.isIP(address) }))
+
+  return (hostname, options, callback) => {
+    if (normalizeHostname(hostname) !== expectedHostname || addresses.length === 0) {
+      callback(Object.assign(new Error('Pinned DNS lookup does not match the validated target'), { code: 'ENOTFOUND' }), '', 0)
+      return
+    }
+
+    if (typeof options === 'object' && options.all) {
+      callback(null, addresses)
+      return
+    }
+
+    const requestedFamily = typeof options === 'number' ? options : options.family
+    const selectedAddress = addresses.find(({ family }) => !requestedFamily || !family || family === requestedFamily)
+    if (!selectedAddress) {
+      callback(Object.assign(new Error('No validated address matches the requested family'), { code: 'ENOTFOUND' }), '', 0)
+      return
+    }
+
+    callback(null, selectedAddress.address, selectedAddress.family)
+  }
+}
+
+export async function validateProxyRedirect(
+  location: string,
+  baseUrl: URL,
+  options: Parameters<typeof validateProxyTargetUrl>[1] = {},
+  requireHttps = false,
+): Promise<ValidatedTargetUrl> {
+  let redirectUrl: URL
+  try {
+    redirectUrl = new URL(location, baseUrl)
+  } catch {
+    throw new Error('Redirect URL is invalid')
+  }
+
+  const validated = await validateProxyTargetUrl(redirectUrl.toString(), options)
+  if (requireHttps && validated.url.protocol !== 'https:') {
+    throw new Error('Only HTTPS proxy targets are allowed')
+  }
+  return validated
 }
 

@@ -1,8 +1,11 @@
+import http, { type ClientRequest, type IncomingMessage } from 'node:http'
+import https from 'node:https'
 import { prisma } from '../core/prisma.js'
 import logger from '../core/logger.js'
 import { cacheRedis } from '../core/redis.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
-import { validateProxyTargetUrl } from '../utils/ssrfGuard.js'
+import { createPinnedLookup, validateProxyRedirect, validateProxyTargetUrl } from '../utils/ssrfGuard.js'
+import { rewriteManifestBody } from '../utils/streamManifest.js'
 
 interface StreamManifestProxyOptions {
   streamId?: string
@@ -34,6 +37,7 @@ const MAX_MANIFEST_CACHE_ENTRIES = 500
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 const MAX_REDIRECTS = 3
 const inFlightManifestRequests = new Map<string, Promise<StreamManifestProxyResult>>()
+const isProduction = process.env.NODE_ENV === 'production'
 
 const getRedisManifestKey = (cacheKey: string) => `sportzone:stream:manifest:${cacheKey}`
 
@@ -49,67 +53,65 @@ function pruneManifestCache(now: number): void {
   }
 }
 
-function resolvePlaylistUri(rawValue: string, baseUrl: string): string {
-  const trimmedValue = rawValue.trim()
-  if (!trimmedValue || trimmedValue.startsWith('#')) {
-    return rawValue
-  }
-
-  try {
-    return new URL(trimmedValue, baseUrl).toString()
-  } catch {
-    return rawValue
-  }
-}
-
-function rewriteManifestBody(body: string, baseUrl: string): string {
-  return body
-    .split(/\r?\n/)
-    .map((line) => {
-      const trimmedLine = line.trim()
-      if (!trimmedLine) {
-        return line
-      }
-
-      const uriMatch = trimmedLine.match(/URI="([^"]+)"/i)
-      if (uriMatch) {
-        const resolvedValue = resolvePlaylistUri(uriMatch[1], baseUrl)
-        return line.replace(uriMatch[1], resolvedValue)
-      }
-
-      if (trimmedLine.startsWith('#')) {
-        return line
-      }
-
-      return resolvePlaylistUri(trimmedLine, baseUrl)
-    })
-    .join('\n')
-}
-
-async function readManifestBody(response: Response): Promise<string> {
-  if (!response.body) return response.text()
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const chunks: string[] = []
+async function readManifestBody(response: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
   let totalBytes = 0
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      totalBytes += value.byteLength
-      if (totalBytes > MAX_MANIFEST_BYTES) {
-        await reader.cancel()
-        throw new Error('Manifest response is too large')
-      }
-      chunks.push(decoder.decode(value, { stream: true }))
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    totalBytes += buffer.byteLength
+    if (totalBytes > MAX_MANIFEST_BYTES) {
+      response.destroy()
+      throw new Error('Manifest response is too large')
     }
-    chunks.push(decoder.decode())
-    return chunks.join('')
-  } finally {
-    reader.releaseLock()
+    chunks.push(buffer)
   }
+
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function requestManifestTarget(target: Awaited<ReturnType<typeof validateProxyTargetUrl>>, signal?: AbortSignal): Promise<IncomingMessage> {
+  if (isProduction && target.url.protocol !== 'https:') {
+    throw new Error('Only HTTPS stream targets are allowed in production')
+  }
+
+  const lookup = createPinnedLookup(target)
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+    : AbortSignal.timeout(10_000)
+
+  return new Promise((resolve, reject) => {
+    let agent: http.Agent | https.Agent
+    let request: ClientRequest
+    const options = {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.apple.mpegurl,text/plain,application/x-mpegURL,*/*',
+        'User-Agent': 'SportZoneHlsProxy/1.0',
+      },
+      signal: requestSignal,
+    }
+
+    if (target.url.protocol === 'https:') {
+      agent = new https.Agent({ lookup })
+      request = https.request(target.url, { ...options, agent }, (response) => {
+        response.once('close', () => agent.destroy())
+        resolve(response)
+      })
+    } else {
+      agent = new http.Agent({ lookup })
+      request = http.request(target.url, { ...options, agent }, (response) => {
+        response.once('close', () => agent.destroy())
+        resolve(response)
+      })
+    }
+
+    request.once('error', (error) => {
+      agent.destroy()
+      reject(error)
+    })
+    request.end()
+  })
 }
 
 async function fetchManifest(
@@ -121,27 +123,31 @@ async function fetchManifest(
 
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
     const validated = await validateProxyTargetUrl(currentUrl, validationOptions)
-    const response = await fetch(validated.url, {
-      redirect: 'manual',
-      headers: {
-        Accept: 'application/vnd.apple.mpegurl,text/plain,application/x-mpegURL,*/*',
-        'User-Agent': 'SportZoneHlsProxy/1.0',
-      },
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
-    })
+    const response = await requestManifestTarget(validated, signal)
+    const responseStatus = response.statusCode ?? 0
 
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location')
+    if (responseStatus >= 300 && responseStatus < 400) {
+      const location = response.headers.location
+      response.resume()
       if (!location || redirect === MAX_REDIRECTS) throw new Error('Too many manifest redirects')
-      currentUrl = new URL(location, validated.url).toString()
+      const redirectTarget = await validateProxyRedirect(
+        Array.isArray(location) ? location[0] : location,
+        validated.url,
+        validationOptions,
+        isProduction,
+      )
+      currentUrl = redirectTarget.url.toString()
       continue
     }
 
-    if (!response.ok) throw new Error(`Upstream responded with ${response.status}`)
+    if (responseStatus < 200 || responseStatus >= 300) {
+      response.resume()
+      throw new Error(`Upstream responded with ${responseStatus}`)
+    }
 
     return {
       body: await readManifestBody(response),
-      contentType: response.headers.get('content-type') ?? 'application/vnd.apple.mpegurl',
+      contentType: String(response.headers['content-type'] ?? 'application/vnd.apple.mpegurl'),
       sourceUrl: validated.url.toString(),
     }
   }
@@ -190,13 +196,15 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
       }
     }
 
+    const directAllowlist = String(process.env.PROXY_ALLOWLIST ?? '').split(',').map((host) => host.trim()).filter(Boolean)
     const validated = await validateProxyTargetUrl(primaryUrl, {
       trustedUrls: [primaryUrl],
-      allowedDomains: [],
-      requireAllowlist: false,
+      allowedDomains: directAllowlist,
+      requireAllowlist: isProduction,
     })
 
-    const manifest = await fetchManifest(validated.url.toString(), signal, { trustedUrls: [primaryUrl], allowedDomains: [], requireAllowlist: false })
+    const validationOptions = { trustedUrls: [primaryUrl], allowedDomains: directAllowlist, requireAllowlist: isProduction }
+    const manifest = await fetchManifest(validated.url.toString(), signal, validationOptions)
     const rewrittenManifest = rewriteManifestBody(manifest.body, manifest.sourceUrl)
 
     manifestCache.set(cacheKey, {
@@ -269,18 +277,20 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   const existingRequest = inFlightManifestRequests.get(cacheKey)
   if (existingRequest) return existingRequest
 
+  const requireAllowlist = isProduction || allowedDomainHosts.length > 0
+
   const request = (async (): Promise<StreamManifestProxyResult> => {
     const tryFetch = async (targetUrl: string): Promise<{ body: string; contentType: string; sourceUrl: string }> => {
       const validated = await validateProxyTargetUrl(targetUrl, {
-      trustedUrls: preferredUrls,
-      allowedDomains: allowedDomainHosts,
-      requireAllowlist: true,
+        trustedUrls: preferredUrls,
+        allowedDomains: allowedDomainHosts,
+        requireAllowlist,
       })
 
       return fetchManifest(validated.url.toString(), signal, {
         trustedUrls: preferredUrls,
         allowedDomains: allowedDomainHosts,
-        requireAllowlist: true,
+        requireAllowlist,
       })
     }
 
@@ -304,13 +314,13 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
     } catch (error) {
       if (type === 'primary' && fallbackUrl) {
         const backupManifest = await tryFetch(fallbackUrl)
-      const rewrittenManifest = rewriteManifestBody(backupManifest.body, backupManifest.sourceUrl)
+        const rewrittenManifest = rewriteManifestBody(backupManifest.body, backupManifest.sourceUrl)
 
         const backupEntry: CacheEntry = {
-        body: rewrittenManifest,
-        contentType: backupManifest.contentType,
-        sourceUrl: backupManifest.sourceUrl,
-        usedBackup: true,
+          body: rewrittenManifest,
+          contentType: backupManifest.contentType,
+          sourceUrl: backupManifest.sourceUrl,
+          usedBackup: true,
           expiresAt: Date.now() + manifestTtlMs,
         }
         manifestCache.set(cacheKey, backupEntry)

@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useCreateChannelMutation, useUpdateChannelMutation } from '../../../features/admin/channels.api'
+import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/Dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../components/ui/Form'
 import { Input } from '../../../components/ui/Input'
@@ -36,10 +37,12 @@ interface ChannelFormModalProps {
 export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChannel, categories }: ChannelFormModalProps) {
   const [createChannel, { isLoading: isCreating }] = useCreateChannelMutation()
   const [updateChannel, { isLoading: isUpdating }] = useUpdateChannelMutation()
+  const [uploadFiles, { isLoading: isUploadingLogo }] = useUploadFilesMutation()
+  const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [uploadedLogoPreviewUrl, setUploadedLogoPreviewUrl] = useState<string | null>(null)
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
 
-  const isMutating = isCreating || isUpdating
+  const isMutating = isCreating || isUpdating || isUploadingLogo
   const defaultValues = {
     name: editingChannel?.name ?? '',
     logo: undefined,
@@ -88,29 +91,39 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
   }
 
   const onSubmit = async (values: z.infer<typeof channelSchema>) => {
-    const formData = new FormData()
-    Object.entries(values).forEach(([key, value]) => {
-      if (key === 'logo' && value instanceof FileList && value.length > 0) {
-        formData.append('logo', value[0])
-      } else if (key === 'logo' && typeof value === 'string' && value) {
-        formData.append('logo', value)
-      } else if (key !== 'logo' && value !== null && value !== undefined) {
-        formData.append(key, String(value))
+    let uploadedPublicId: string | undefined
+    try {
+      const logoFile = values.logo instanceof FileList ? values.logo[0] : undefined
+      const uploaded = logoFile
+        ? await uploadFiles({ files: [logoFile], folder: 'sportzone/channels', mediaType: 'LOGO' }).unwrap()
+        : null
+      uploadedPublicId = uploaded?.uploads[0]?.publicId
+      const logo = uploaded?.uploads[0]?.url ?? (typeof values.logo === 'string' ? values.logo : undefined)
+      const data = {
+        name: values.name,
+        url: values.url,
+        viewers: values.viewers,
+        categoryId: values.categoryId,
+        isPremium: values.isPremium,
+        status: values.status,
+        ...(logo !== undefined ? { logo } : {}),
       }
-    })
+      const promise = editingChannel
+        ? updateChannel({ id: editingChannel.id, data }).unwrap()
+        : createChannel(data).unwrap()
 
-    const promise = editingChannel
-      ? updateChannel({ id: editingChannel.id, formData }).unwrap()
-      : createChannel(formData).unwrap()
-
-    await toast.promise(promise, {
-      loading: editingChannel ? 'Updating channel...' : 'Creating channel...',
-      success: () => {
-        onSuccess()
-        return `Channel ${editingChannel ? 'updated' : 'created'}!`
-      },
-      error: `Failed to ${editingChannel ? 'update' : 'create'} channel.`,
-    })
+      await toast.promise(promise, {
+        loading: editingChannel ? 'Updating channel...' : 'Creating channel...',
+        success: () => {
+          onSuccess()
+          return `Channel ${editingChannel ? 'updated' : 'created'}!`
+        },
+        error: `Failed to ${editingChannel ? 'update' : 'create'} channel.`,
+      })
+    } catch (error) {
+      if (uploadedPublicId) await deleteUploadedFile(uploadedPublicId).unwrap().catch(() => undefined)
+      toast.error(error instanceof Error ? error.message : `Failed to ${editingChannel ? 'update' : 'create'} channel.`)
+    }
   }
 
   return (

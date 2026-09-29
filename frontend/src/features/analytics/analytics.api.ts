@@ -25,10 +25,18 @@ export interface StreamHealthBucket {
   errorViewers?: number
 }
 
+export interface TelemetryStatus {
+  enabled: boolean
+}
+
 export const analyticsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
     trackEvent: builder.mutation<void, TrackEventPayload>({
       query: (body) => ({ url: '/analytics/track', method: 'POST', body }),
+    }),
+    setTelemetryEnabled: builder.mutation<TelemetryStatus, TelemetryStatus>({
+      query: (body) => ({ url: '/analytics/telemetry/status', method: 'PATCH', body }),
+      transformResponse: (response: ApiResponse<TelemetryStatus>) => unwrapApiResponse(response),
     }),
     getStreamHealthSummary: builder.query<StreamHealthSummary, void>({
       query: () => '/analytics/telemetry/summary',
@@ -41,4 +49,4 @@ export const analyticsApi = emptyApi.injectEndpoints({
   }),
 });
 
-export const { useTrackEventMutation, useGetStreamHealthSummaryQuery, useGetStreamHealthHistoryQuery } = analyticsApi;
+export const { useTrackEventMutation, useSetTelemetryEnabledMutation, useGetStreamHealthSummaryQuery, useGetStreamHealthHistoryQuery } = analyticsApi;

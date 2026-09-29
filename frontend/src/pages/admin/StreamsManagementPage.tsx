@@ -90,9 +90,7 @@ export function StreamsManagementPage() {
       }
 
       if (normalizedValues.sourceType === 'CHANNEL' && normalizedValues.channelId) {
-        const channelFormData = new FormData()
-        channelFormData.append('url', normalizedValues.primaryUrl)
-        await updateChannel({ id: normalizedValues.channelId, formData: channelFormData }).unwrap()
+        await updateChannel({ id: normalizedValues.channelId, data: { url: normalizedValues.primaryUrl } }).unwrap()
       }
       if (editingStream) {
         await updateStream({ id: editingStream.id, ...normalizedValues }).unwrap()

@@ -28,14 +28,6 @@ export const buildCloudinarySecureUrl = (publicId: string | null | undefined, re
   return cloudinary.url(normalizedPublicId, { secure: true, sign_url: false, resource_type: resourceType })
 }
 
-export const buildCloudinaryRawUrl = (publicId: string | null | undefined): string | null => {
-  if (!publicId) return null
-  if (/^https?:\/\//i.test(publicId)) return publicId
-
-  const normalizedPublicId = publicId.trim()
-  return normalizedPublicId ? cloudinary.url(normalizedPublicId, { secure: true, resource_type: 'raw', sign_url: false }) : null
-}
-
 export const uploadStreamToCloudinary = (
   buffer: Buffer,
   folder: string,

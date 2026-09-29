@@ -33,6 +33,7 @@ export interface ServerToClientEvents {
   viewerCountUpdate: (payload: { channelId: string; count: number | null }) => void
   resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number | null }) => void
   liveViewersUpdate: (payload: { totalLiveViewers: number | null }) => void
+  applicationSettingChanged: (payload: { key: string; value: string }) => void
   'analytics:stream-health': (payload: Record<string, unknown>) => void
   automationStatusUpdate: (payload: AutomationStatus) => void
   automationMetricsUpdate: (payload: AutomationMetrics) => void
@@ -57,6 +58,7 @@ export interface ClientToServerEvents {
 
 const ADMIN_ROOM = 'admin-room'
 const ACCESS_TOKEN_COOKIE = 'accessToken'
+const TELEMETRY_SETTING_KEY = 'telemetry.enabled'
 const VIEWER_TTL_SECONDS = 75
 const VIEWER_ALL_KEY = 'sportzone:live-viewers:all'
 const viewerResourceKey = (kind: string, id: string) => `sportzone:live-viewers:${kind}:${id}`
@@ -324,6 +326,13 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
 
   // Public Namespace for real-time viewer counting
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
+    void prisma.setting.findUnique({ where: { key: TELEMETRY_SETTING_KEY } })
+      .then((setting) => socket.emit('applicationSettingChanged', {
+        key: TELEMETRY_SETTING_KEY,
+        value: !setting || setting.deletedAt !== null || setting.value !== 'false' ? 'true' : 'false',
+      }))
+      .catch((error) => logger.warn({ error }, 'Unable to load telemetry setting for socket client'))
+
     const userId = (socket as any).user?.sub
     if (typeof userId === 'string') void socket.join(`user:${userId}`)
     const updateAndEmitViewerCount = async (kind: ViewerPresence['kind'], resourceId: string) => {

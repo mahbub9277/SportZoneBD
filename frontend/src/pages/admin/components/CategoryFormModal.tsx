@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useCreateCategoryMutation, useUpdateCategoryMutation } from '../../../features/admin/channels.api'
+import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/Dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../components/ui/Form'
 import { Input } from '../../../components/ui/Input'
@@ -31,6 +32,8 @@ interface CategoryFormModalProps {
 export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCategory = null }: CategoryFormModalProps) {
   const [createCategory, { isLoading: isCreating }] = useCreateCategoryMutation()
   const [updateCategory, { isLoading: isUpdating }] = useUpdateCategoryMutation()
+  const [uploadFiles, { isLoading: isUploadingImage }] = useUploadFilesMutation()
+  const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
 
@@ -64,33 +67,37 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
   }, [imagePreviewUrl])
 
   const onSubmit = async (values: z.infer<typeof categorySchema>) => {
-    const formData = new FormData()
-    formData.append('name', values.name)
+    let uploadedPublicId: string | undefined
+    try {
+      const imageFile = values.image instanceof FileList ? values.image[0] : undefined
+      const uploaded = imageFile
+        ? await uploadFiles({ files: [imageFile], folder: 'sportzone/channel-categories', mediaType: 'LOGO' }).unwrap()
+        : null
+      uploadedPublicId = uploaded?.uploads[0]?.publicId
+      const image = uploaded?.uploads[0]?.url ?? (typeof values.image === 'string' ? values.image : undefined)
+      const data = {
+        name: values.name,
+        description: values.description,
+        ...(image !== undefined ? { image } : {}),
+      }
+      const promise = editingCategory
+        ? updateCategory({ id: editingCategory.id, data }).unwrap()
+        : createCategory(data).unwrap()
 
-    if (values.description) {
-      formData.append('description', values.description)
+      await toast.promise(promise, {
+        loading: editingCategory ? 'Updating category...' : 'Creating category...',
+        success: () => {
+          form.reset()
+          setImagePreviewUrl(null)
+          onSuccess()
+          return `Category ${editingCategory ? 'updated' : 'created'}!`
+        },
+        error: `Failed to ${editingCategory ? 'update' : 'create'} category.`,
+      })
+    } catch (error) {
+      if (uploadedPublicId) await deleteUploadedFile(uploadedPublicId).unwrap().catch(() => undefined)
+      toast.error(error instanceof Error ? error.message : `Failed to ${editingCategory ? 'update' : 'create'} category.`)
     }
-
-    if (values.image instanceof FileList && values.image.length > 0) {
-      formData.append('image', values.image[0])
-    } else if (typeof values.image === 'string' && values.image) {
-      formData.append('image', values.image)
-    }
-
-    const promise = editingCategory
-      ? updateCategory({ id: editingCategory.id, formData }).unwrap()
-      : createCategory(formData).unwrap()
-
-    await toast.promise(promise, {
-      loading: editingCategory ? 'Updating category...' : 'Creating category...',
-      success: () => {
-        form.reset()
-        setImagePreviewUrl(null)
-        onSuccess()
-        return `Category ${editingCategory ? 'updated' : 'created'}!`
-      },
-      error: `Failed to ${editingCategory ? 'update' : 'create'} category.`,
-    })
   }
 
   const isMutating = isCreating || isUpdating
@@ -136,7 +143,7 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
                 <FormMessage />
               </FormItem>
             )} />
-            <Button type="submit" disabled={isMutating} className="min-h-11 w-full sm:w-auto">{isMutating ? (editingCategory ? 'Updating...' : 'Creating...') : (editingCategory ? 'Update Category' : 'Create Category')}</Button>
+            <Button type="submit" disabled={isMutating || isUploadingImage} className="min-h-11 w-full sm:w-auto">{isUploadingImage ? 'Uploading image...' : isMutating ? (editingCategory ? 'Updating...' : 'Creating...') : (editingCategory ? 'Update Category' : 'Create Category')}</Button>
           </form>
         </Form>
       </DialogContent>

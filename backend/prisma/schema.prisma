@@ -657,16 +657,6 @@ model SystemLog {
   @@index([createdAt])
 }
 
-model Backup {
-  id        String       @id @default(uuid()) @db.Uuid
-  fileName  String
-  size      BigInt // in bytes
-  status    BackupStatus @default(PENDING)
-  createdAt DateTime     @default(now())
-
-  @@index([createdAt])
-}
-
 model SecuritySetting {
   id          String   @id @default(uuid()) @db.Uuid
   key         String   @unique
@@ -677,12 +667,6 @@ model SecuritySetting {
   updatedAt   DateTime @updatedAt
 
   @@index([key])
-}
-
-enum BackupStatus {
-  PENDING
-  COMPLETED
-  FAILED
 }
 
 enum StreamSourceType {

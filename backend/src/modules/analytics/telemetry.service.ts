@@ -2,6 +2,24 @@ import { redis } from '../../core/redis.js'
 import { getIoInstance } from '../../core/socketManager.js'
 import logger from '../../core/logger.js'
 import { getRedisErrorCode } from '../../core/redisFailover.js'
+import { prisma } from '../../core/prisma.js'
+
+export const TELEMETRY_SETTING_KEY = 'telemetry.enabled'
+
+export async function getTelemetryEnabled(): Promise<boolean> {
+  const setting = await prisma.setting.findUnique({ where: { key: TELEMETRY_SETTING_KEY } })
+  return !setting || setting.deletedAt !== null || setting.value !== 'false'
+}
+
+export async function setTelemetryEnabled(enabled: boolean): Promise<void> {
+  const value = String(enabled)
+  await prisma.setting.upsert({
+    where: { key: TELEMETRY_SETTING_KEY },
+    update: { value, type: 'boolean', description: 'Enable or disable player telemetry collection.', deletedAt: null },
+    create: { key: TELEMETRY_SETTING_KEY, value, type: 'boolean', description: 'Enable or disable player telemetry collection.' },
+  })
+  getIoInstance()?.emit('applicationSettingChanged', { key: TELEMETRY_SETTING_KEY, value })
+}
 
 export const TELEMETRY_EVENT_TYPES = [
   'load_start', 'playing', 'buffering_start', 'buffering_end', 'stalled',
@@ -68,8 +86,9 @@ export async function ingestTelemetry(event: {
   channelId?: string
   matchId?: string
   metadata?: Record<string, string | number | boolean | null>
-}): Promise<void> {
+}, enabled: boolean): Promise<void> {
   try {
+    if (!enabled) return
     const dedupeKey = `sportzone:telemetry:event:${event.eventId}`
     const accepted = await redis.set(dedupeKey, '1', 'EX', 3600, 'NX')
     if (!accepted) return
@@ -119,7 +138,7 @@ export async function ingestTelemetry(event: {
       await redis.hincrby(bucket, 'bufferingViewers', await countKey(stateKey('BUFFERING'), pruneGlobalKeys))
       await redis.hincrby(bucket, 'errorViewers', await countKey(stateKey('ERROR'), pruneGlobalKeys))
       await redis.expire(bucket, 24 * 60 * 60)
-      await broadcastTelemetrySummary()
+      await broadcastTelemetrySummary(enabled)
     }
   } catch (error) {
     logger.warn({ code: getRedisErrorCode(error), eventType: event.eventType }, 'Player telemetry ingestion failed')
@@ -127,6 +146,7 @@ export async function ingestTelemetry(event: {
 }
 
 export async function getTelemetrySummary() {
+  if (!await getTelemetryEnabled()) return emptyTelemetrySummary()
   if (telemetrySummaryInFlight) return telemetrySummaryInFlight
   const request = buildTelemetrySummary()
   telemetrySummaryInFlight = request
@@ -136,6 +156,16 @@ export async function getTelemetrySummary() {
     if (telemetrySummaryInFlight === request) telemetrySummaryInFlight = null
   }
 }
+
+const emptyTelemetrySummary = () => ({
+  totalActiveViewers: 0,
+  healthyViewers: 0,
+  bufferingViewers: 0,
+  errorViewers: 0,
+  healthPercentage: null,
+  bufferingPercentage: null,
+  topErroredStreams: [],
+})
 
 async function buildTelemetrySummary() {
   const pruneGlobalKeys = beginPruneWindow(lastGlobalPruneAt)
@@ -190,6 +220,7 @@ async function buildTelemetrySummary() {
 }
 
 export async function getTelemetryHistory(minutes: number) {
+  if (!await getTelemetryEnabled()) return []
   const now = Date.now()
   const start = now - Math.min(Math.max(minutes, 15), 1440) * 60000
   const timestamps = []
@@ -207,7 +238,8 @@ export async function getTelemetryHistory(minutes: number) {
   })
 }
 
-export async function broadcastTelemetrySummary(): Promise<void> {
+async function broadcastTelemetrySummary(enabled: boolean): Promise<void> {
+  if (!enabled) return
   if (Date.now() - lastBroadcastAt < TELEMETRY_BROADCAST_INTERVAL_MS) return
   lastBroadcastAt = Date.now()
   const io = getIoInstance()

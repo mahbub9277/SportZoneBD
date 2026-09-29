@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from 'express'
 import axios from 'axios'
+import http from 'node:http'
+import https from 'node:https'
 import type { Readable } from 'node:stream'
 import logger from '../../core/logger.js'
 import rateLimit from 'express-rate-limit'
-import { validateProxyTargetUrl } from '../../utils/ssrfGuard.js'
+import { createPinnedLookup, validateProxyTargetUrl } from '../../utils/ssrfGuard.js'
 
 const router = Router()
 
@@ -33,13 +35,29 @@ const MAX_PROXY_MANIFEST_BYTES = 2 * 1024 * 1024
 
 router.use(proxyLimiter)
 
-async function validateLegacyProxyUrl(value: string): Promise<void> {
+async function validateLegacyProxyUrl(value: string) {
   const validated = await validateProxyTargetUrl(value, {
     allowedDomains: allowlist,
-    requireAllowlist: allowlist.length > 0,
+    requireAllowlist: !isDev || allowlist.length > 0,
   })
   if (validated.url.protocol !== 'https:') {
     throw new Error('Only HTTPS proxy targets are allowed')
+  }
+  return validated
+}
+
+function createPinnedAgents(target: Awaited<ReturnType<typeof validateLegacyProxyUrl>>) {
+  const lookup = createPinnedLookup(target)
+  const httpAgent = new http.Agent({ lookup })
+  const httpsAgent = new https.Agent({ lookup })
+
+  return {
+    httpAgent,
+    httpsAgent,
+    destroy: () => {
+      httpAgent.destroy()
+      httpsAgent.destroy()
+    },
   }
 }
 
@@ -115,18 +133,28 @@ router.head('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing url query parameter' })
   }
 
+  let validated: Awaited<ReturnType<typeof validateLegacyProxyUrl>>
   try {
-    await validateLegacyProxyUrl(url)
+    validated = await validateLegacyProxyUrl(url)
   } catch {
     return res.status(403).json({ error: 'Host not allowed' })
   }
 
+  const agents = createPinnedAgents(validated)
   try {
-    const response = await axios.head(url, {
+    const response = await axios.head(validated.url.toString(), {
       validateStatus: () => true,
       headers: getForwardHeaders(req),
       timeout: 5000,
+      maxRedirects: 0,
+      proxy: false,
+      httpAgent: agents.httpAgent,
+      httpsAgent: agents.httpsAgent,
     })
+
+    if (response.status >= 300 && response.status < 400) {
+      return res.status(502).json({ error: 'Upstream redirects are not allowed' })
+    }
 
     sendCorsHeaders(req, res)
     res.status(response.status)
@@ -145,6 +173,8 @@ router.head('/', async (req, res) => {
   } catch (err: any) {
     logger.error({ error: err, url }, 'Proxy HEAD error fetching')
     return res.status(502).json({ error: 'Bad gateway' })
+  } finally {
+    agents.destroy()
   }
 })
 
@@ -154,36 +184,50 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing url query parameter' })
   }
 
+  let validated: Awaited<ReturnType<typeof validateLegacyProxyUrl>>
   try {
-    await validateLegacyProxyUrl(url)
+    validated = await validateLegacyProxyUrl(url)
   } catch {
     return res.status(403).json({ error: 'Host not allowed' })
   }
 
+  const agents = createPinnedAgents(validated)
   let upstreamStream: Readable | null = null
 
   const abortUpstream = () => {
-    if (!upstreamStream || upstreamStream.destroyed) return
-    upstreamStream.destroy()
-    upstreamStream = null
+    if (upstreamStream && !upstreamStream.destroyed) {
+      upstreamStream.destroy()
+      upstreamStream = null
+    }
+    agents.destroy()
   }
 
   req.once('aborted', abortUpstream)
   res.once('close', abortUpstream)
 
   try {
-    const response = await axios.get(url, {
+    const response = await axios.get(validated.url.toString(), {
       responseType: 'stream',
       validateStatus: () => true,
       headers: getForwardHeaders(req),
       timeout: 15000,
+      maxRedirects: 0,
+      proxy: false,
+      httpAgent: agents.httpAgent,
+      httpsAgent: agents.httpsAgent,
     })
     upstreamStream = response.data as Readable
 
+    if (response.status >= 300 && response.status < 400) {
+      abortUpstream()
+      return res.status(502).json({ error: 'Upstream redirects are not allowed' })
+    }
+
+    upstreamStream.once('close', agents.destroy)
     const contentType = String(response.headers['content-type'] ?? '')
     sendCorsHeaders(req, res)
 
-    if (/mpegurl|vnd\.apple\.mpegurl|application\/x-mpegURL/i.test(contentType) || url.endsWith('.m3u8')) {
+    if (/mpegurl|vnd\.apple\.mpegurl|application\/x-mpegURL/i.test(contentType) || validated.url.pathname.endsWith('.m3u8')) {
       const chunks: Buffer[] = []
       let totalBytes = 0
       await new Promise((resolve, reject) => {

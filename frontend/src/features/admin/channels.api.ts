@@ -88,7 +88,7 @@ export const channelsApi = emptyApi.injectEndpoints({
     }),
 
     // --- Admin Mutations (Category) ---
-    createCategory: builder.mutation<ChannelCategory, Partial<ChannelCategory> | FormData>({
+    createCategory: builder.mutation<ChannelCategory, Partial<ChannelCategory>>({
       query: (body) => ({
         url: '/channels/categories',
         method: 'POST',
@@ -111,11 +111,11 @@ export const channelsApi = emptyApi.injectEndpoints({
       },
       invalidatesTags: [{ type: 'ChannelCategories', id: 'LIST' }],
     }),
-    updateCategory: builder.mutation<ChannelCategory, { id: string; data?: Partial<ChannelCategory>; formData?: FormData }>({
-      query: ({ id, data, formData }) => ({
+    updateCategory: builder.mutation<ChannelCategory, { id: string; data: Partial<ChannelCategory> }>({
+      query: ({ id, data }) => ({
         url: `/channels/categories/${id}`,
         method: 'PUT',
-        body: formData ?? data ?? {},
+        body: data,
       }),
       transformResponse: (response: ApiResponse<ChannelCategory>) => unwrapApiResponse(response),
       invalidatesTags: (result, error, { id }) => [
@@ -132,15 +132,13 @@ export const channelsApi = emptyApi.injectEndpoints({
     }),
 
     // --- Admin Mutations (Channel) ---
-    createChannel: builder.mutation<Channel, FormData>({
-      // The body is now FormData, RTK Query handles the content-type.
-      query: (formData) => ({ url: '/channels', method: 'POST', body: formData }),
+    createChannel: builder.mutation<Channel, Partial<Channel>>({
+      query: (body) => ({ url: '/channels', method: 'POST', body }),
       transformResponse: (response: ApiResponse<Channel>) => unwrapApiResponse(response),
       invalidatesTags: [{ type: 'Channels', id: 'LIST' }],
     }),
-    updateChannel: builder.mutation<Channel, { id: string; formData: FormData }>({
-      // The body is now FormData, RTK Query handles the content-type.
-      query: ({ id, formData }) => ({ url: `/channels/${id}`, method: 'PUT', body: formData }),
+    updateChannel: builder.mutation<Channel, { id: string; data: Partial<Channel> }>({
+      query: ({ id, data }) => ({ url: `/channels/${id}`, method: 'PUT', body: data }),
       transformResponse: (response: ApiResponse<Channel>) => unwrapApiResponse(response),
       // We still invalidate tags on success to ensure the cache is perfectly in sync with the server.
       invalidatesTags: (result, error, { id }) => [

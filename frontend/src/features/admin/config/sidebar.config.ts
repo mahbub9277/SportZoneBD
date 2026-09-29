@@ -94,7 +94,6 @@ export const navSections: NavSection[] = [
       { label: 'API Settings', href: '/admin/api-settings', icon: 'Code' },
       { label: 'Website Settings', mobileLabel: 'Website', href: '/admin/website-settings', icon: 'Globe' },
       { label: 'Settings', href: '/admin/settings', icon: 'Settings' },
-      { label: 'Backup', href: '/admin/backup', icon: 'Archive' },
     ],
   },
 ];

@@ -1,9 +1,12 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Maximize2, X } from 'lucide-react'
-import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, startTransition, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { CustomVideoPlayer } from '../CustomVideoPlayer'
+
+const LazyCustomVideoPlayer = lazy(() =>
+  import('../CustomVideoPlayer').then((module) => ({ default: module.CustomVideoPlayer })),
+)
 
 export interface MiniPlayerSource {
   url: string
@@ -282,19 +285,21 @@ export function MiniPlayer({ activePlayer, setActivePlayer }: MiniPlayerProps) {
             {isMini && <div className="absolute inset-x-8 top-2 z-40 flex h-6 cursor-grab touch-none items-center justify-center active:cursor-grabbing transition-colors hover:text-white/80" onPointerDown={handleMiniDragStart} onPointerMove={handleMiniDragMove} onPointerUp={handleMiniDragEnd} onPointerCancel={handleMiniDragEnd} role="button" tabIndex={0} aria-label="Move mini player" title="Drag to move mini player"><div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/65 px-2.5 py-1 shadow-lg"><span className="h-1.5 w-6 rounded-full bg-white/40" /></div></div>}
             {isMini && activePlayer.playbackRoute && <motion.button type="button" className="absolute right-12 top-2 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-cyan-400/30 bg-black/75 text-white/90 shadow-lg transition hover:border-cyan-400/60 hover:bg-black hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" aria-label="Open full player" title="Open full player" onClick={restorePlayer} whileHover={shouldReduceMotion ? undefined : { scale: 1.08 }} whileTap={shouldReduceMotion ? undefined : { scale: 0.92 }}><Maximize2 className="h-4 w-4" /></motion.button>}
             {isMini && <motion.button type="button" className="absolute right-2 top-2 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-red-400/30 bg-black/75 text-white/90 shadow-lg transition hover:border-red-400/60 hover:bg-black hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300" aria-label="Close mini player" onClick={(event) => { event.stopPropagation(); closePlayer() }} whileHover={shouldReduceMotion ? undefined : { scale: 1.08 }} whileTap={shouldReduceMotion ? undefined : { scale: 0.92 }}><X className="h-4 w-4" /></motion.button>}
-            <CustomVideoPlayer
-              key={`${activePlayer.streamId ?? ''}|${activePlayer.url}`}
-              url={activePlayer.url}
-              streamId={activePlayer.streamId}
-              presenceId={activePlayer.streamId}
-              presenceType={activePlayer.presenceType}
-              matchId={activePlayer.matchId}
-              channelId={activePlayer.channelId}
-              title={activePlayer.title}
-              autoPlay
-              compactControls={isMini}
-              onStopReady={handleStopReady}
-            />
+            <Suspense fallback={null}>
+              <LazyCustomVideoPlayer
+                key={`${activePlayer.streamId ?? ''}|${activePlayer.url}`}
+                url={activePlayer.url}
+                streamId={activePlayer.streamId}
+                presenceId={activePlayer.streamId}
+                presenceType={activePlayer.presenceType}
+                matchId={activePlayer.matchId}
+                channelId={activePlayer.channelId}
+                title={activePlayer.title}
+                autoPlay
+                compactControls={isMini}
+                onStopReady={handleStopReady}
+              />
+            </Suspense>
           </motion.div>
         </div>
       )}

@@ -3,13 +3,11 @@ import * as service from './channel.service.js'
 import asyncHandler from '../../utils/asyncHandler.js'
 import type { AuthenticatedRequest } from '../../core/middleware/index.js'
 import { NotFoundError, BadRequestError, UnauthorizedError } from '../../core/errors.js'
-import { uploadFile } from '../../services/cloudinary.service.js'
 import { normalizeChannelStatus } from './channel.service.js'
 import { hasPremiumAccess } from '../../core/premiumGuard.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
 import { cleanupReplacedAsset, cleanupAssetIfUnused } from '../../services/asset-cleanup.service.js'
-import { upsertMedia } from '../admin/media.service.js'
 
 // Public Controllers
 import { successResponse } from '../../core/api-response.js'
@@ -123,18 +121,12 @@ export const getAdminCategories = asyncHandler(async (_req: Request, res: Respon
 })
 
 export const createCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { body, file } = req
-  let imageUrl: string | undefined
-
-  if (file) {
-    const result = await uploadFile(file, 'sportzone/channel-categories')
-    imageUrl = result.secure_url
-  }
+  const { body } = req
 
   const categoryData = {
     name: String(body.name ?? '').trim(),
     description: body.description ? String(body.description).trim() : null,
-    image: imageUrl ?? (body.image ? String(body.image) : null),
+    image: body.image ? String(body.image).trim() : null,
   }
 
   const category = await service.createCategory(categoryData)
@@ -143,17 +135,13 @@ export const createCategory = asyncHandler(async (req: AuthenticatedRequest, res
 
 export const updateCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params
-  const { body, file } = req
+  const { body } = req
   const updateData: Record<string, unknown> = { ...body }
-  const existingCategory = file
+  const existingCategory = body.image !== undefined
     ? await service.getAllCategories().then((categories) => categories.find((item) => item.id === id))
     : undefined
 
-  if (file) {
-    const result = await uploadFile(file, 'sportzone/channel-categories')
-    updateData.image = result.secure_url
-    await upsertMedia({ type: 'LOGO', url: result.secure_url, publicId: result.public_id, fileName: file.originalname, mimeType: file.mimetype, size: file.size })
-  }
+  if (body.image !== undefined) updateData.image = body.image ? String(body.image).trim() : null
 
   if (body.description !== undefined) {
     updateData.description = body.description ? String(body.description).trim() : null
@@ -164,7 +152,7 @@ export const updateCategory = asyncHandler(async (req: AuthenticatedRequest, res
   }
 
   const category = await service.updateCategory(id, updateData)
-  if (file && existingCategory?.image) {
+  if (existingCategory?.image) {
     await cleanupReplacedAsset(existingCategory.image, category.image)
   }
   res.json(successResponse(category))
@@ -184,14 +172,7 @@ export const getAdminChannels = asyncHandler(async (_req: Request, res: Response
 })
 
 export const createChannel = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { body, file } = req
-  let logoUrl: string | undefined
-
-  if (file) {
-    const result = await uploadFile(file, 'sportzone/channels')
-    logoUrl = result.secure_url
-    await upsertMedia({ type: 'LOGO', url: result.secure_url, publicId: result.public_id, fileName: file.originalname, mimeType: file.mimetype, size: file.size })
-  }
+  const { body } = req
 
   const isPremium = body.isPremium === 'true'
   const status = normalizeChannelStatus(body.status)
@@ -205,7 +186,7 @@ export const createChannel = asyncHandler(async (req: AuthenticatedRequest, res:
     viewers: Number.isFinite(viewers) ? Math.max(0, viewers) : 1280,
     isPremium,
     status,
-    logo: logoUrl ?? (body.logo ? String(body.logo).trim() : null),
+    logo: body.logo ? String(body.logo).trim() : null,
   }
 
   const channel = await service.createChannel(channelData)
@@ -223,9 +204,9 @@ export const createChannel = asyncHandler(async (req: AuthenticatedRequest, res:
 
 export const updateChannel = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params
-  const { body, file } = req
+  const { body } = req
   const updateData: Record<string, unknown> = {}
-  const existingChannel = file ? await service.getChannelById(id, true) : undefined
+  const existingChannel = body.logo !== undefined ? await service.getChannelById(id, true) : undefined
 
   if (body.name !== undefined) updateData.name = String(body.name).trim()
   if (body.url !== undefined) updateData.url = String(body.url).trim()
@@ -244,16 +225,12 @@ export const updateChannel = asyncHandler(async (req: AuthenticatedRequest, res:
     updateData.viewers = Number.isFinite(viewers) ? Math.max(0, viewers) : 1280
   }
 
-  if (file) {
-    const result = await uploadFile(file, 'sportzone/channels')
-    updateData.logo = result.secure_url
-    await upsertMedia({ type: 'LOGO', url: result.secure_url, publicId: result.public_id, fileName: file.originalname, mimeType: file.mimetype, size: file.size })
-  } else if (body.logo !== undefined) {
+  if (body.logo !== undefined) {
     updateData.logo = body.logo ? String(body.logo).trim() : null
   }
 
   const channel = await service.updateChannel(id, updateData)
-  if (file && existingChannel?.logo) {
+  if (existingChannel?.logo) {
     await cleanupReplacedAsset(existingChannel.logo, channel.logo)
   }
   

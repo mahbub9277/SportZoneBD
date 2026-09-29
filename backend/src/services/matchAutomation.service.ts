@@ -8,7 +8,7 @@ import { notifyMatchStarted, notifyMatchReminder } from './notification.service.
 import { cleanupMatch } from './match-cleanup.service.js'
 import { prewarmUpcomingMatches, cleanupCloudinaryOrphans } from './automation-support.service.js'
 import { isRedisConfigured, redis } from '../core/redis.js'
-import { invalidateTags } from '../core/cache.js'
+import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
 
@@ -22,15 +22,10 @@ const FINISHED_MATCH_RETENTION_MINUTES = Math.max(1, Number(process.env.FINISHED
 const FINISHED_MATCH_CLEANUP_BATCH_SIZE = 25
 const STREAM_HEALTH_FAILURE_THRESHOLD = Number(process.env.STREAM_HEALTH_FAILURE_THRESHOLD ?? 3)
 const AUTOMATION_LOCK_TTL_SECONDS = 55
-const STREAM_HEALTH_MAX_BYTES = 1024 * 1024
+const STREAM_HEALTH_MAX_BYTES = 64 * 1024
 
-async function readHealthResponsePrefix(response: Response, maxBytes: number): Promise<string> {
-  const contentLength = Number(response.headers.get('content-length'))
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error('Stream health response is too large')
-  }
-
-  if (!response.body) return ''
+async function readHealthResponsePrefix(response: Response, maxBytes: number): Promise<{ text: string; bytesRead: number }> {
+  if (!response.body) return { text: '', bytesRead: 0 }
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
@@ -48,7 +43,10 @@ async function readHealthResponsePrefix(response: Response, maxBytes: number): P
     await reader.cancel().catch(() => undefined)
   }
 
-  return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
+  return {
+    text: new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))),
+    bytesRead: total,
+  }
 }
 
 interface ProviderFixture {
@@ -390,22 +388,41 @@ export class MatchAutomationService {
     try {
       const from = new Date()
       const to = new Date(Date.now() + DISCOVERY_DAYS * 24 * 60 * 60 * 1000)
-      const response = await axios.get(`${API_FOOTBALL_BASE_URL}/fixtures`, {
-        params: {
-          from: from.toISOString().slice(0, 10),
-          to: to.toISOString().slice(0, 10),
-          timezone: 'UTC',
-          league: process.env.API_FOOTBALL_DEFAULT_LEAGUE_ID ?? 39,
+      const fromDate = from.toISOString().slice(0, 10)
+      const toDate = to.toISOString().slice(0, 10)
+      const leagueId = String(process.env.API_FOOTBALL_DEFAULT_LEAGUE_ID ?? 39)
+      const fixtures = await cache<ProviderFixture[]>(
+        `api-football:fixtures:${leagueId}:${fromDate}:${toDate}`,
+        async () => {
+          const response = await axios.get(`${API_FOOTBALL_BASE_URL}/fixtures`, {
+            params: { from: fromDate, to: toDate, timezone: 'UTC', league: leagueId },
+            headers: {
+              'x-apisports-key': API_FOOTBALL_KEY,
+              'x-apisports-host': API_FOOTBALL_HOST,
+              Accept: 'application/json',
+            },
+            timeout: 15000,
+          })
+          const providerFixtures = Array.isArray(response.data?.response) ? response.data.response : []
+          return providerFixtures.map((fixture: ProviderFixture) => ({
+            fixture: {
+              id: fixture.fixture?.id,
+              timestamp: fixture.fixture?.timestamp,
+              date: fixture.fixture?.date,
+            },
+            league: {
+              name: fixture.league?.name,
+              country: fixture.league?.country,
+              season: fixture.league?.season,
+            },
+            teams: {
+              home: { name: fixture.teams?.home?.name },
+              away: { name: fixture.teams?.away?.name },
+            },
+          }))
         },
-        headers: {
-          'x-apisports-key': API_FOOTBALL_KEY,
-          'x-apisports-host': API_FOOTBALL_HOST,
-          Accept: 'application/json',
-        },
-        timeout: 15000,
-      })
-
-      const fixtures: ProviderFixture[] = Array.isArray(response.data?.response) ? response.data.response : []
+        120,
+      )
 
       const existingMatches = await prisma.match.findMany({
         where: {
@@ -548,6 +565,7 @@ export class MatchAutomationService {
     let healthyCount = 0
     let offlineCount = 0
     let errorCount = 0
+    let responsePrefixBytes = 0
 
     try {
       const matches = await prisma.match.findMany({
@@ -590,7 +608,7 @@ export class MatchAutomationService {
                 method: 'GET',
                 headers: {
                   Accept: 'application/vnd.apple.mpegurl,text/plain,application/x-mpegURL,*/*',
-                  Range: 'bytes=0-65535',
+                  Range: `bytes=0-${STREAM_HEALTH_MAX_BYTES - 1}`,
                   'User-Agent': 'SportZoneAutomation/1.0',
                 },
                 signal: AbortSignal.timeout(STREAM_HEALTH_TIMEOUT_MS),
@@ -598,7 +616,8 @@ export class MatchAutomationService {
 
               const contentType = response.headers.get('content-type') ?? ''
               const body = await readHealthResponsePrefix(response, STREAM_HEALTH_MAX_BYTES)
-              const looksLikeHls = response.ok && (contentType.includes('mpegurl') || body.includes('#EXTM3U'))
+              responsePrefixBytes += body.bytesRead
+              const looksLikeHls = response.ok && (contentType.includes('mpegurl') || body.text.includes('#EXTM3U'))
 
               if (looksLikeHls) {
                 isHealthy = true
@@ -645,8 +664,8 @@ export class MatchAutomationService {
           jobId: this.jobId,
           action: 'VALIDATE_STREAMS',
           status: 'SUCCESS',
-          summary: `Checked streams: ${healthyCount} healthy, ${offlineCount} offline, ${errorCount} errors`,
-          details: { healthyCount, offlineCount, errorCount },
+          summary: `Checked streams: ${healthyCount} healthy, ${offlineCount} offline, ${errorCount} errors; read ${responsePrefixBytes} upstream response bytes`,
+          details: { healthyCount, offlineCount, errorCount, responsePrefixBytes },
         },
       })
 

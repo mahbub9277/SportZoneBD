@@ -3,7 +3,15 @@ import asyncHandler from '../../utils/asyncHandler.js';
 import { prisma } from '../../core/prisma.js';
 import { errorResponse, successResponse } from '../../core/api-response.js';
 import { z } from 'zod';
-import { TELEMETRY_EVENT_TYPES, getTelemetryHistory, getTelemetrySummary, ingestTelemetry } from './telemetry.service.js'
+import { TELEMETRY_EVENT_TYPES, getTelemetryEnabled, getTelemetryHistory, getTelemetrySummary, ingestTelemetry, setTelemetryEnabled } from './telemetry.service.js'
+
+const telemetryStatusSchema = z.object({ enabled: z.boolean() }).strict()
+
+export const updateTelemetryStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { enabled } = telemetryStatusSchema.parse(req.body)
+  await setTelemetryEnabled(enabled)
+  res.json(successResponse({ enabled }))
+})
 
 const eventSchema = z.object({
   type: z.string(),
@@ -39,10 +47,12 @@ const createTelemetrySchema = () => z.object({
 }).refine((value) => Boolean(value.streamId || value.channelId || value.matchId), 'A stream, channel, or match identity is required')
 
 export const ingestPlayerTelemetry = asyncHandler(async (req: Request, res: Response) => {
+  const telemetryEnabled = await getTelemetryEnabled()
+  if (!telemetryEnabled) return res.status(204).end()
   const telemetrySchema = createTelemetrySchema()
   const events = z.array(telemetrySchema).min(1).max(8).parse(req.body)
   for (const event of events) {
-    await ingestTelemetry(event)
+    await ingestTelemetry(event, telemetryEnabled)
   }
   res.status(202).json(successResponse(null, 'Telemetry accepted.'))
 })

@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client'
 import { successResponse, errorResponse } from '../../core/api-response.js'
 import { getPaginatedData } from '../../services/pagination.service.js'
 import asyncHandler from '../../utils/asyncHandler.js'
-import { handleMatchFileUploads } from './match-file.service.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitMatchStatusUpdated } from '../../core/socketManager.js'
 import { notifyMatchStarted } from '../../services/notification.service.js'
@@ -75,10 +74,8 @@ export const createMatch = asyncHandler(async (req: Request, res: Response) => {
     if (matchData.expectedEndTime && new Date(matchData.expectedEndTime) < new Date(matchData.kickoffAt)) {
       return res.status(400).json(errorResponse('Expected end time must be after the kickoff time.'))
     }
-    const files = (req as any).files
-    const uploadedTeamLogoUrls = await handleMatchFileUploads(files)
-    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: uploadedTeamLogoUrls.homeTeamLogo ?? matchData.homeTeamLogo ?? null })
-    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: uploadedTeamLogoUrls.awayTeamLogo ?? matchData.awayTeamLogo ?? null })
+    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: matchData.homeTeamLogo ?? null })
+    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: matchData.awayTeamLogo ?? null })
     
     let streamsToCreate: any[] = []
     let channelsMap = new Map<string, { url: string }>()
@@ -119,7 +116,6 @@ export const createMatch = asyncHandler(async (req: Request, res: Response) => {
     const newMatch = await prisma.match.create({
       data: {
         ...matchData,
-        ...uploadedTeamLogoUrls,
         homeTeamId: homeTeam?.id ?? null,
         awayTeamId: awayTeam?.id ?? null,
         ...(homeTeam?.logoUrl ? { homeTeamLogo: homeTeam.logoUrl } : {}),
@@ -174,9 +170,8 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
       return res.status(404).json(errorResponse('Match not found.'))
     }
 
-    const uploadedTeamLogoUrls = await handleMatchFileUploads((req as any).files)
-    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: uploadedTeamLogoUrls.homeTeamLogo ?? matchData.homeTeamLogo ?? null })
-    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: uploadedTeamLogoUrls.awayTeamLogo ?? matchData.awayTeamLogo ?? null })
+    const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: matchData.homeTeamLogo ?? null })
+    const awayTeam = await resolveTeam({ id: awayTeamId || null, name: matchData.awayTeamName, logoUrl: matchData.awayTeamLogo ?? null })
     if (matchData.expectedEndTime === '') {
       matchData.expectedEndTime = null
     } else if (matchData.expectedEndTime !== undefined && matchData.expectedEndTime !== null) {
@@ -229,7 +224,6 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
         where: { id },
         data: {
           ...matchData,
-          ...uploadedTeamLogoUrls,
           homeTeamId: homeTeam?.id ?? null,
           awayTeamId: awayTeam?.id ?? null,
           ...(homeTeam?.logoUrl ? { homeTeamLogo: homeTeam.logoUrl } : {}),

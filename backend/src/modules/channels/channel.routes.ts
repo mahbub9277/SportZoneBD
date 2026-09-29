@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import { authenticate, optionalProtect, requireRole } from '../../core/middleware/index.js'
 import * as controller from './channel.controller.js'
-import { upload } from '../../middleware/upload.js'
 import { cacheMiddleware } from '../../core/middleware/cache.middleware.js'
 
 const router = Router()
@@ -17,14 +16,14 @@ router.get('/by-ids', publicCacheMiddleware, controller.getChannelsByIds) // New
 const adminOnly = requireRole(['admin', 'super_admin'])
 
 // Category Management
-router.post('/categories', authenticate, adminOnly, upload.single('image'), controller.createCategory)
+router.post('/categories', authenticate, adminOnly, controller.createCategory)
 router.get('/categories/all', authenticate, adminOnly, cacheMiddleware(600, ['channel-categories']), controller.getAdminCategories) // Moved up
-router.put('/categories/:id', authenticate, adminOnly, upload.single('image'), controller.updateCategory)
+router.put('/categories/:id', authenticate, adminOnly, controller.updateCategory)
 router.delete('/categories/:id', authenticate, adminOnly, controller.deleteCategory)
 
 // Channel Management
 router.get('/all', authenticate, adminOnly, cacheMiddleware(300, ['channels']), controller.getAdminChannels) // Moved up
-router.post('/', authenticate, adminOnly, upload.single('logo'), controller.createChannel)
+router.post('/', authenticate, adminOnly, controller.createChannel)
 
 // --- Dynamic/Parameterized Routes (Public and Admin) ---
 // Viewer counts come from live Redis presence and must never be cached.
@@ -36,7 +35,7 @@ router.post('/:id/viewers/leave', controller.leaveChannelViewer)
 router.get('/:id/related', publicCacheMiddleware, controller.getRelatedChannels)
 router.get('/admin/:id', authenticate, adminOnly, cacheMiddleware(300, ['channels']), controller.getChannelById)
 router.get('/:id', publicCacheMiddleware, controller.getChannelById) // Public get by ID should be after more specific routes
-router.put('/:id', authenticate, adminOnly, upload.single('logo'), controller.updateChannel)
+router.put('/:id', authenticate, adminOnly, controller.updateChannel)
 router.delete('/:id', authenticate, adminOnly, controller.deleteChannel)
 
 export { router as channelsRouter }

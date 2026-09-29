@@ -1,5 +1,5 @@
 import type { ElementType } from 'react'
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
 import { motion } from 'framer-motion'
 import {
@@ -23,7 +23,8 @@ import { Badge } from '../../shared/ui/Badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/Tabs'
 import { formatCurrency } from '../../lib/utils'
 import { useSocket, type StreamHealthSummary as SocketStreamHealthSummary } from '../../hooks/useSocket'
-import { useGetStreamHealthHistoryQuery, useGetStreamHealthSummaryQuery, type StreamHealthSummary } from '../../features/analytics/analytics.api'
+import { useGetStreamHealthHistoryQuery, useGetStreamHealthSummaryQuery, useSetTelemetryEnabledMutation, type StreamHealthSummary } from '../../features/analytics/analytics.api'
+import { toast } from 'sonner'
 
 const DASHBOARD_QUERY_OPTIONS = {
   refetchOnFocus: false,
@@ -74,18 +75,21 @@ export default function AnalyticsPage() {
   const { data: chartData, isLoading: isChartLoading } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: adAnalytics, isLoading: isAdAnalyticsLoading } = useGetAdvertisementAnalyticsQuery(adPeriod, DASHBOARD_QUERY_OPTIONS)
-  const { adminSocket } = useSocket()
-  const { data: streamHealth, isLoading: isStreamHealthLoading, isError: isStreamHealthError } = useGetStreamHealthSummaryQuery()
-  const { data: streamHistory = [], isLoading: isStreamHistoryLoading, isError: isStreamHistoryError } = useGetStreamHealthHistoryQuery(60)
+  const [updateTelemetryStatus, { isLoading: isUpdatingTelemetryStatus }] = useSetTelemetryEnabledMutation()
+  const { adminSocket, telemetryEnabled: configuredTelemetryEnabled, applyTelemetryEnabled } = useSocket()
+  const telemetryEnabled = configuredTelemetryEnabled === true
+  const isTelemetryStatusLoading = configuredTelemetryEnabled === null
+  const { data: streamHealth, isLoading: isStreamHealthLoading, isError: isStreamHealthError } = useGetStreamHealthSummaryQuery(undefined, { skip: !telemetryEnabled, refetchOnMountOrArgChange: true })
+  const { data: streamHistory = [], isLoading: isStreamHistoryLoading, isError: isStreamHistoryError } = useGetStreamHealthHistoryQuery(60, { skip: !telemetryEnabled, refetchOnMountOrArgChange: true })
   const [socketStreamHealth, setSocketStreamHealth] = useState<StreamHealthSummary | undefined>(undefined)
   const liveStreamHealth = isStreamHealthError ? undefined : streamHealth ?? socketStreamHealth
 
-  useEffect(() => {
-    if (!adminSocket) return
+  useLayoutEffect(() => {
+    if (!telemetryEnabled || !adminSocket) return
     const handleHealth = (payload: SocketStreamHealthSummary) => setSocketStreamHealth(payload)
     adminSocket.on('analytics:stream-health', handleHealth)
     return () => { adminSocket.off('analytics:stream-health', handleHealth) }
-  }, [adminSocket])
+  }, [adminSocket, telemetryEnabled])
 
   const revenueValue = typeof data?.totalRevenue === 'number' ? formatCurrency(data.totalRevenue) : formatCurrency(0)
   const chartSeries = chartData?.revenue ?? []
@@ -152,15 +156,32 @@ export default function AnalyticsPage() {
       <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }}>
         <Card className="overflow-hidden border border-(--border) bg-linear-to-br from-(--surface-soft) via-(--surface-soft)/85 to-(--surface) shadow-[0_20px_60px_var(--shadow)]">
           <CardHeader className="border-b border-(--border)/70 bg-linear-to-r from-(--surface-soft)/70 via-(--surface-soft)/40 to-transparent pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-(--accent) to-(--accent)/70 text-white shadow-[0_8px_24px_rgba(124,92,255,0.35)]">
-                <Activity className="h-4 w-4" />
-              </span>
-              Stream Quality &amp; Player Telemetry
-            </CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-(--accent) to-(--accent)/70 text-white shadow-[0_8px_24px_rgba(124,92,255,0.35)]">
+                  <Activity className="h-4 w-4" />
+                </span>
+                Stream Quality &amp; Player Telemetry
+              </CardTitle>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={telemetryEnabled}
+                aria-label="Enable player telemetry"
+                disabled={isTelemetryStatusLoading || isUpdatingTelemetryStatus}
+                onClick={() => { void updateTelemetryStatus({ enabled: !telemetryEnabled }).unwrap().then(({ enabled }) => applyTelemetryEnabled(enabled)).catch(() => toast.error('Could not update telemetry status.')) }}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 text-xs font-semibold text-(--text-primary) transition-colors hover:border-(--accent)/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${telemetryEnabled ? 'bg-(--accent)' : 'bg-(--border)'}`}>
+                  <span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${telemetryEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </span>
+                {isTelemetryStatusLoading ? 'Loading' : telemetryEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
             <p className="text-sm text-(--text-muted)">Live playback health from active player sessions.</p>
           </CardHeader>
           <CardContent className="space-y-6 px-4 pb-5 pt-5 sm:px-5">
+            {isTelemetryStatusLoading ? <Skeleton className="h-20 w-full" /> : !telemetryEnabled ? <p className="text-center text-sm text-(--text-muted)">Telemetry is currently disabled.</p> : <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <MetricPill tone="accent" label="Health" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} />
               <MetricPill tone="blue" label="Live viewers" value={data?.totalLiveViewers ?? 'Unavailable'} />
@@ -181,6 +202,7 @@ export default function AnalyticsPage() {
                 <tbody>{(liveStreamHealth?.topErroredStreams ?? []).map((stream) => <tr key={stream.resource} className="border-b border-(--border)/60 transition-colors hover:bg-(--surface-soft)/80"><td className="max-w-140 truncate px-3 py-2.5 text-(--text-primary)">{stream.resource}</td><td className="px-3 py-2.5 text-red-300">{stream.errorCount}</td><td className="px-3 py-2.5 text-(--text-muted)">{stream.activeViewers}</td></tr>)}{isStreamHealthError ? <tr><td colSpan={3} className="px-3 py-4 text-center text-(--text-muted)">Stream telemetry is temporarily unavailable.</td></tr> : !isStreamHealthLoading && (liveStreamHealth?.topErroredStreams ?? []).length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-(--text-muted)">No errored streams in the active window.</td></tr>}</tbody>
               </table>
             </div>
+            </>}
           </CardContent>
         </Card>
       </motion.section>

@@ -9,13 +9,12 @@ import { streamsRouter } from '../modules/streams/streams.routes.js'
 import { channelsRouter } from '../modules/channels/channel.routes.js'
 import { authRouter } from '../modules/auth/auth.routes.js'
 import { highlightsRouter } from '../modules/highlights/highlight.routes.js'
-import { authenticate } from '../core/middleware/index.js'
+import { authenticate, requireRole } from '../core/middleware/index.js'
 import { analyticsRouter } from '../modules/analytics/analytics.routes.js'
 import { notificationsRouter } from '../modules/notifications/notification.routes.js'
 import { publicAdvertisementsRouter } from '../modules/advertisements/advertisements.routes.js'
 import { systemRouter } from '../modules/system/system.routes.js'
 import { publicPopupsRouter } from '../modules/popups/popups.routes.js'
-import { proxyRouter } from '../modules/proxy/proxy.routes.js'
 import { streamProxyRouter } from './streamProxy.routes.js'
 import { standingsRouter } from '../modules/standings/standings.routes.js'
 import { reportsRouter } from '../modules/reports/report.routes.js'
@@ -44,7 +43,13 @@ apiRouter.use('/payments', paymentLimiter, (req, res, next) => {
   }
   return authenticate(req, res, next)
 }, paymentRouter)
-apiRouter.use('/system', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), systemRouter)
+apiRouter.use('/system', (req, res, next) => {
+  if (req.method === 'OPTIONS') return next()
+  return authenticate(req, res, (authError?: unknown) => {
+    if (authError) return next(authError)
+    return requireRole(['admin', 'super_admin'])(req, res, next)
+  })
+}, systemRouter)
 apiRouter.use('/admin', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), adminRouter)
 apiRouter.use('/admin/automation', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), automationRouter)
 apiRouter.use('/settings', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), settingsRouter)
@@ -61,7 +66,6 @@ apiRouter.use('/reports', reportsRouter)
 apiRouter.use('/ai', aiRouter)
 apiRouter.use('/teams', (req, res, next) => authenticate(req, res, next), teamsRouter)
 // Proxy endpoint for fetching external manifests/segments (used by player when necessary)
-apiRouter.use('/proxy', proxyRouter)
 apiRouter.use('/stream', streamProxyRouter)
 
 export { apiRouter }

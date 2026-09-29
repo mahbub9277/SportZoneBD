@@ -116,10 +116,8 @@ export default defineConfig(({ mode }) => {
           // Media players
           if (id.includes('dashjs')) return 'vendor-dash'
           if (id.includes('hls.js') || id.includes('hls')) return 'vendor-hls'
-          if (id.includes('react-player')) return 'vendor-player'
 
           // Heavy UI libraries
-          if (id.includes('recharts')) return 'vendor-charts'
           if (id.includes('lucide-react') || id.includes('lucide')) return 'vendor-icons'
           if (id.includes('framer-motion') || id.includes('framer')) return 'vendor-animation'
           if (id.includes('@radix-ui') || id.includes('radix-ui')) return 'vendor-radix'

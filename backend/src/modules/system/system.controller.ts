@@ -1,18 +1,9 @@
 import type { Request, Response, NextFunction } from 'express'
-import {
-  getLogs,
-  createBackupJob,
-  getBackups,
-  getBackupDownloadUrl,
-} from './system.service.js';
+import { getLogs } from './system.service.js'
 import { getErrorMessage } from '../../core/utils/get-error-message.js'
 import cloudinary from '../../lib/cloudinary.js'
 
 const toNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0
-const serializeBackup = <T extends { size: bigint }>(backup: T) => ({
-  ...backup,
-  size: backup.size.toString(),
-})
 
 export async function getCloudinaryStorageUsage(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -95,32 +86,3 @@ export async function getActivityLogs(req: Request, res: Response, next: NextFun
   }
 }
 
-export async function getSystemBackups(req: Request, res: Response, next: NextFunction) {
-  try {
-    const backups = await getBackups()
-    res.json({ success: true, data: backups.map(serializeBackup) })
-  } catch (error) {
-    next(error)
-  }
-}
-
-export async function createBackup(req: Request, res: Response, next: NextFunction) {
-  try {
-    const backup = await createBackupJob()
-    res.status(201).json({ success: true, data: serializeBackup(backup) })
-  } catch (error) {
-    next(error)
-  }
-}
-
-export async function downloadBackup(req: Request, res: Response, next: NextFunction) {
-  try {
-    const result = await getBackupDownloadUrl(req.params.id)
-    if (!result?.downloadUrl) {
-      return res.status(404).json({ success: false, message: 'Completed backup not found.' })
-    }
-    res.json({ success: true, data: result })
-  } catch (error) {
-    next(error)
-  }
-}

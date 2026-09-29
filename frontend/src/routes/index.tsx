@@ -65,7 +65,6 @@ const AdvertisementsPage = lazyRoute(() => import('@/pages/AdvertisementsPage'),
 const AdvertisementInterstitialPage = lazyRoute(() => import('@/pages/AdvertisementInterstitialPage'), 'AdvertisementInterstitialPage')
 const ApiSettingsPage = lazyRoute(() => import('@/pages/admin/ApiSettingsPage'), 'ApiSettingsPage')
 const WebsiteSettingsPage = lazyRoute(() => import('@/pages/admin/WebsiteSettingsPage'), 'WebsiteSettingsPage')
-const BackupPage = lazyRoute(() => import('@/pages/admin/BackupPage'), 'BackupPage')
 const SystemLogsPage = lazyRoute(() => import('@/pages/admin/SystemLogsPage'), 'SystemLogsManagementPage')
 const PaymentHistoryPage = lazyRoute(() => import('@/pages/PaymentHistoryPage'), 'PaymentHistoryPage')
 const ProfilePage = lazyRoute(() => import('@/pages/user/ProfilePage'), 'ProfilePage')
@@ -263,7 +262,6 @@ export const router = createBrowserRouter([
               { path: 'api-settings', element: <ApiSettingsPage /> },
               { path: 'website-settings', element: <WebsiteSettingsPage /> },
               { path: 'general-settings', element: <AdminSettingsPage /> },
-              { path: 'backup', element: <BackupPage /> },
               { path: 'system-logs', element: <SystemLogsPage /> },
             ],
           },

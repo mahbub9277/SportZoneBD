@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useEntityManagement } from '../../hooks/useEntityManagement'
@@ -20,7 +20,7 @@ import { CreateMatchForm, type CreateMatchFormValues } from './components/Create
 import { MatchFilters } from './components/MatchFilters'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../../components/ui/Table'
 import { PaginationControls } from '../../components/ui/PaginationControls'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../features/admin/uploads.api'
 
 import { useNavigate } from 'react-router-dom' // Import useNavigate
 import { motion } from 'framer-motion'
@@ -148,7 +148,10 @@ export function MatchManagementPage() {
     },
   })
   const [uploadFiles, { isLoading: isUploadingStreamLogo }] = useUploadFilesMutation()
+  const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [uploadingStreamLogoIndex, setUploadingStreamLogoIndex] = useState<number | null>(null)
+  const [isUploadingTeamLogos, setIsUploadingTeamLogos] = useState(false)
+  const uploadedTeamLogoIdsRef = useRef<string[]>([])
 
   const handleStreamLogoUpload = useCallback(async (streamIndex: number, file: File) => {
     setUploadingStreamLogoIndex(streamIndex)
@@ -201,40 +204,64 @@ export function MatchManagementPage() {
     }
   }, [])
 
-  const formDataToPayload = (values: CreateMatchFormValues) => {
-    const formData = new FormData()
+  const formDataToPayload = useCallback(async (values: CreateMatchFormValues): Promise<Record<string, unknown>> => {
     const kickoffAt = parseMatchDateTime(values.kickoffDate, values.kickoffTime)
     const expectedEndTime = values.autoFinish && values.expectedEndTime?.trim()
       ? parseMatchDateTime(values.expectedEndTime.slice(0, 10), values.expectedEndTime.slice(11, 16)) ?? ''
       : ''
     if (!kickoffAt) throw new Error('Kickoff date and time must be valid Bangladesh local time.')
 
-    const normalizedStreams = (values.streams ?? []).map((stream) => ({
-      ...stream,
-      sourceType: stream.sourceType ?? 'DIRECT_URL',
-      channelId: stream.sourceType === 'CHANNEL' ? (stream.channelId ?? null) : null,
-      activationMode: stream.activationMode ?? 'AUTOMATIC',
-      activationOffsetMinutes: Number(stream.activationOffsetMinutes ?? 0),
-      primaryUrl: stream.sourceType === 'CHANNEL' ? (stream.primaryUrl ?? '').trim() : (stream.primaryUrl ?? '').trim(),
-      backupUrl: Array.isArray(stream.backupUrls) ? stream.backupUrls.find((url) => url?.trim()) ?? null : stream.backupUrls ?? null,
-      backupUrls: undefined,
-    }))
+    const uploadTeamLogo = async (value: File | string | null | undefined) => {
+      if (!(value instanceof File)) return value ?? null
+      const result = await uploadFiles({ files: [value], folder: 'sportzone/team-logos', mediaType: 'LOGO' }).unwrap()
+      const uploaded = result.uploads[0]
+      if (!uploaded?.url || !uploaded.publicId) throw new Error('Cloudinary did not return verified team logo metadata.')
+      uploadedTeamLogoIdsRef.current.push(uploaded.publicId)
+      return uploaded.url
+    }
 
-    Object.entries(values).forEach(([key, value]) => {
-      if ((key === 'homeTeamLogo' || key === 'awayTeamLogo') && value instanceof File) {
-        formData.append(key, value, value.name)
-      } else if (key === 'streams' && Array.isArray(value)) {
-        formData.append(key, JSON.stringify(normalizedStreams))
-      } else if (key !== 'kickoffDate' && key !== 'kickoffTime' && key !== 'expectedEndTime' && key !== 'expectedDurationMinutes' && value !== null && value !== undefined) {
-        formData.append(key, String(value))
+    setIsUploadingTeamLogos(true)
+    try {
+      const [homeTeamLogo, awayTeamLogo] = await Promise.all([
+        uploadTeamLogo(values.homeTeamLogo),
+        uploadTeamLogo(values.awayTeamLogo),
+      ])
+
+      const normalizedStreams = (values.streams ?? []).map((stream) => ({
+        ...stream,
+        sourceType: stream.sourceType ?? 'DIRECT_URL',
+        channelId: stream.sourceType === 'CHANNEL' ? (stream.channelId ?? null) : null,
+        activationMode: stream.activationMode ?? 'AUTOMATIC',
+        activationOffsetMinutes: Number(stream.activationOffsetMinutes ?? 0),
+        primaryUrl: (stream.primaryUrl ?? '').trim(),
+        backupUrl: Array.isArray(stream.backupUrls) ? stream.backupUrls.find((url) => url?.trim()) ?? null : stream.backupUrls ?? null,
+        backupUrls: undefined,
+      }))
+
+      return {
+        title: values.title.trim(),
+        tournamentName: values.title.trim(),
+        homeTeamName: values.homeTeamName ?? null,
+        awayTeamName: values.awayTeamName ?? null,
+        homeTeamId: values.homeTeamId || null,
+        awayTeamId: values.awayTeamId || null,
+        homeTeamLogo,
+        awayTeamLogo,
+        kickoffAt,
+        expectedEndTime: expectedEndTime || undefined,
+        autoFinish: values.autoFinish,
+        preStartEnabled: values.preStartEnabled,
+        preStartWindowMinutes: values.preStartWindowMinutes,
+        preStartVideoUrl: values.preStartVideoUrl || null,
+        sport: values.sport,
+        status: values.status,
+        premium: values.premium,
+        streams: JSON.stringify(normalizedStreams),
       }
-    })
-
-    formData.append('kickoffAt', kickoffAt)
-    formData.set('tournamentName', values.title.trim())
-    formData.append('expectedEndTime', expectedEndTime)
-    return formData
-  }
+    } finally {
+      setIsUploadingTeamLogos(false)
+    }
+  }, [uploadFiles])
 
   const {
     editingEntity: editingMatch,
@@ -247,7 +274,7 @@ export function MatchManagementPage() {
     handleCloseForm,
     handleSubmit,
     handleDeleteConfirm,
-  } = useEntityManagement<Match, MatchFormData, FormData, { id: string; formData: FormData }>({
+  } = useEntityManagement<Match, MatchFormData, Record<string, unknown>, { id: string; data: Record<string, unknown> }>({
     entityName: 'Match',
     useCreateMutation: useCreateMatchMutation,
     useUpdateMutation: useUpdateMatchMutation,
@@ -255,10 +282,15 @@ export function MatchManagementPage() {
     form,
     entityToFormData,
     formDataToCreatePayload: formDataToPayload,
-    formDataToUpdatePayload: (values, id) => ({
+    formDataToUpdatePayload: async (values, id) => ({
       id,
-      formData: formDataToPayload(values),
+      data: await formDataToPayload(values),
     }),
+    onSubmitSucceeded: () => { uploadedTeamLogoIdsRef.current = [] },
+    onSubmitFailed: async () => {
+      const uploadedIds = uploadedTeamLogoIdsRef.current.splice(0)
+      await Promise.all(uploadedIds.map((publicId) => deleteUploadedFile(publicId).unwrap().catch(() => undefined)))
+    },
   })
 
   const paginatedMatches = data?.items ?? [];
@@ -347,7 +379,7 @@ export function MatchManagementPage() {
                 : 'Fill in the details to add a new match.'}
             </DialogDescription>
           </DialogHeader> 
-          <CreateMatchForm form={form} onSubmit={handleSubmit} isLoading={isMutating || isUploadingStreamLogo} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill={!editingMatch} />
+          <CreateMatchForm form={form} onSubmit={handleSubmit} isLoading={isMutating || isUploadingStreamLogo || isUploadingTeamLogos} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill={!editingMatch} />
         </DialogContent>
       </Dialog>
 

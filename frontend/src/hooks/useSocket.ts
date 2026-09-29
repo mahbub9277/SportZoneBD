@@ -25,6 +25,8 @@ export interface SocketContextType {
   adminSocket: AppSocket | null
   isConnected: boolean
   isAdminConnected: boolean
+  telemetryEnabled: boolean | null
+  applyTelemetryEnabled: (enabled: boolean) => void
 }
 
 export const SocketContext = createContext<SocketContextType | null>(null)
@@ -72,6 +74,7 @@ export interface ServerToClientEvents {
   viewerCountUpdate: (payload: { channelId: string; count: number | null }) => void
   resourceViewerCountUpdate: (payload: { kind: 'channel' | 'match' | 'stream'; resourceId: string; count: number | null }) => void
   liveViewersUpdate: (payload: { totalLiveViewers: number | null }) => void
+  applicationSettingChanged: (payload: { key: string; value: string }) => void
   'analytics:stream-health': (payload: StreamHealthSummary) => void
   automationStatusUpdate: (payload: SocketAutomationStatus) => void
   automationMetricsUpdate: (payload: SocketAutomationMetrics) => void
@@ -139,9 +142,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [adminSocket, setAdminSocket] = useState<AppSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isAdminConnected, setIsAdminConnected] = useState(false)
+  const [telemetryEnabled, setTelemetryEnabled] = useState<boolean | null>(null)
   const publicSocketRef = useRef<AppSocket | null>(null)
   const adminSocketRef = useRef<AppSocket | null>(null)
   const socketBackendUrl = useMemo(() => getSocketBackendUrl(), [])
+  const applyTelemetryEnabled = useCallback((enabled: boolean) => {
+    startTransition(() => setTelemetryEnabled(enabled))
+  }, [])
 
   useEffect(() => {
     const publicSocketInstance = io(socketBackendUrl, {
@@ -164,16 +171,29 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let hasConnectedOnce = false
     const seenNotificationIds = new Set<string>()
     const handleConnect = () => {
-      startTransition(() => setIsConnected(true))
+      startTransition(() => {
+        setIsConnected(true)
+        setTelemetryEnabled(null)
+      })
       if (hasConnectedOnce) {
         dispatch(notificationsApi.util.invalidateTags(['Notifications']))
       }
       hasConnectedOnce = true
     }
-    const handleDisconnect = () => startTransition(() => setIsConnected(false))
-    const handleConnectError = () => startTransition(() => setIsConnected(false))
+    const handleDisconnect = () => startTransition(() => {
+      setIsConnected(false)
+      setTelemetryEnabled(null)
+    })
+    const handleConnectError = () => startTransition(() => {
+      setIsConnected(false)
+      setTelemetryEnabled(null)
+    })
     const handleMatchStatusUpdated = () => {
       dispatch(matchesApi.util.invalidateTags([{ type: 'Matches', id: 'LIST' }]))
+    }
+    const handleApplicationSettingChanged = (payload: Parameters<ServerToClientEvents['applicationSettingChanged']>[0]) => {
+      if (payload.key !== 'telemetry.enabled' || (payload.value !== 'true' && payload.value !== 'false')) return
+      startTransition(() => setTelemetryEnabled(payload.value === 'true'))
     }
     const handleNotificationCreated = (payload: Parameters<ServerToClientEvents['notificationCreated']>[0]) => {
       if (!payload.id || seenNotificationIds.has(payload.id)) return
@@ -211,6 +231,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     publicSocketInstance.on('disconnect', handleDisconnect)
     publicSocketInstance.on('connect_error', handleConnectError)
     publicSocketInstance.on('matchStatusUpdated', handleMatchStatusUpdated)
+    publicSocketInstance.on('applicationSettingChanged', handleApplicationSettingChanged)
     publicSocketInstance.on('notificationCreated', handleNotificationCreated)
 
     return () => {
@@ -218,6 +239,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       publicSocketInstance.off('disconnect', handleDisconnect)
       publicSocketInstance.off('connect_error', handleConnectError)
       publicSocketInstance.off('matchStatusUpdated', handleMatchStatusUpdated)
+      publicSocketInstance.off('applicationSettingChanged', handleApplicationSettingChanged)
       publicSocketInstance.off('notificationCreated', handleNotificationCreated)
       publicSocketInstance.removeAllListeners()
       publicSocketInstance.disconnect()
@@ -225,6 +247,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       startTransition(() => {
         setSocket(null)
         setIsConnected(false)
+        setTelemetryEnabled(null)
       })
     }
   }, [dispatch, socketBackendUrl])
@@ -283,8 +306,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [isAuthenticated, socketBackendUrl])
 
   const value = useMemo(
-    () => ({ socket, adminSocket, isConnected, isAdminConnected }),
-    [socket, adminSocket, isConnected, isAdminConnected],
+    () => ({ socket, adminSocket, isConnected, isAdminConnected, telemetryEnabled, applyTelemetryEnabled }),
+    [socket, adminSocket, isConnected, isAdminConnected, telemetryEnabled, applyTelemetryEnabled],
   )
 
   return React.createElement(SocketContext.Provider, { value }, children)

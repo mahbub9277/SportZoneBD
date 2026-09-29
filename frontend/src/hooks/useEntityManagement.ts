@@ -58,8 +58,10 @@ interface UseEntityManagementOptions<TEntity extends Entity, TFormData extends o
   useDeleteMutation: RTKMutationHook<string, unknown>
   form: UseFormReturn<TFormData>
   entityToFormData: (entity: TEntity) => TFormData
-  formDataToCreatePayload?: (formData: TFormData) => TCreateData
-  formDataToUpdatePayload?: (formData: TFormData, id: string) => TUpdateData
+  formDataToCreatePayload?: (formData: TFormData) => TCreateData | Promise<TCreateData>
+  formDataToUpdatePayload?: (formData: TFormData, id: string) => TUpdateData | Promise<TUpdateData>
+  onSubmitSucceeded?: () => void | Promise<void>
+  onSubmitFailed?: () => void | Promise<void>
 }
 
 /**
@@ -82,6 +84,8 @@ export function useEntityManagement<TEntity extends Entity, TFormData extends ob
   entityToFormData,
   formDataToCreatePayload = (data) => data as unknown as TCreateData,
   formDataToUpdatePayload = (data, id) => ({ ...data, id }) as unknown as TUpdateData,
+  onSubmitSucceeded,
+  onSubmitFailed,
 }: UseEntityManagementOptions<TEntity, TFormData, TCreateData, TUpdateData>) {
   const [formState, setFormState] = useState<FormState<TEntity>>({ mode: 'idle' });
   const [deletingEntity, setDeletingEntity] = useState<TEntity | null>(null)
@@ -118,16 +122,23 @@ export function useEntityManagement<TEntity extends Entity, TFormData extends ob
 
       try {
         if (formState.mode === 'edit') {
-          const payload = formDataToUpdatePayload(formData, formState.entity.id);
+          const payload = await formDataToUpdatePayload(formData, formState.entity.id);
           await updateEntityTrigger(payload).unwrap();
+          await onSubmitSucceeded?.()
           toast.success(`${entityName} updated successfully.`);
         } else if (formState.mode === 'create') {
-          const payload = formDataToCreatePayload(formData);
+          const payload = await formDataToCreatePayload(formData);
           await createEntityTrigger(payload).unwrap();
+          await onSubmitSucceeded?.()
           toast.success(`${entityName} created successfully.`);
         }
         handleCloseForm();
       } catch (error) {
+        try {
+          await onSubmitFailed?.()
+        } catch {
+          // Preserve the original save error when cleanup also fails.
+        }
         const action = formState.mode === 'edit' ? 'update' : 'create';
         const fallbackMessage = `Failed to ${action} ${entityName.toLowerCase()}.`;
         toast.error(getApiErrorMessage(error, fallbackMessage));
@@ -135,7 +146,7 @@ export function useEntityManagement<TEntity extends Entity, TFormData extends ob
         submitInFlightRef.current = false
       }
     },
-    [formState, entityName, handleCloseForm, createEntityTrigger, updateEntityTrigger, formDataToCreatePayload, formDataToUpdatePayload]
+    [formState, entityName, handleCloseForm, createEntityTrigger, updateEntityTrigger, formDataToCreatePayload, formDataToUpdatePayload, onSubmitFailed, onSubmitSucceeded]
   )
 
   const handleDeleteConfirm = useCallback(async () => {

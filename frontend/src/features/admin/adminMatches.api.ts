@@ -18,7 +18,7 @@ type UpdateMatchStatusPayload = {
 
 type UpdateMatchPayload = {
   id: string
-  formData: FormData
+  data: Record<string, unknown>
 }
 
 /**
@@ -40,20 +40,20 @@ export const adminMatchesApi = emptyApi.injectEndpoints({
     }),
 
     // MUTATIONS
-    createMatch: builder.mutation<Match, FormData>({
-      query: (formData) => ({
+    createMatch: builder.mutation<Match, Record<string, unknown>>({
+      query: (body) => ({
         url: 'admin/matches',
         method: 'POST',
-        body: formData,
+        body,
       }),
       transformResponse: (response: ApiResponse<Match>) => unwrapApiResponse(response),
       invalidatesTags: [{ type: 'Matches', id: 'LIST_UPCOMING' }, { type: 'Matches', id: 'LIST_LIVE' }, { type: 'Matches', id: 'LIST_FINISHED' }, { type: 'Matches', id: 'LIST_ALL' }],
     }),
     updateMatch: builder.mutation<Match, UpdateMatchPayload>({
-      query: ({ id, formData }) => ({
+      query: ({ id, data }) => ({
         url: `admin/matches/${id}`,
         method: 'PATCH',
-        body: formData,
+        body: data,
       }),
       transformResponse: (response: ApiResponse<Match>) => unwrapApiResponse(response),
       invalidatesTags: (_result, _error, { id }) => [

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useSocket } from './useSocket'
 
 type TelemetryEventType = 'load_start' | 'playing' | 'buffering_start' | 'buffering_end' | 'stalled' | 'fatal_error' | 'network_error' | 'media_error' | 'bitrate_switch' | 'heartbeat' | 'ended' | 'player_destroyed'
 
@@ -19,6 +20,9 @@ function createId() {
 }
 
 export function usePlayerTelemetry({ streamId, channelId, matchId, active }: PlayerTelemetryOptions) {
+  const { telemetryEnabled: appTelemetryEnabled } = useSocket()
+  const telemetryEnabled = appTelemetryEnabled === true
+  const enabledRef = useRef(telemetryEnabled)
   const [sessionId] = useState(createId)
   const sessionIdRef = useRef(sessionId)
   const identityRef = useRef(`${streamId ?? ''}|${channelId ?? ''}|${matchId ?? ''}`)
@@ -35,7 +39,15 @@ export function usePlayerTelemetry({ streamId, channelId, matchId, active }: Pla
     matchIdRef.current = matchId
   }, [channelId, matchId, streamId])
 
+  useLayoutEffect(() => {
+    enabledRef.current = telemetryEnabled
+  }, [telemetryEnabled])
+
   const flush = useCallback((useBeacon = false) => {
+    if (!enabledRef.current) {
+      queueRef.current = []
+      return
+    }
     const events = queueRef.current.splice(0, MAX_BATCH_SIZE)
     if (events.length === 0) return
     const body = JSON.stringify(events)
@@ -53,6 +65,7 @@ export function usePlayerTelemetry({ streamId, channelId, matchId, active }: Pla
   }, [])
 
   const track = useCallback((eventType: TelemetryEventType, metadata?: Record<string, string | number | boolean | null>) => {
+    if (!telemetryEnabled || !enabledRef.current) return
     const currentStreamId = streamIdRef.current
     const currentChannelId = channelIdRef.current
     const currentMatchId = matchIdRef.current
@@ -78,7 +91,7 @@ export function usePlayerTelemetry({ streamId, channelId, matchId, active }: Pla
       ...(metadata ? { metadata } : {}),
     })
     if (queueRef.current.length >= MAX_BATCH_SIZE) flush()
-  }, [flush])
+  }, [flush, telemetryEnabled])
 
   useEffect(() => {
     const identity = `${streamId ?? ''}|${channelId ?? ''}|${matchId ?? ''}`
@@ -91,21 +104,25 @@ export function usePlayerTelemetry({ streamId, channelId, matchId, active }: Pla
     }
   }, [channelId, flush, matchId, streamId])
 
-  useEffect(() => {
-    if (!active) return
+  useLayoutEffect(() => {
+    if (!active || !telemetryEnabled) return
     track('heartbeat')
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') track('heartbeat')
     }, HEARTBEAT_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [active, track])
+  }, [active, telemetryEnabled, track])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!telemetryEnabled) {
+      queueRef.current = []
+      return
+    }
     const timer = window.setInterval(() => {
       if (queueRef.current.length > 0) flush()
     }, TELEMETRY_FLUSH_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [flush])
+  }, [telemetryEnabled, flush])
 
   useEffect(() => () => {
     flush(true)

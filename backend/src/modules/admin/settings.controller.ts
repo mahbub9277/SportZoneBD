@@ -43,7 +43,7 @@ const ensureApiSettings = async () => {
 const getSettings = asyncHandler(async (_req: Request, res: Response) => {
   await ensureApiSettings()
   const settings = await prisma.setting.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, key: { not: 'telemetry.enabled' } },
     orderBy: { key: 'asc' },
   })
   res.status(200).json(successResponse(settings))
@@ -58,6 +58,9 @@ const updateSettings = asyncHandler(async (req: Request, res: Response) => {
   for (const setting of settingsToUpdate) {
     if (!setting || typeof setting.key !== 'string' || typeof setting.value !== 'string' || !setting.key.trim()) {
       return res.status(400).json({ success: false, message: 'Each setting requires a key and string value.' })
+    }
+    if (setting.key === 'telemetry.enabled') {
+      return res.status(403).json({ success: false, message: 'Use the telemetry status endpoint to change this setting.' })
     }
     if (isApiSettingKey(setting.key) && !API_SETTINGS[setting.key].validate(setting.value)) {
       return res.status(400).json({ success: false, message: `Invalid value for ${setting.key}.` })

@@ -102,14 +102,6 @@ const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCall
   cb(null, true);
 };
 
-const videoFileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback): void => {
-  if (!file.mimetype || !file.mimetype.toLowerCase().startsWith('video/')) {
-    return cb(new ValidationError('Only video files are allowed for video uploads.', { file: 'Invalid video type' }) as any, false);
-  }
-
-  cb(null, true);
-};
-
 const validateUploadedFiles = (req: Request): void => {
   const files: Express.Multer.File[] = [];
   if (req.file) files.push(req.file);
@@ -138,16 +130,10 @@ const withContentValidation = (middleware: RequestHandler): RequestHandler => (r
 };
 
 const multerUpload = multer({ storage, fileFilter, limits: { fileSize: 1024 * 1024 * 5 } });
-const multerVideoUpload = multer({
-  storage,
-  fileFilter: videoFileFilter,
-  limits: { fileSize: 1024 * 1024 * 300, files: 1 },
-});
 
 export const upload = {
   single: (field: string) => withContentValidation(multerUpload.single(field)),
   array: (field: string, maxCount: number) => withContentValidation(multerUpload.array(field, maxCount)),
-  videoArray: (field: string) => withContentValidation(multerVideoUpload.array(field, 1)),
   fields: (fields: Field[]) => withContentValidation(multerUpload.fields(fields)),
 };
 

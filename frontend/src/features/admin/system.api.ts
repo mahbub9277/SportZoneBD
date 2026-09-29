@@ -10,19 +10,6 @@ export interface SystemLog {
   createdAt: string
 }
 
-export interface Backup {
-  id: string
-  fileName: string
-  size: string // BigInt is serialized as a string
-  status: 'PENDING' | 'COMPLETED' | 'FAILED'
-  createdAt: string
-}
-
-export interface BackupDownload {
-  fileName: string
-  downloadUrl: string
-}
-
 export interface CloudinaryStorageUsage {
   provider: 'Cloudinary'
   storage: { usedBytes: number; limitBytes: number }
@@ -75,26 +62,6 @@ export const systemApi = emptyApi.injectEndpoints({
           ? [...result.items.map(({ id }) => ({ type: 'SystemLog' as const, id })), { type: 'SystemLog', id: 'ACTIVITY_LIST' }]
           : [{ type: 'SystemLog', id: 'ACTIVITY_LIST' }],
     }),
-    getBackups: builder.query<Backup[], void>({
-      query: () => 'system/backups',
-      transformResponse: (response: ApiResponse<Backup[]>) => unwrapApiResponse(response),
-      providesTags: (result) =>
-        result
-          ? [...result.map(({ id }) => ({ type: 'Backup' as const, id })), { type: 'Backup', id: 'LIST' }]
-          : [{ type: 'Backup', id: 'LIST' }],
-    }),
-    createBackup: builder.mutation<Backup, void>({
-      query: () => ({
-        url: 'system/backups',
-        method: 'POST',
-      }),
-      transformResponse: (response: ApiResponse<Backup>) => unwrapApiResponse(response),
-      invalidatesTags: [{ type: 'Backup', id: 'LIST' }],
-    }),
-    getBackupDownload: builder.query<BackupDownload, string>({
-      query: (id) => `system/backups/${id}/download`,
-      transformResponse: (response: ApiResponse<BackupDownload>) => unwrapApiResponse(response),
-    }),
     getCloudinaryStorageUsage: builder.query<CloudinaryStorageUsage, void>({
       query: () => 'system/storage-usage',
       transformResponse: (response: ApiResponse<CloudinaryStorageUsage>) => unwrapApiResponse(response),
@@ -106,8 +73,5 @@ export const {
   useGetSystemLogsQuery,
   useGetAuditLogsQuery,
   useGetActivityLogsQuery,
-  useGetBackupsQuery,
-  useCreateBackupMutation,
-  useLazyGetBackupDownloadQuery,
   useGetCloudinaryStorageUsageQuery,
 } = systemApi
