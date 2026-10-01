@@ -77,7 +77,8 @@ function getFixtureIdentityKey(fixture: Pick<FootballDataFixture, 'competitionCo
   ].join('|')
 }
 
-function createProviderFixtureKey(fixture: Pick<FootballDataFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
+function createProviderFixtureKey(fixture: Pick<FootballDataFixture, 'id' | 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
+  if (fixture.id?.trim()) return `football-data-org:${fixture.id.trim()}`
   const key = getFixtureIdentityKey(fixture)
   return `football-data-org:${key}`
 }
@@ -410,7 +411,11 @@ export class MatchAutomationService {
       const competitionCodes = getConfiguredCompetitionCodes()
       const fixtures = (await Promise.all(competitionCodes.map(async (competitionCode) => {
         const cacheKey = `sportzonebd:football:fixtures:${competitionCode}:${fromDate}:${toDate}`
-        return await cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, fromDate, toDate), 120)
+        try {
+          return await cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, fromDate, toDate), 120)
+        } catch {
+          return []
+        }
       }))).flat()
 
       const uniqueFixtures: FootballDataFixture[] = []

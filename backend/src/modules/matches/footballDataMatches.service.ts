@@ -3,6 +3,7 @@ import { ServiceUnavailableError } from '../../core/errors.js'
 import logger from '../../core/logger.js'
 
 export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITION = 'PL'
+export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS = ['PL', 'PD', 'CL', 'SA', 'BL1'] as const
 export const FOOTBALL_DISCOVERY_COMPETITION = DEFAULT_FOOTBALL_DISCOVERY_COMPETITION
 
 export interface FootballDataFixture {
@@ -50,7 +51,7 @@ function normalizeCompetitionCode(value: string | null | undefined): string {
 
 export function getConfiguredCompetitionCodes(): string[] {
   const configured = process.env.FOOTBALL_DISCOVERY_COMPETITIONS ?? process.env.FOOTBALL_DISCOVERY_COMPETITION
-  if (!configured?.trim()) return [DEFAULT_FOOTBALL_DISCOVERY_COMPETITION]
+  if (!configured?.trim()) return [...DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS]
 
   return [...new Set(
     configured
