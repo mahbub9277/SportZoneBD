@@ -83,7 +83,7 @@ function NotificationSettings() {
   const pushSupported = supportsWebPush()
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(() => supportsWebPush() ? Notification.permission : 'unsupported')
   const [pushEnabled, setPushEnabled] = useState(false)
-  const [isCheckingPush, setIsCheckingPush] = useState(true)
+  const [isCheckingPush, setIsCheckingPush] = useState(() => supportsWebPush())
   const [preferenceStatus, setPreferenceStatus] = useState('')
   const pushConfigured = Boolean(import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY)
 
@@ -92,7 +92,6 @@ function NotificationSettings() {
     let active = true
 
     if (!supportsPush) {
-      setIsCheckingPush(false)
       return () => { active = false }
     }
 
