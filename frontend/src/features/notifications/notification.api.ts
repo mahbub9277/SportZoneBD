@@ -1,6 +1,7 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse, PaginatedResult } from '../../app/api/types'
+import type { RootState } from '../../app/store'
 import type { Notification, NotificationType } from './notification.types'
 
 export interface BroadcastNotificationInput {
@@ -20,7 +21,7 @@ export const notificationsApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<{ count: number }>) =>
         unwrapApiResponse(response) ?? { count: 0 },
       // Use a specific tag for the count to avoid unnecessary refetches.
-      providesTags: ['Notifications'],
+      providesTags: [{ type: 'Notifications', id: 'UNREAD_COUNT' }],
     }),
       getNotifications: builder.query<PaginatedResult<Notification>, { page: number, limit?: number; unreadOnly?: boolean }>({
         query: ({ page, limit = 25, unreadOnly = false }) => `/notifications?page=${page}&limit=${limit}&unreadOnly=${unreadOnly}`,
@@ -37,19 +38,29 @@ export const notificationsApi = emptyApi.injectEndpoints({
         url: `/notifications/${notificationId}/mark-as-read`,
         method: 'PATCH',
       }),
-      // Invalidate the specific notification and the unread count.
-      invalidatesTags: (_result, _error, notificationId) => ['Notifications', { type: 'Notifications', id: notificationId }, { type: 'Notifications', id: 'LIST' }],
-      async onQueryStarted(_notificationId, { dispatch, queryFulfilled }) {
-        // Optimistically update the unread count
-        const countPatchResult = dispatch(
-          notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
-            draft.count = Math.max(0, draft.count - 1)
-          }),
-        )
+      async onQueryStarted(notificationId, { dispatch, getState, queryFulfilled }) {
+        let wasUnread = false
+        const listPatchResults = notificationsApi.util
+          .selectCachedArgsForQuery(getState() as RootState, 'getNotifications')
+          .map((queryArgs) => dispatch(
+            notificationsApi.util.updateQueryData('getNotifications', queryArgs, (draft) => {
+              const notification = draft.items.find((item) => item.id === notificationId)
+              if (notification && !notification.isRead) {
+                notification.isRead = true
+                wasUnread = true
+              }
+            }),
+          ))
+        const countPatchResult = wasUnread
+          ? dispatch(notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
+              draft.count = Math.max(0, draft.count - 1)
+            }))
+          : null
         try {
           await queryFulfilled
         } catch {
-          countPatchResult.undo()
+          listPatchResults.forEach((patchResult) => patchResult.undo())
+          countPatchResult?.undo()
         }
       },
     }),
@@ -58,25 +69,24 @@ export const notificationsApi = emptyApi.injectEndpoints({
         url: '/notifications/mark-all-as-read',
         method: 'POST',
       }),
-      invalidatesTags: [{ type: 'Notifications', id: 'LIST' }],
-      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+      async onQueryStarted(_arg, { dispatch, getState, queryFulfilled }) {
         const countPatchResult = dispatch(
           notificationsApi.util.updateQueryData('getUnreadNotificationCount', undefined, (draft) => {
             draft.count = 0
           }),
         )
-        const listPatchResult = dispatch(
-          notificationsApi.util.updateQueryData('getNotifications', { page: 1, limit: 25, unreadOnly: true }, (draft) => {
+        const listPatchResults = notificationsApi.util
+          .selectCachedArgsForQuery(getState() as RootState, 'getNotifications')
+          .map((queryArgs) => dispatch(notificationsApi.util.updateQueryData('getNotifications', queryArgs, (draft) => {
             draft.items.forEach((notification) => {
               notification.isRead = true
             })
-          }),
-        )
+          })))
         try {
           await queryFulfilled
         } catch {
           countPatchResult.undo()
-          listPatchResult.undo()
+          listPatchResults.forEach((patchResult) => patchResult.undo())
         }
       },
     }),

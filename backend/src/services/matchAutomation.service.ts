@@ -1,4 +1,3 @@
-import axios from 'axios'
 import cron from 'node-cron'
 import { prisma } from '../core/prisma.js'
 import logger from '../core/logger.js'
@@ -11,10 +10,8 @@ import { isRedisConfigured, redis } from '../core/redis.js'
 import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
+import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
 
-const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY
-const API_FOOTBALL_BASE_URL = process.env.API_FOOTBALL_BASE_URL ?? 'https://v3.football.api-sports.io'
-const API_FOOTBALL_HOST = process.env.API_FOOTBALL_HOST ?? 'v3.football.api-sports.io'
 const DISCOVERY_DAYS = Number(process.env.MATCH_DISCOVERY_DAYS ?? 14)
 const PRE_MATCH_HEALTH_WINDOW_MINUTES = Number(process.env.PRE_MATCH_HEALTH_WINDOW_MINUTES ?? 90)
 const STREAM_HEALTH_TIMEOUT_MS = Number(process.env.STREAM_HEALTH_TIMEOUT_MS ?? 8000)
@@ -49,23 +46,6 @@ async function readHealthResponsePrefix(response: Response, maxBytes: number): P
   }
 }
 
-interface ProviderFixture {
-  fixture?: {
-    id?: number
-    timestamp?: number
-    date?: string
-  }
-  league?: {
-    name?: string
-    country?: string
-    season?: number
-  }
-  teams?: {
-    home?: { name?: string }
-    away?: { name?: string }
-  }
-}
-
 function normalizeTeamName(value: string | null | undefined): string {
   return (value ?? '')
     .normalize('NFD')
@@ -85,6 +65,39 @@ function isInCloseKickoffWindow(candidate: Date, target: Date, maxDeltaMs: numbe
   return Math.abs(candidate.getTime() - target.getTime()) <= maxDeltaMs
 }
 
+function getFixtureIdentityKey(fixture: Pick<FootballDataFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
+  const kickoffAt = new Date(fixture.kickoffAt)
+  const kickoffKey = Number.isNaN(kickoffAt.getTime()) ? fixture.kickoffAt : kickoffAt.toISOString()
+
+  return [
+    normalizeTeamName(fixture.competitionCode || fixture.competitionName),
+    normalizeTeamName(fixture.homeTeamName),
+    normalizeTeamName(fixture.awayTeamName),
+    kickoffKey,
+  ].join('|')
+}
+
+function createProviderFixtureKey(fixture: Pick<FootballDataFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
+  const key = getFixtureIdentityKey(fixture)
+  return `football-data-org:${key}`
+}
+
+function getMatchIdentityKey(match: {
+  kickoffAt: Date | null
+  tournamentName?: string | null
+  homeTeamName?: string | null
+  awayTeamName?: string | null
+}): string | null {
+  if (!match.kickoffAt) return null
+
+  return [
+    normalizeTeamName(match.tournamentName ?? ''),
+    normalizeTeamName(match.homeTeamName ?? ''),
+    normalizeTeamName(match.awayTeamName ?? ''),
+    match.kickoffAt.toISOString(),
+  ].join('|')
+}
+
 export interface MatchAutomationJobOptions {
   cronExpression?: string
 }
@@ -96,6 +109,7 @@ export class MatchAutomationService {
   private isStarted = false
   private isRunning = false
   private hasLoggedRedisLockUnavailable = false
+  private hasLoggedFootballDataKeyUnavailable = false
 
   constructor(options: MatchAutomationJobOptions = {}) {
     this.cronExpression = options.cronExpression ?? '* * * * *'
@@ -375,11 +389,14 @@ export class MatchAutomationService {
 
   private async syncProviderMatches(): Promise<void> {
     if (!this.jobId) return
-
-    if (!API_FOOTBALL_KEY) {
-      logger.info('API_FOOTBALL_KEY not configured; skipping upstream fixture sync')
+    if (!process.env.FOOTBALL_API_KEY?.trim()) {
+      if (!this.hasLoggedFootballDataKeyUnavailable) {
+        logger.warn({ environmentVariable: 'FOOTBALL_API_KEY', competitions: getConfiguredCompetitionCodes() }, 'Skipping football fixture sync because its provider key is not configured')
+        this.hasLoggedFootballDataKeyUnavailable = true
+      }
       return
     }
+    this.hasLoggedFootballDataKeyUnavailable = false
 
     let createdCount = 0
     let updatedCount = 0
@@ -390,39 +407,20 @@ export class MatchAutomationService {
       const to = new Date(Date.now() + DISCOVERY_DAYS * 24 * 60 * 60 * 1000)
       const fromDate = from.toISOString().slice(0, 10)
       const toDate = to.toISOString().slice(0, 10)
-      const leagueId = String(process.env.API_FOOTBALL_DEFAULT_LEAGUE_ID ?? 39)
-      const fixtures = await cache<ProviderFixture[]>(
-        `api-football:fixtures:${leagueId}:${fromDate}:${toDate}`,
-        async () => {
-          const response = await axios.get(`${API_FOOTBALL_BASE_URL}/fixtures`, {
-            params: { from: fromDate, to: toDate, timezone: 'UTC', league: leagueId },
-            headers: {
-              'x-apisports-key': API_FOOTBALL_KEY,
-              'x-apisports-host': API_FOOTBALL_HOST,
-              Accept: 'application/json',
-            },
-            timeout: 15000,
-          })
-          const providerFixtures = Array.isArray(response.data?.response) ? response.data.response : []
-          return providerFixtures.map((fixture: ProviderFixture) => ({
-            fixture: {
-              id: fixture.fixture?.id,
-              timestamp: fixture.fixture?.timestamp,
-              date: fixture.fixture?.date,
-            },
-            league: {
-              name: fixture.league?.name,
-              country: fixture.league?.country,
-              season: fixture.league?.season,
-            },
-            teams: {
-              home: { name: fixture.teams?.home?.name },
-              away: { name: fixture.teams?.away?.name },
-            },
-          }))
-        },
-        120,
-      )
+      const competitionCodes = getConfiguredCompetitionCodes()
+      const fixtures = (await Promise.all(competitionCodes.map(async (competitionCode) => {
+        const cacheKey = `sportzonebd:football:fixtures:${competitionCode}:${fromDate}:${toDate}`
+        return await cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, fromDate, toDate), 120)
+      }))).flat()
+
+      const uniqueFixtures: FootballDataFixture[] = []
+      const seenFixtureKeys = new Set<string>()
+      for (const fixture of fixtures) {
+        const fixtureKey = getFixtureIdentityKey(fixture)
+        if (seenFixtureKeys.has(fixtureKey)) continue
+        seenFixtureKeys.add(fixtureKey)
+        uniqueFixtures.push(fixture)
+      }
 
       const existingMatches = await prisma.match.findMany({
         where: {
@@ -438,6 +436,10 @@ export class MatchAutomationService {
           kickoffAt: true,
           homeTeamName: true,
           awayTeamName: true,
+          homeTeamId: true,
+          awayTeamId: true,
+          homeTeamLogo: true,
+          awayTeamLogo: true,
           sport: true,
           status: true,
           finishedAt: true,
@@ -445,13 +447,18 @@ export class MatchAutomationService {
         },
       })
 
-      for (const fixture of fixtures) {
-        const homeName = fixture.teams?.home?.name?.trim()
-        const awayName = fixture.teams?.away?.name?.trim()
-        const timestamp = fixture.fixture?.timestamp ?? 0
-        const kickoffAt = timestamp ? new Date(timestamp * 1000) : fixture.fixture?.date ? new Date(fixture.fixture.date) : null
+      const existingMatchLookup = new Map<string, (typeof existingMatches)[number]>()
+      for (const match of existingMatches) {
+        const lookupKey = getMatchIdentityKey(match)
+        if (lookupKey) existingMatchLookup.set(lookupKey, match)
+      }
 
-        if (!homeName || !awayName || !kickoffAt || Number.isNaN(kickoffAt.getTime())) {
+      for (const fixture of uniqueFixtures) {
+        const homeName = fixture.homeTeamName.trim()
+        const awayName = fixture.awayTeamName.trim()
+        const kickoffAt = new Date(fixture.kickoffAt)
+
+        if (!homeName || !awayName || Number.isNaN(kickoffAt.getTime())) {
           skippedCount++
           continue
         }
@@ -460,7 +467,7 @@ export class MatchAutomationService {
         const normalizedAway = normalizeTeamName(awayName)
         const desiredTitle = normalizeApprovedMatchTitle(homeName, awayName)
         const matchWindow = 4 * 60 * 60 * 1000
-        const existingMatch = existingMatches.find((match) => {
+        const existingMatch = existingMatchLookup.get(getFixtureIdentityKey(fixture)) ?? existingMatches.find((match) => {
           if (!match.kickoffAt) return false
           if (!isInCloseKickoffWindow(match.kickoffAt, kickoffAt, matchWindow)) return false
 
@@ -469,13 +476,24 @@ export class MatchAutomationService {
           return existingHome === normalizedHome && existingAway === normalizedAway
         })
 
+        const homeTeam = await prisma.team.findFirst({ where: { deletedAt: null, normalizedName: normalizedHome } })
+        const awayTeam = await prisma.team.findFirst({ where: { deletedAt: null, normalizedName: normalizedAway } })
+
         if (existingMatch) {
+          const homeTeamId = homeTeam?.id ?? existingMatch.homeTeamId ?? null
+          const awayTeamId = awayTeam?.id ?? existingMatch.awayTeamId ?? null
+          const homeTeamLogo = homeTeam?.logoUrl ?? existingMatch.homeTeamLogo ?? null
+          const awayTeamLogo = awayTeam?.logoUrl ?? existingMatch.awayTeamLogo ?? null
           const needsUpdate =
             existingMatch.title !== `${homeName} vs ${awayName}` ||
             existingMatch.homeTeamName !== homeName ||
             existingMatch.awayTeamName !== awayName ||
             existingMatch.kickoffAt.getTime() !== kickoffAt.getTime() ||
-            existingMatch.tournamentName !== fixture.league?.name ||
+            existingMatch.tournamentName !== fixture.competitionName ||
+            existingMatch.homeTeamId !== homeTeamId ||
+            existingMatch.awayTeamId !== awayTeamId ||
+            existingMatch.homeTeamLogo !== homeTeamLogo ||
+            existingMatch.awayTeamLogo !== awayTeamLogo ||
             existingMatch.sport !== 'FOOTBALL'
 
           if (needsUpdate) {
@@ -486,8 +504,12 @@ export class MatchAutomationService {
                 kickoffAt,
                 homeTeamName: homeName,
                 awayTeamName: awayName,
+                homeTeamId,
+                awayTeamId,
+                homeTeamLogo,
+                awayTeamLogo,
                 sport: 'FOOTBALL',
-                tournamentName: fixture.league?.name ?? existingMatch.tournamentName ?? null,
+                tournamentName: fixture.competitionName || existingMatch.tournamentName || null,
                 status: ['LIVE', 'FINISHED'].includes(existingMatch.status) ? existingMatch.status : 'UPCOMING',
                 finishedAt: existingMatch.status === 'FINISHED' ? (existingMatch.finishedAt ?? new Date()) : null,
               },
@@ -498,25 +520,41 @@ export class MatchAutomationService {
           continue
         }
 
-        await prisma.match.create({
-          data: {
-            title: `${homeName} vs ${awayName}`,
-            kickoffAt,
-            homeTeamName: homeName,
-            awayTeamName: awayName,
-            sport: 'FOOTBALL',
-            tournamentName: fixture.league?.name ?? null,
-            status: 'UPCOMING',
-            premium: false,
-            startTime: new Date(kickoffAt.getTime() - PRE_MATCH_HEALTH_WINDOW_MINUTES * 60 * 1000),
-          },
-        })
-        createdCount++
+        const providerFixtureKey = createProviderFixtureKey(fixture)
 
-        logger.info({ title: desiredTitle, kickoffAt }, 'Created new upcoming match from provider sync')
+        try {
+          await prisma.match.create({
+            data: {
+              providerFixtureKey,
+              title: `${homeName} vs ${awayName}`,
+              kickoffAt,
+              homeTeamName: homeName,
+              awayTeamName: awayName,
+              homeTeamId: homeTeam?.id ?? null,
+              awayTeamId: awayTeam?.id ?? null,
+              homeTeamLogo: homeTeam?.logoUrl ?? null,
+              awayTeamLogo: awayTeam?.logoUrl ?? null,
+              sport: 'FOOTBALL',
+              tournamentName: fixture.competitionName,
+              status: 'UPCOMING',
+              premium: false,
+              autoFinish: false,
+              startTime: new Date(kickoffAt.getTime() - PRE_MATCH_HEALTH_WINDOW_MINUTES * 60 * 1000),
+            },
+          })
+          createdCount++
+          logger.info({ title: desiredTitle, kickoffAt }, 'Created new upcoming match from provider sync')
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+            skippedCount++
+            logger.info({ title: desiredTitle, kickoffAt, providerFixtureKey }, 'Skip duplicate provider fixture already created')
+            continue
+          }
+          throw error
+        }
       }
 
-      await prisma.automationLog.create({
+      const newLog = await prisma.automationLog.create({
         data: {
           jobId: this.jobId,
           action: 'DISCOVER_MATCHES',
@@ -525,20 +563,11 @@ export class MatchAutomationService {
           details: { createdCount, updatedCount, skippedCount },
         },
       })
-
-      // Emit log entry for real-time updates
-      const newLog = await prisma.automationLog.findFirst({
-        where: {
-          jobId: this.jobId,
-          action: 'DISCOVER_MATCHES',
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      if (newLog) emitAutomationLogEntry(newLog)
+      emitAutomationLogEntry(newLog)
     } catch (error) {
       logger.error({ error }, 'Provider match sync failed')
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      await prisma.automationLog.create({
+      const newLog = await prisma.automationLog.create({
         data: {
           jobId: this.jobId,
           action: 'DISCOVER_MATCHES',
@@ -546,16 +575,7 @@ export class MatchAutomationService {
           errorMessage,
         },
       })
-
-      // Emit log entry for real-time updates
-      const newLog = await prisma.automationLog.findFirst({
-        where: {
-          jobId: this.jobId,
-          action: 'DISCOVER_MATCHES',
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      if (newLog) emitAutomationLogEntry(newLog)
+      emitAutomationLogEntry(newLog)
     }
   }
 
@@ -659,7 +679,7 @@ export class MatchAutomationService {
         }
       }
 
-      await prisma.automationLog.create({
+      const newLog = await prisma.automationLog.create({
         data: {
           jobId: this.jobId,
           action: 'VALIDATE_STREAMS',
@@ -668,20 +688,11 @@ export class MatchAutomationService {
           details: { healthyCount, offlineCount, errorCount, responsePrefixBytes },
         },
       })
-
-      // Emit log entry for real-time updates
-      const newLog = await prisma.automationLog.findFirst({
-        where: {
-          jobId: this.jobId,
-          action: 'VALIDATE_STREAMS',
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      if (newLog) emitAutomationLogEntry(newLog)
+      emitAutomationLogEntry(newLog)
     } catch (error) {
       logger.error({ error }, 'Stream health sync failed')
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      await prisma.automationLog.create({
+      const newLog = await prisma.automationLog.create({
         data: {
           jobId: this.jobId,
           action: 'VALIDATE_STREAMS',
@@ -689,16 +700,7 @@ export class MatchAutomationService {
           errorMessage,
         },
       })
-
-      // Emit log entry for real-time updates
-      const newLog = await prisma.automationLog.findFirst({
-        where: {
-          jobId: this.jobId,
-          action: 'VALIDATE_STREAMS',
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      if (newLog) emitAutomationLogEntry(newLog)
+      emitAutomationLogEntry(newLog)
     }
   }
 }

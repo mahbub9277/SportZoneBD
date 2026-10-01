@@ -1,5 +1,5 @@
-import { useActionData, useNavigation, Form as RouterForm, Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { useActionData, useNavigation, Form as RouterForm } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -8,7 +8,8 @@ import { Button } from '../../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../components/ui/Form'
 import { Input } from '../../components/ui/Input'
-import { AlertCircle, Trophy } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff } from 'lucide-react'
+import brandMark from '../../assets/logo.png.webp'
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -20,6 +21,7 @@ type LoginFormValues = z.infer<typeof loginSchema>
 export default function AdminLoginPage() {
   const actionData = useActionData() as { error?: string } | undefined
   const navigation = useNavigation()
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -32,37 +34,28 @@ export default function AdminLoginPage() {
   const isSubmitting = navigation.state === 'submitting'
 
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#07111d] px-4 py-8 text-white sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(4,116,196,0.18),transparent_34%),linear-gradient(145deg,#07111d,#0d1527)]" aria-hidden="true" />
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, ease: 'easeOut' }}
-        className="relative w-full max-w-md"
-      >
-        <Card className="overflow-hidden rounded-3xl border border-white/12 bg-[#0d1527]/80 text-white shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-          <CardHeader className="space-y-4 px-6 pt-7 text-center sm:px-8 sm:pt-8">
-            <div className="inline-flex items-center justify-center gap-3 rounded-full border border-[#0474C4]/35 bg-[#0474C4]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#8ed7ff]">
-              <Trophy className="h-5 w-5" />
-              Admin console
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <Trophy className="h-7 w-7 text-[#7ec8ff]" />
-              <CardTitle className="text-2xl font-bold tracking-tight text-white">SportZoneBD</CardTitle>
-            </div>
-            <p className="text-sm text-white/60">Sign in to manage the SportZoneBD platform.</p>
-          </CardHeader>
-          <CardContent className="px-6 pb-7 sm:px-8 sm:pb-8">
-            <Form {...form}>
-              <RouterForm method="post" className="space-y-4">
+    <main aria-labelledby="admin-login-title" className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-(--background) px-4 py-8 text-(--text-primary) sm:px-6 lg:px-8">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,var(--hero-glow),transparent_58%)]" />
+      <Card className="relative w-full max-w-md overflow-hidden rounded-3xl border border-(--border) bg-(--surface)/95 shadow-[0_28px_90px_var(--shadow)]">
+        <CardHeader className="items-center space-y-5 px-6 pt-8 text-center sm:px-8 sm:pt-9">
+          <img src={brandMark} alt="SportZoneBD" className="h-auto max-h-16 w-52 max-w-[75%] object-contain" />
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-(--accent)">Admin console</p>
+            <CardTitle id="admin-login-title" className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">Administrator sign in</CardTitle>
+            <p className="text-sm leading-6 text-(--text-muted)">Sign in to manage the SportZoneBD platform.</p>
+          </div>
+        </CardHeader>
+        <CardContent className="px-6 pb-8 sm:px-8 sm:pb-9">
+          <Form {...form}>
+            <RouterForm method="post" className="space-y-5">
                 <FormField
                   control={form.control}
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-semibold text-white/80">Email address</FormLabel>
+                      <FormLabel className="text-sm font-semibold text-(--text-secondary)">Email address</FormLabel>
                       <FormControl>
-                        <Input placeholder="admin@sportzone.com" {...field} className="h-11 border-white/12 bg-black/20 text-white shadow-none placeholder:text-white/35 focus-visible:border-[#0474C4] focus-visible:ring-2 focus-visible:ring-[#0474C4]/30" />
+                        <Input type="email" autoComplete="username" placeholder="admin@sportzone.com" {...field} className="h-12 border-(--border) bg-(--surface-soft) text-(--text-primary) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--accent) focus-visible:ring-(--accent)/25" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -73,38 +66,43 @@ export default function AdminLoginPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-semibold text-white/80">Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" placeholder="Enter your password" {...field} className="h-11 border-white/12 bg-black/20 text-white shadow-none placeholder:text-white/35 focus-visible:border-[#0474C4] focus-visible:ring-2 focus-visible:ring-[#0474C4]/30" />
-                      </FormControl>
+                      <FormLabel className="text-sm font-semibold text-(--text-secondary)">Password</FormLabel>
+                      <div className="relative">
+                        <FormControl>
+                          <Input type={isPasswordVisible ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" {...field} className="h-12 border-(--border) bg-(--surface-soft) pr-12 text-(--text-primary) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--accent) focus-visible:ring-(--accent)/25" />
+                        </FormControl>
+                        <button
+                          type="button"
+                          aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+                          aria-pressed={isPasswordVisible}
+                          onClick={() => setIsPasswordVisible((visible) => !visible)}
+                          className="absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center rounded-r-md text-(--text-muted) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-(--accent)"
+                        >
+                          {isPasswordVisible ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                        </button>
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                 {actionData?.error && (
-                  <div className="flex items-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                     <AlertCircle size={16} /> {actionData.error}
                   </div>
                 )}
                 <Button
                   type="submit"
                   variant="neon"
-                  className="mt-2 h-11 w-full rounded-2xl border border-[#0474C4]/40 bg-[#0474C4] py-3 text-base font-semibold text-white shadow-[0_16px_35px_-16px_rgba(4,116,196,0.7)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#1689d4] hover:shadow-xl"
+                  className="mt-2 h-12 w-full rounded-xl py-3 text-base font-semibold"
                   isLoading={isSubmitting}
                   aria-busy={isSubmitting}
                 >
                   {isSubmitting ? 'Signing In...' : 'Sign In'}
                 </Button>
-                <div className="text-center text-sm">
-                  <Link to="/forgot-password" className="text-sm text-white/55 underline-offset-4 transition-colors hover:text-[#8ed7ff] hover:underline">
-                    Forgot your password?
-                  </Link>
-                </div>
-              </RouterForm>
-            </Form>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+            </RouterForm>
+          </Form>
+        </CardContent>
+      </Card>
+    </main>
   )
 }

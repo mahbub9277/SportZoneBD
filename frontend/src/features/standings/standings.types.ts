@@ -1,30 +1,42 @@
-export interface StandingTeam {
-  rank: number
+export type LeagueCode = 'PL' | 'PD' | 'CL' | 'SA' | 'BL1'
+
+export interface LeagueStanding {
+  position: number
   team: {
-    id: number | string
+    id: number
     name: string
-    logo?: string | null
+    shortName: string | null
+    tla: string | null
+    crest: string | null
   }
-  points: number
-  played: number
-  win: number
+  playedGames: number
+  won: number
   draw: number
-  loss: number
+  lost: number
   goalsFor: number
   goalsAgainst: number
   goalDifference: number
-  form?: string | null
-  status?: string | null
-  group?: string | null
+  points: number
+  description: string | null
 }
 
-export interface StandingsTable {
-  league: {
-    id: number | string
+export interface LeagueStandingsResponse {
+  competition: {
+    code: LeagueCode
     name: string
-    country: string
-    logo?: string | null
-    season: number
+    emblem: string | null
   }
-  table: StandingTeam[]
+  season: {
+    id: number
+    startDate: string | null
+    endDate: string | null
+    currentMatchday: number | null
+  }
+  standings: LeagueStanding[]
+  meta: {
+    source: 'football-data.org' | 'cache'
+    cached: boolean
+    stale: boolean
+  }
 }
+

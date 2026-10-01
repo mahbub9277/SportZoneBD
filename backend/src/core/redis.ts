@@ -109,6 +109,7 @@ const runCacheCommand = <Result>(operation: (client: any) => Promise<Result>) =>
 export const cacheRedis = {
   get: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.get(...args)),
   set: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.set(...args)),
+  eval: (...args: unknown[]): Promise<number> => runCacheCommand<number>((client) => client.eval(...args)),
   del: (...args: any[]): Promise<number> => runCacheCommand<number>((client) => client.del(...args)),
   sunion: (...args: any[]): Promise<string[]> => runCacheCommand<string[]>((client) => client.sunion(...args)),
   pipeline: () => {

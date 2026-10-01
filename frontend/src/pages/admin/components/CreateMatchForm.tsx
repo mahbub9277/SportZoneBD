@@ -551,7 +551,8 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
     const kickoffAt = parseMatchDateTime(kickoffDate, kickoffTime)
     const duration = Number(expectedDuration)
     if (!kickoffAt || !Number.isFinite(duration) || duration < 1) return
-    const expectedEnd = new Date(new Date(kickoffAt).getTime() + duration * 60_000)
+    const graceMinutes = 15
+    const expectedEnd = new Date(new Date(kickoffAt).getTime() + (duration + graceMinutes) * 60_000)
     const nextExpectedEnd = formatMatchDateTimeInput(expectedEnd.toISOString())
     if (nextExpectedEnd && form.getValues('expectedEndTime') !== nextExpectedEnd) {
       form.setValue('expectedEndTime', nextExpectedEnd, { shouldDirty: true, shouldValidate: true })

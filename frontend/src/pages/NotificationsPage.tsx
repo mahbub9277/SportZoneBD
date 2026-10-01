@@ -54,6 +54,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
     let isMounted = true
 
     const checkPushSubscription = async () => {
+      if (embedded) return
       const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
       if (!vapidKey || !supportsWebPush()) {
         if (isMounted) setPushStatus('unsupported')
@@ -84,7 +85,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
     return () => {
       isMounted = false
     }
-  }, [registerPushSubscription])
+  }, [embedded, registerPushSubscription])
 
   const handleEnablePush = async () => {
     const vapidKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
@@ -129,9 +130,9 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
   const notificationList = notifications
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0', embedded ? 'h-full overflow-y-auto overscroll-contain p-3 sm:p-4' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0', embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
       {embedded ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 px-3 pb-3 pt-3 sm:px-4">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--text-muted)">Inbox</p>
             <h2 className="mt-1 text-xl font-semibold text-(--text-primary)">Notifications</h2>
@@ -171,7 +172,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
       )}
 
       {isLoading ? (
-        <div role="status" aria-live="polite" aria-label="Loading notifications" className={cn('space-y-4', embedded ? 'mt-4' : 'mt-3')}>
+        <div role="status" aria-live="polite" aria-label="Loading notifications" className={cn('space-y-4', embedded ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4' : 'mt-3')}>
           {Array.from({ length: embedded ? 5 : 5 }).map((_, i) => (
             <Card key={i} className="flex items-start gap-4 p-4">
               <Skeleton className="h-6 w-6 rounded-full" />
@@ -183,14 +184,14 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
           ))}
         </div>
       ) : isError ? (
-        <Card className={cn('mt-4 p-8 text-center text-red-400', embedded ? 'rounded-2xl' : '')}>
+        <Card className={cn('mt-4 p-8 text-center text-red-400', embedded ? 'm-3 flex min-h-0 flex-1 flex-col justify-center rounded-2xl sm:mx-4' : '')}>
           <AlertTriangle className="mx-auto h-12 w-12" />
           <p className="mt-4 text-lg font-semibold">Unable to load notifications</p>
           <p>Please try again shortly.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetch()} isLoading={isFetching}>Try again</Button>
         </Card>
       ) : notificationList.length === 0 ? (
-        <Card className={cn('mt-4 p-8 text-center text-(--text-muted)', embedded ? 'rounded-2xl' : '')}>
+        <Card className={cn('mt-4 p-8 text-center text-(--text-muted)', embedded ? 'm-3 flex min-h-0 flex-1 flex-col justify-center rounded-2xl sm:mx-4' : '')}>
           <BellRing className="mx-auto h-12 w-12" />
           <p className="mt-4 text-lg font-semibold">No notifications yet</p>
           <p>We&apos;ll let you know when there&apos;s something new.</p>
@@ -198,7 +199,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
       ) : (
         <>
           <motion.div
-            className={cn('space-y-3', embedded ? 'mt-4' : 'mt-3')}
+            className={cn('space-y-3', embedded ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4' : 'mt-3')}
             initial="hidden"
             animate="visible"
             variants={{
@@ -260,7 +261,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
           </motion.div>
 
           {embedded && onViewAll && (
-            <div className="mt-4 border-t border-border/70 pt-3">
+            <div className="shrink-0 border-t border-border/70 bg-(--surface-strong) p-3 sm:px-4">
               <Button type="button" variant="outline" className="w-full justify-center rounded-xl" onClick={onViewAll}>
                 View All
               </Button>

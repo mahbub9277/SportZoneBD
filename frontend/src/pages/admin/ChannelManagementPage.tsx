@@ -24,8 +24,8 @@ import { ChannelFormModal } from './components/ChannelFormModal'
 const CHANNELS_PER_PAGE = 6
 
 export function ChannelManagementPage() {
-  const { data: categoriesData, isLoading: isLoadingCategories, refetch: refetchCategories } = useGetAdminCategoriesQuery()
-  const { data: channelsData, isLoading: isLoadingChannels, refetch: refetchChannels } = useGetAdminChannelsQuery()
+  const { data: categoriesData, isLoading: isLoadingCategories } = useGetAdminCategoriesQuery()
+  const { data: channelsData, isLoading: isLoadingChannels } = useGetAdminChannelsQuery()
 
   const [deleteCategory] = useDeleteCategoryMutation()
   const [deleteChannel] = useDeleteChannelMutation()
@@ -45,30 +45,28 @@ export function ChannelManagementPage() {
   })
 
   const debouncedSearch = useDebounce(filters.search, 300)
+  const normalizedSearch = debouncedSearch.trim().toLowerCase()
+
+  const categoryNamesById = useMemo(
+    () => new Map((categoriesData ?? []).map((category) => [category.id, category.name.toLowerCase()])),
+    [categoriesData],
+  )
 
   const filteredChannels = useMemo(() => {
     if (!channelsData) return []
 
-    let channels = [...channelsData]
+    const channels = channelsData.filter((channel) => {
+      const categoryName = channel.category?.name?.toLowerCase()
+        ?? categoryNamesById.get(channel.categoryId ?? '')
+        ?? ''
+      const matchesSearch = !normalizedSearch
+        || channel.name.toLowerCase().includes(normalizedSearch)
+        || categoryName.includes(normalizedSearch)
+      const matchesStatus = filters.status === 'all' || channel.status === filters.status
+      const matchesPremium = filters.premium === 'all' || String(channel.isPremium) === filters.premium
+      return matchesSearch && matchesStatus && matchesPremium
+    })
 
-    // 1. Filter by search term
-    if (debouncedSearch) {
-      channels = channels.filter(channel =>
-        channel.name.toLowerCase().includes(debouncedSearch.toLowerCase())
-      )
-    }
-
-    // 2. Filter by status
-    if (filters.status !== 'all') {
-      channels = channels.filter(channel => channel.status === filters.status)
-    }
-
-    // 3. Filter by premium
-    if (filters.premium !== 'all') {
-      channels = channels.filter(channel => String(channel.isPremium) === filters.premium)
-    }
-
-    // 4. Sort
     const [sortKey, sortDir] = filters.sort.split('-') as [keyof Channel, 'asc' | 'desc']
     channels.sort((a, b) => {
       const valA = a[sortKey] ?? ''
@@ -84,7 +82,19 @@ export function ChannelManagementPage() {
     })
 
     return channels
-  }, [channelsData, debouncedSearch, filters])
+  }, [channelsData, categoryNamesById, normalizedSearch, filters.status, filters.premium, filters.sort])
+
+  const filteredCategories = useMemo(() => {
+    if (!categoriesData) return []
+    if (!normalizedSearch) return categoriesData
+
+    const matchingCategoryIds = new Set(
+      filteredChannels.map((channel) => channel.categoryId ?? channel.category?.id).filter(Boolean),
+    )
+    return categoriesData.filter((category) =>
+      category.name.toLowerCase().includes(normalizedSearch) || matchingCategoryIds.has(category.id),
+    )
+  }, [categoriesData, filteredChannels, normalizedSearch])
 
   const handleEditCategory = (category: ChannelCategory) => {
     setEditingCategory(category)
@@ -111,8 +121,6 @@ export function ChannelManagementPage() {
     setEditingChannel(null)
     setIsCategoryModalOpen(false)
     setIsChannelModalOpen(false)
-    refetchCategories()
-    refetchChannels()
   }
 
   const handleDeleteCategory = async () => {
@@ -121,8 +129,6 @@ export function ChannelManagementPage() {
       loading: 'Deleting category...',
       success: () => {
         setDeletingCategoryId(null)
-        refetchCategories()
-        refetchChannels()
         return 'Category deleted.'
       },
       error: 'Failed to delete category.',
@@ -135,7 +141,6 @@ export function ChannelManagementPage() {
       loading: 'Deleting channel...',
       success: () => {
         setDeletingChannelId(null)
-        refetchChannels()
         return 'Channel deleted.'
       },
       error: 'Failed to delete channel.',
@@ -221,7 +226,7 @@ export function ChannelManagementPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted" />
-            <Input placeholder="Search channels..." value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} className="pl-10" />
+            <Input placeholder="Search channels or categories..." value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} className="pl-10" />
           </div>
           <Select value={filters.status} onValueChange={value => setFilters(f => ({ ...f, status: value }))}>
             <SelectTrigger><SelectValue placeholder="Filter by status" /></SelectTrigger>
@@ -251,20 +256,20 @@ export function ChannelManagementPage() {
         </div>
       </Card>
 
-      {categoriesData && categoriesData.length === 0 ? (
+      {filteredCategories.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-4 border-dashed p-12 text-center">
           <Tv className="h-12 w-12 text-brand-text-muted" />
-          <h3 className="text-xl font-semibold">No Categories Found</h3>
-          <p className="text-brand-text-muted">Get started by creating your first channel category.</p>
+          <h3 className="text-xl font-semibold">{normalizedSearch ? 'No Matching Channels or Categories' : 'No Categories Found'}</h3>
+          <p className="text-brand-text-muted">{normalizedSearch ? 'Try a different search term or clear the search.' : 'Get started by creating your first channel category.'}</p>
           <Button onClick={handleOpenCreateCategory} className="mt-2">
             <PlusCircle size={16} className="mr-2" /> Add Category
           </Button>
         </Card>
       ) : (
-        categoriesData?.map((category: ChannelCategory) => {
-        const categoryChannels = filteredChannels.filter(c => c.categoryId === category.id)
+        filteredCategories.map((category: ChannelCategory) => {
+        const categoryChannels = filteredChannels.filter(c => c.categoryId === category.id || c.category?.id === category.id)
         const totalPages = Math.ceil(categoryChannels.length / CHANNELS_PER_PAGE)
-        const currentPage = categoryPages[category.id] ?? 1
+        const currentPage = Math.min(categoryPages[category.id] ?? 1, Math.max(totalPages, 1))
         const paginatedChannels = categoryChannels.slice((currentPage - 1) * CHANNELS_PER_PAGE, currentPage * CHANNELS_PER_PAGE)
         const handlePageChange = (page: number) => setCategoryPages(prev => ({ ...prev, [category.id]: page }))
 

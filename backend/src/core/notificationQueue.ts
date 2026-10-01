@@ -199,29 +199,51 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
     return { created: false, id: existingNotification.id }
   }
 
-  const createdNotification = await prisma.notification.create({
-    data: notificationPayload,
-  })
-
-  if (notificationPayload.channel === 'PUSH') {
-    const failedPushSubscriptionIds = await sendPushNotification(createdNotification)
-    return { created: true, id: createdNotification.id, failedPushSubscriptionIds }
-  }
-
-  if (notificationPayload.channel === 'IN_APP') {
-    emitUserNotification(payload.userId, {
-      id: createdNotification.id,
-      userId: createdNotification.userId,
-      title: createdNotification.title,
-      body: createdNotification.body,
-      type: createdNotification.type,
-      channel: createdNotification.channel,
-      link: createdNotification.link,
-      createdAt: createdNotification.createdAt,
+  try {
+    const createdNotification = await prisma.notification.create({
+      data: notificationPayload,
     })
-  }
 
-  return { created: true, id: createdNotification.id }
+    if (notificationPayload.channel === 'PUSH') {
+      const failedPushSubscriptionIds = await sendPushNotification(createdNotification)
+      return { created: true, id: createdNotification.id, failedPushSubscriptionIds }
+    }
+
+    if (notificationPayload.channel === 'IN_APP') {
+      emitUserNotification(payload.userId, {
+        id: createdNotification.id,
+        userId: createdNotification.userId,
+        title: createdNotification.title,
+        body: createdNotification.body,
+        type: createdNotification.type,
+        channel: createdNotification.channel,
+        link: createdNotification.link,
+        createdAt: createdNotification.createdAt,
+      })
+    }
+
+    return { created: true, id: createdNotification.id }
+  } catch (error) {
+    const duplicateKey = (error as { code?: string } | null)?.code
+    if (duplicateKey === 'P2002') {
+      const existingNotification = await prisma.notification.findFirst({
+        where: {
+          userId: payload.userId,
+          type: notificationPayload.type,
+          channel: notificationPayload.channel,
+          link: payload.link ?? null,
+          deletedAt: null,
+        },
+        select: { id: true },
+      })
+
+      if (existingNotification) {
+        return { created: false, id: existingNotification.id }
+      }
+    }
+
+    throw error
+  }
 }
 
 function getNotificationJobId(payload: NotificationQueuePayload): string {

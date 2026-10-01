@@ -276,23 +276,24 @@ model Player {
 }
 
 model Match {
-  id             String      @id @default(uuid()) @db.Uuid
-  title          String
-  kickoffAt      DateTime
-  startTime      DateTime?
-  endTime        DateTime?
-  expectedEndTime DateTime?
-  autoFinish     Boolean     @default(false)
-  preStartEnabled Boolean?
+  id                 String      @id @default(uuid()) @db.Uuid
+  providerFixtureKey String?     @unique
+  title              String
+  kickoffAt          DateTime
+  startTime          DateTime?
+  endTime            DateTime?
+  expectedEndTime    DateTime?
+  autoFinish         Boolean     @default(false)
+  preStartEnabled    Boolean?
   preStartWindowMinutes Int?
-  preStartVideoUrl String?
-  finishedAt     DateTime?
-  status         MatchStatus @default(UPCOMING)
-  sport          SportType   @default(CRICKET)
-  tournamentName String?     @db.VarChar(255)
-  homeTeamName   String?     @db.VarChar(255)
-  awayTeamName   String?     @db.VarChar(255)
-  homeTeamLogo   String?
+  preStartVideoUrl   String?
+  finishedAt         DateTime?
+  status             MatchStatus @default(UPCOMING)
+  sport              SportType   @default(CRICKET)
+  tournamentName     String?     @db.VarChar(255)
+  homeTeamName       String?     @db.VarChar(255)
+  awayTeamName       String?     @db.VarChar(255)
+  homeTeamLogo       String?
   awayTeamLogo   String?
   homeTeamId     String?     @db.Uuid
   awayTeamId     String?     @db.Uuid
@@ -525,6 +526,7 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, type, channel, link])
   @@index([userId, channel, deletedAt, createdAt, id])
   @@index([userId, channel, isRead, deletedAt])
 }

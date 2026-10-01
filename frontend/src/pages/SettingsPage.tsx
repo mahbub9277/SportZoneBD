@@ -1,69 +1,53 @@
-import { startTransition, useEffect, useState } from 'react'
-import { ArrowLeft, Info, Palette, User, Bell } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Palette, User, Bell } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import { Switch } from '../components/ui/Switch'
 import { useTheme } from '../hooks/useTheme'
-import { useAuth } from '../hooks/common/layouts/useAuth'
 import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
-import { useUpdateMyProfileMutation, useGetNotificationPreferencesQuery, useUpdateNotificationPreferencesMutation } from '../features/users/users.api'
+import { useGetMeQuery, useUpdateProfileMutation } from '../features/auth/auth.api'
+import { useGetNotificationPreferencesQuery, useUpdateNotificationPreferencesMutation, type NotificationPreferences } from '../features/users/users.api'
 import { useRegisterPushSubscriptionMutation, useUnregisterPushSubscriptionMutation } from '../features/notifications/notification.api'
 import { decodeVapidPublicKey, serializePushSubscription, supportsWebPush } from '../features/notifications/pushSubscription'
-import { getErrorMessage } from '../utils/get-error-message'
-import { AboutSportZoneBD } from '../features/pwa/AboutSportZoneBD'
-import { APP_VERSION } from '../features/pwa/appInfo'
+import { EditProfileForm } from './user/components/EditProfileForm'
 
 function ProfileSettings() {
-  const { user } = useAuth()
-  const [fullName, setFullName] = useState(user?.fullName ?? '')
-  const [updateProfile, { isLoading, isSuccess, isError, error }] = useUpdateMyProfileMutation()
+  const { data: user, isError, isLoading, refetch } = useGetMeQuery()
+  const [updateProfile, { isLoading: isSaving }] = useUpdateProfileMutation()
+  const [formKey, setFormKey] = useState(0)
 
-  useEffect(() => {
-    if (isSuccess) {
-      toast.success('Profile updated successfully!')
-    }
-    if (isError) {
-      toast.error('Failed to update profile', {
-        description: getErrorMessage(error),
-      })
-    }
-  }, [isSuccess, isError, error])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!fullName.trim() || fullName.trim() === user?.fullName) return
-    await updateProfile({ fullName })
+  const handleSubmit = (formData: FormData) => {
+    const request = updateProfile(formData)
+    void request.unwrap().then(() => {
+      toast.success('Profile updated.')
+      setFormKey((key) => key + 1)
+    }).catch(() => undefined)
+    return request
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}><Card>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}><Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <motion.div className="p-1.5 bg-linear-to-br from-blue-400 to-blue-600 rounded-lg flex items-center justify-center" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>
-            <User size={18} className="text-white" />
-          </motion.div>
-          Profile Information
-        </CardTitle>
+        <CardTitle className="flex items-center gap-2"><User size={18} aria-hidden="true" />Profile</CardTitle>
+        <CardDescription>Update your name and profile photo. Your email address cannot be changed here.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="fullName">Full Name</Label>
-            <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        {isLoading && !user ? <p role="status" aria-live="polite" className="text-sm text-text-muted">Loading profile...</p> : user ? (
+          <EditProfileForm
+            key={formKey}
+            user={user}
+            onSubmit={handleSubmit}
+            isLoading={isSaving}
+            onCancel={() => setFormKey((key) => key + 1)}
+          />
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3" role="status">
+            <p className="text-sm text-text-muted">{isError ? 'Your profile could not be loaded.' : 'Profile is unavailable.'}</p>
+            <Button type="button" variant="outline" onClick={() => void refetch()}>Try again</Button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email Address</Label>
-            <Input id="email" value={user?.email ?? ''} disabled />
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isLoading || !fullName.trim() || fullName.trim() === user?.fullName}>
-              Save Changes
-            </Button>
-          </div>
-        </form>
+        )}
       </CardContent>
     </Card></motion.div>
   )
@@ -75,23 +59,14 @@ function AppearanceSettings() {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }}><Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <motion.div className="p-1.5 bg-linear-to-br from-purple-400 to-purple-600 rounded-lg flex items-center justify-center" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>
-            <Palette size={18} className="text-white" />
-          </motion.div>
-          Appearance
-        </CardTitle>
-        <CardDescription>
-          Customize the look and feel of the application.
-        </CardDescription>
+        <CardTitle className="flex items-center gap-2"><Palette size={18} aria-hidden="true" />Appearance</CardTitle>
+        <CardDescription>Choose between light and dark themes. Your choice is saved on this device.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between rounded-lg border border-(--border) p-4">
           <div>
-            <Label htmlFor="dark-mode-toggle" className="font-medium">
-              Dark Mode
-            </Label>
-            <p className="text-xs text-(--text-muted)">Toggle between light and dark themes.</p>
+            <Label htmlFor="dark-mode-toggle" className="font-medium">Dark mode</Label>
+            <p className="text-xs text-(--text-muted)">{theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</p>
           </div>
           <Switch id="dark-mode-toggle" checked={theme === 'dark'} onCheckedChange={toggleTheme} />
         </div>
@@ -101,38 +76,43 @@ function AppearanceSettings() {
 }
 
 function NotificationSettings() {
-  const { data: preferences, isLoading } = useGetNotificationPreferencesQuery()
+  const { data: preferences, isLoading, isError, refetch } = useGetNotificationPreferencesQuery()
   const [updatePreferences, { isLoading: isSaving }] = useUpdateNotificationPreferencesMutation()
   const [registerPushSubscription, { isLoading: isRegisteringPush }] = useRegisterPushSubscriptionMutation()
   const [unregisterPushSubscription, { isLoading: isUnregisteringPush }] = useUnregisterPushSubscriptionMutation()
-  const [pushSupported, setPushSupported] = useState(false)
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
+  const pushSupported = supportsWebPush()
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(() => supportsWebPush() ? Notification.permission : 'unsupported')
   const [pushEnabled, setPushEnabled] = useState(false)
+  const [isCheckingPush, setIsCheckingPush] = useState(true)
+  const [preferenceStatus, setPreferenceStatus] = useState('')
+  const pushConfigured = Boolean(import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY)
 
   useEffect(() => {
     const supportsPush = supportsWebPush()
-    startTransition(() => {
-      setPushSupported(supportsPush)
-      setPushPermission(supportsPush ? Notification.permission : 'unsupported')
-    })
-
-    if (!supportsPush) return
     let active = true
-    void navigator.serviceWorker.ready
-      .then((registration) => registration.pushManager.getSubscription())
-      .then(async (subscription) => {
-        if (!active || !subscription) return
-        await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
-        if (active) setPushEnabled(true)
-      })
-      .catch(() => {
+
+    if (!supportsPush) {
+      setIsCheckingPush(false)
+      return () => { active = false }
+    }
+
+    const checkCurrentSubscription = async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.getSubscription()
+        if (active) setPushEnabled(Boolean(subscription))
+      } catch {
         if (active) setPushEnabled(false)
-      })
+      } finally {
+        if (active) setIsCheckingPush(false)
+      }
+    }
+    void checkCurrentSubscription()
 
     return () => {
       active = false
     }
-  }, [registerPushSubscription])
+  }, [])
 
   const enableBrowserPush = async () => {
     if (!pushSupported) {
@@ -141,46 +121,32 @@ function NotificationSettings() {
     }
 
     try {
-      if (Notification.permission === 'default') {
-        const permission = await Notification.requestPermission()
-        if (permission !== 'granted') {
-          setPushPermission(permission)
-          toast.error('Push notification permission was not granted.')
-          return
-        }
+      let permission = Notification.permission
+      if (permission === 'default') permission = await Notification.requestPermission()
+      setPushPermission(permission)
+      if (permission !== 'granted') {
+        toast.error(permission === 'denied' ? 'Push notifications are blocked for this browser.' : 'Push notification permission was not granted.')
+        return
       }
 
-      if (Notification.permission === 'denied') {
-        toast.error('Push notifications are blocked for this browser.')
-        setPushPermission('denied')
+      const publicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined
+      if (!publicKey) {
+        toast.error('Browser push notifications are not configured for this site.')
         return
       }
 
       const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
-      await registration.update()
-
       const existingSubscription = await registration.pushManager.getSubscription()
-      const publicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined
-
-      if (!publicKey) {
-        throw new Error('Missing VAPID public key for browser push notifications.')
-      }
-
       const subscription = existingSubscription ?? await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: decodeVapidPublicKey(publicKey),
-        })
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidPublicKey(publicKey),
+      })
 
       await registerPushSubscription(serializePushSubscription(subscription)).unwrap()
-
       setPushEnabled(true)
-      setPushPermission('granted')
       toast.success('Browser push notifications enabled.')
     } catch (error) {
-      console.error(error)
-      toast.error('Could not enable browser push notifications.', {
-        description: getErrorMessage(error),
-      })
+      if (!isApiError(error)) toast.error('Could not enable browser push notifications. Please try again.')
     }
   }
 
@@ -197,72 +163,63 @@ function NotificationSettings() {
       setPushEnabled(false)
       toast.success('Browser push notifications disabled.')
     } catch (error) {
-      console.error(error)
-      toast.error('Could not disable browser push notifications.', {
-        description: getErrorMessage(error),
-      })
+      if (!isApiError(error)) toast.error('Could not disable browser push notifications. Please try again.')
     }
   }
 
-  const handlePreferenceChange = async (key: keyof NonNullable<typeof preferences>, value: boolean) => {
-    const promise = updatePreferences({ [key]: value }).unwrap()
-
-    toast.promise(promise, {
-      loading: 'Saving preferences...',
-      success: 'Preferences saved!',
-      error: (err) => `Failed to save: ${getErrorMessage(err)}`,
-    })
+  const handlePreferenceChange = async (key: PushPreferenceKey, value: boolean) => {
+    setPreferenceStatus('Saving preferences...')
+    try {
+      await updatePreferences({ [key]: value }).unwrap()
+      setPreferenceStatus('Notification preference saved.')
+    } catch {
+      setPreferenceStatus('')
+    }
   }
 
-  const preferenceItems = [
-    { key: 'matchStartPush', label: 'Match start browser push', description: 'Allow browser or installed-PWA push when a match starts. In-app inbox alerts are separate.' },
-    { key: 'newHighlightPush', label: 'New highlight browser push', description: 'Allow browser or installed-PWA push for new highlights. In-app inbox alerts are separate.' },
-    { key: 'matchStartEmail', label: 'Match Start (Email)', description: 'Get an email when a followed match is about to start.' },
-    { key: 'newHighlightEmail', label: 'New Highlights (Email)', description: 'Get an email when new highlights are available.' },
-  ] as const;
-
   if (isLoading) {
-    return <Card><CardHeader><CardTitle>Loading Notification Settings...</CardTitle></CardHeader></Card>
+    return <Card><CardContent className="py-6"><p role="status" aria-live="polite" className="text-sm text-text-muted">Loading notification preferences...</p></CardContent></Card>
   }
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }}><Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <motion.div className="p-1.5 bg-linear-to-br from-orange-400 to-orange-600 rounded-lg flex items-center justify-center" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>
-            <Bell size={18} className="text-white" />
-          </motion.div>
-          Notifications
-        </CardTitle>
-        <CardDescription>
-          Configure how you receive notifications.
-        </CardDescription>
+        <CardTitle className="flex items-center gap-2"><Bell size={18} aria-hidden="true" />Notifications</CardTitle>
+        <CardDescription>Manage supported browser push alerts. In-app inbox notifications are separate.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isError ? (
+          <div className="flex flex-wrap items-center justify-between gap-3" role="status">
+            <p className="text-sm text-text-muted">Notification preferences could not be loaded.</p>
+            <Button type="button" variant="outline" onClick={() => void refetch()}>Try again</Button>
+          </div>
+        ) : <>
         <div className="flex flex-col gap-3 rounded-lg border border-(--border) p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <Label className="font-medium">Browser / installed app push</Label>
+            <Label htmlFor="browser-push-toggle" className="font-medium">Browser / installed app push</Label>
             <p className="text-xs text-(--text-muted)">
-              {pushSupported
-                ? pushEnabled
-                  ? 'Push is enabled on this device. In-app inbox notifications remain separate.'
-                  : pushPermission === 'denied'
-                    ? 'Permission is blocked by the browser. Change this site’s notification permission to enable push.'
-                    : 'Optional match and highlight alerts for this browser or installed PWA. In-app notifications work without enabling push.'
-                : 'This browser does not support push notifications.'}
+              {isCheckingPush ? 'Checking this browser...' : !pushSupported
+                ? 'This browser does not support push notifications.'
+                : pushPermission === 'denied'
+                  ? 'Permission is blocked. Change this site’s browser permission to enable push.'
+                  : pushEnabled
+                    ? 'Push is enabled on this browser or installed app.'
+                    : !pushConfigured
+                      ? 'Push notifications are not configured for this site.'
+                      : 'Optional match-start and highlight alerts for this browser or installed app.'}
             </p>
           </div>
-          <Button
-            variant={pushEnabled ? 'outline' : 'default'}
-            size="sm"
-            disabled={!pushSupported || pushPermission === 'denied' || isRegisteringPush || isUnregisteringPush}
-            onClick={() => (pushEnabled ? disableBrowserPush() : enableBrowserPush())}
-          >
-            {isRegisteringPush || isUnregisteringPush ? 'Updating...' : pushEnabled ? 'Disable push' : pushPermission === 'denied' ? 'Blocked' : 'Enable push'}
-          </Button>
+          <Switch
+            id="browser-push-toggle"
+            checked={pushEnabled}
+            disabled={!pushSupported || !pushConfigured || isCheckingPush || pushPermission === 'denied' || isRegisteringPush || isUnregisteringPush}
+            aria-label="Enable browser push notifications on this device"
+            onCheckedChange={(checked) => checked ? void enableBrowserPush() : void disableBrowserPush()}
+          />
         </div>
 
-        {preferenceItems.map(item => (
+        {(isRegisteringPush || isUnregisteringPush) && <p role="status" aria-live="polite" className="text-sm text-text-muted">Updating push registration...</p>}
+        {pushPreferenceItems.map(item => (
           <div key={item.key} className="flex flex-col gap-3 rounded-lg border border-(--border) p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <Label htmlFor={item.key} className="font-medium">
@@ -278,39 +235,36 @@ function NotificationSettings() {
             />
           </div>
         ))}
+        {preferenceStatus && <p role="status" aria-live="polite" className="text-sm text-text-muted">{preferenceStatus}</p>}
+        </>}
       </CardContent>
     </Card></motion.div>
   )
 }
 
-export function SettingsPage() {
-  const [showAbout, setShowAbout] = useState(false)
+type PushPreferenceKey = Extract<keyof NotificationPreferences, 'matchStartPush' | 'newHighlightPush'>
 
+const pushPreferenceItems: { key: PushPreferenceKey; label: string; description: string }[] = [
+  { key: 'matchStartPush', label: 'Match start alerts', description: 'Receive browser push notifications when matches start.' },
+  { key: 'newHighlightPush', label: 'New highlight alerts', description: 'Receive browser push when new highlights are available.' },
+]
+
+function isApiError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'status' in error
+}
+
+export function SettingsPage() {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-3">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section">
-        {showAbout ? (
-          <div className="flex items-start gap-3">
-            <Button type="button" variant="ghost" size="icon" className="-ml-2 min-h-10 min-w-10" onClick={() => setShowAbout(false)} aria-label="Back to settings"><ArrowLeft className="h-5 w-5" /></Button>
-            <div><h1 className="text-lg font-medium">About SportZoneBD</h1><p className="text-sm text-brand-text-muted">App information, updates, and legal details.</p></div>
-          </div>
-        ) : (
-          <><h1 className="text-lg font-medium">Settings</h1><p className="text-sm text-brand-text-muted">Manage your account settings and set e-mail preferences.</p></>
-        )}
-      </motion.div>
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="app-page-section space-y-3">
-        {showAbout ? <AboutSportZoneBD /> : <>
-          <ProfileSettings />
-          <AppearanceSettings />
-          <NotificationSettings />
-          <Card>
-            <button type="button" onClick={() => setShowAbout(true)} className="flex min-h-16 w-full items-center gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)" aria-label={`About SportZoneBD, version ${APP_VERSION}`}>
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-(--accent)/10 text-(--accent)"><Info className="h-5 w-5" /></span>
-              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-(--text-primary)">About SportZoneBD</span><span className="mt-1 block text-xs text-(--text-muted)">Version {APP_VERSION} · App info, updates and legal</span></span>
-            </button>
-          </Card>
-        </>}
-      </motion.div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }} className="app-page space-y-4">
+      <header className="app-page-section">
+        <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
+        <p className="mt-1 text-sm text-text-muted">Manage your profile, appearance, and supported notifications.</p>
+      </header>
+      <div className="app-page-section space-y-4">
+        <ProfileSettings />
+        <AppearanceSettings />
+        <NotificationSettings />
+      </div>
     </motion.div>
   )
 }

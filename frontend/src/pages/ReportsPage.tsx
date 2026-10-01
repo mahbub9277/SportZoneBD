@@ -116,10 +116,10 @@ export default function ReportsPage() {
                     type="button"
                     onClick={() => setCategory(value)}
                     aria-pressed={isActive}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-sm transition ${
+                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                       isActive ?
-                        'border-accent/40 bg-accent/10 text-accent shadow-[0_8px_24px_rgba(4,116,196,0.12)]' :
-                        'border-border bg-surface-soft/70 text-text-muted hover:border-accent/30 hover:text-text-primary'
+                        'border-accent bg-accent text-white shadow-[0_8px_24px_rgba(4,116,196,0.28)]' :
+                        'border-border bg-surface-soft/70 text-text-muted hover:border-accent/50 hover:bg-accent/10 hover:text-accent'
                     }`}
                   >
                     <motion.div whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>

@@ -84,27 +84,16 @@ export async function notifyMatchStarted(match: { id: string; title: string }): 
 }
 
 export async function notifyMatchReminder(match: { id: string; title: string }): Promise<number> {
-  const inAppCount = await broadcastNotificationChannel(
-    {
-      title: 'Match Starting Soon',
-      body: `${match.title} starts soon! Tap to watch live.`,
-      type: 'match-reminder',
-      link: `/matches/${match.id}`,
-      preference: 'matchStartPush',
-    },
-    'IN_APP',
-  )
+  const eventData = {
+    title: 'Match Starting Soon',
+    body: `${match.title} starts soon! Tap to watch live.`,
+    type: 'match-reminder',
+    link: `/matches/${match.id}`,
+    preference: 'matchStartPush',
+  } as const
 
-  const pushCount = await broadcastNotificationChannel(
-    {
-      title: 'Match Starting Soon',
-      body: `${match.title} starts soon! Tap to watch live.`,
-      type: 'match-reminder',
-      link: `/matches/${match.id}`,
-      preference: 'matchStartPush',
-    },
-    'PUSH',
-  )
+  const inAppCount = await broadcastNotificationChannel(eventData, 'IN_APP')
+  const pushCount = await broadcastNotificationChannel(eventData, 'PUSH')
 
   return inAppCount + pushCount
 }

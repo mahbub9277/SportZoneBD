@@ -174,9 +174,11 @@ export const getAutomationMetrics = asyncHandler(async (req: Request, res: Respo
 
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
 
-  const [logs, matchCreates, streamValidations] = await Promise.all([
-    prisma.automationLog.findMany({
+  const [logCounts, matchCreates, streamValidations] = await Promise.all([
+    prisma.automationLog.groupBy({
       where: { jobId: job.id },
+      by: ['status'],
+      _count: { _all: true },
     }),
     prisma.automationLog.count({
       where: {
@@ -196,13 +198,14 @@ export const getAutomationMetrics = asyncHandler(async (req: Request, res: Respo
     }),
   ])
 
-  const successfulRuns = logs.filter((log) => log.status === 'SUCCESS').length
-  const failedRuns = logs.filter((log) => log.status === 'FAILED').length
+  const totalRuns = logCounts.reduce((total, group) => total + group._count._all, 0)
+  const successfulRuns = logCounts.find((group) => group.status === 'SUCCESS')?._count._all ?? 0
+  const failedRuns = logCounts.find((group) => group.status === 'FAILED')?._count._all ?? 0
 
   res.status(200).json(
     successResponse(
       {
-        totalRuns: logs.length,
+        totalRuns,
         successfulRuns,
         failedRuns,
         lastRunAt: job.lastRunAt,

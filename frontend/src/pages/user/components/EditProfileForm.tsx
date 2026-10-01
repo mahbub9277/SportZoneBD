@@ -190,10 +190,12 @@ export function EditProfileForm({ user, onSubmit, isLoading, onCancel }: EditPro
                 <AvatarFallback name={user.fullName || user.email || ''} className="text-3xl" />
               </Avatar>
               <AnimatePresence>
-                {previewUrl && selectedFile && (
+                {previewUrl && (selectedFile || user.avatar) && (
                   <motion.button
                     type="button"
                     onClick={handleRemovePreview}
+                    aria-label={selectedFile ? 'Remove selected avatar' : 'Remove current avatar'}
+                    title={selectedFile ? 'Remove selected avatar' : 'Remove current avatar'}
                     className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-red-500/50 bg-red-500 text-white"
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}

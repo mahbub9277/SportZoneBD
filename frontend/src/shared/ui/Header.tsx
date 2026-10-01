@@ -237,7 +237,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]"
             onClick={() => setIsNotificationsOpen(false)}
           />
-          <aside id="notifications-panel" aria-label="Notifications panel" className="absolute right-3 top-full z-50 mt-3 h-[min(72dvh,42rem)] w-[88vw] max-w-sm overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] md:right-5 md:w-[min(34rem,calc(100vw-3rem))] lg:w-xl">
+          <aside id="notifications-panel" aria-label="Notifications panel" className="absolute right-3 top-full z-50 mt-3 h-[min(72dvh,42rem)] max-h-[calc(100dvh-6rem-env(safe-area-inset-bottom))] w-[calc(100vw-1.5rem)] max-w-152 overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] md:right-4 md:w-[min(38rem,calc(100vw-2rem))]">
             {isAuthenticated && user ? (
               <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
                 <NotificationsPage

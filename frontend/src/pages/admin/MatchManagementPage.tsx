@@ -180,7 +180,9 @@ export function MatchManagementPage() {
       kickoffDate: formatMatchDateTimeInput(match.kickoffAt).slice(0, 10),
       kickoffTime: formatMatchDateTimeInput(match.kickoffAt).slice(11, 16),
       sport: (match.sport as CreateMatchFormValues['sport']) ?? 'CRICKET',
-      expectedDurationMinutes: match.expectedEndTime ? Math.max(1, Math.round((new Date(match.expectedEndTime).getTime() - kickoff.getTime()) / 60000)) : 120,
+      expectedDurationMinutes: match.expectedEndTime
+        ? Math.max(1, Math.round((new Date(match.expectedEndTime).getTime() - kickoff.getTime()) / 60000) - (match.autoFinish ? 15 : 0))
+        : 120,
       expectedEndTime: formatMatchDateTimeInput(match.expectedEndTime),
       autoFinish: match.autoFinish ?? false,
       preStartEnabled: match.preStartEnabled ?? null,

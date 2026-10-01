@@ -2,24 +2,12 @@ import { memo, startTransition, useEffect, useState, type ElementType } from 're
 import { Users, Swords, DollarSign, Radio, Clock3, Sparkles, ShieldCheck, TrendingUp, Zap, AlertCircle, Activity, CheckCircle2, XCircle, Clock, Gauge } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  ResponsiveContainer,
-  LineChart,
-  YAxis,
-  Tooltip,
-  XAxis,
-  Line,
-  Legend,
-  CartesianGrid,
-} from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
-import { useGetDashboardStatsQuery, useGetChartDataQuery, useGetRecentUsersQuery } from '../../features/admin/admin.api'
+import { useGetDashboardStatsQuery } from '../../features/admin/admin.api'
 import { useGetAutomationStatusQuery, useGetAutomationMetricsQuery, useTriggerManualSyncMutation } from '../../features/admin/adminAutomation.api' 
 import { useRealtimeAutomationUpdates } from '../../features/admin/useRealtimeAutomationUpdates'
-import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
-import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { formatCurrency } from '../../lib/utils'
 import { useSocket } from '../../hooks/useSocket'
 import { useGetStreamHealthSummaryQuery } from '../../features/analytics/analytics.api'
@@ -31,41 +19,41 @@ const DASHBOARD_QUERY_OPTIONS = {
 
 const StatCard = memo(function StatCard({ title, value, icon: Icon, isLoading, delay = 0 }: { title: string; value: string | number; icon: ElementType; isLoading: boolean; delay?: number }) {
   return (
-  <motion.div
-    initial={{ opacity: 0, y: 20, scale: 0.95 }}
-    animate={{ opacity: 1, y: 0, scale: 1 }}
-    transition={{ delay, duration: 0.4, type: 'spring', stiffness: 100 }}
-    whileHover={{ y: -5, transition: { duration: 0.2 } }}
-  >
-    <Card className="relative overflow-hidden rounded-[1.75rem] border border-(--border) bg-linear-to-br from-(--surface-soft) via-(--surface-soft)/80 to-(--surface) shadow-[0_30px_70px_var(--shadow)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top_left,rgba(247,199,93,0.1),transparent_40%)]">
-      <CardHeader className="flex items-center justify-between gap-3 pb-3">
-        <div>
-          <CardTitle className="text-sm font-semibold uppercase tracking-[0.22em] text-(--text-muted)">{title}</CardTitle>
-        </div>
-        <motion.div
-          className="grid h-11 w-11 place-items-center rounded-2xl bg-linear-to-br from-(--accent) to-(--accent)/80 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
-          whileHover={{ scale: 1.1, rotate: 5 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <Icon className="h-5 w-5" />
-        </motion.div>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-14 w-32" />
-        ) : (
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay, duration: 0.4, type: 'spring', stiffness: 100 }}
+      whileHover={{ y: -5, transition: { duration: 0.2 } }}
+    >
+      <Card className="relative overflow-hidden rounded-[1.75rem] border border-(--border) bg-linear-to-br from-(--surface-soft) via-(--surface-soft)/80 to-(--surface) shadow-[0_30px_70px_var(--shadow)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top_left,rgba(247,199,93,0.1),transparent_40%)]">
+        <CardHeader className="flex items-center justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="text-sm font-semibold uppercase tracking-[0.22em] text-(--text-muted)">{title}</CardTitle>
+          </div>
           <motion.div
-            className="text-3xl font-semibold text-(--text-primary) sm:text-4xl"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: delay + 0.2, duration: 0.3 }}
+            className="grid h-11 w-11 place-items-center rounded-2xl bg-linear-to-br from-(--accent) to-(--accent)/80 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+            whileHover={{ scale: 1.1, rotate: 5 }}
+            whileTap={{ scale: 0.95 }}
           >
-            {value}
+            <Icon className="h-5 w-5" />
           </motion.div>
-        )}
-      </CardContent>
-    </Card>
-  </motion.div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-14 w-32" />
+          ) : (
+            <motion.div
+              className="text-3xl font-semibold text-(--text-primary) sm:text-4xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: delay + 0.2, duration: 0.3 }}
+            >
+              {value}
+            </motion.div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
   )
 })
 
@@ -107,12 +95,12 @@ const OverviewCard = memo(function OverviewCard({ title, value, label, icon: Ico
 
 const AdminDashboardPage = () => {
   const { data, isLoading } = useGetDashboardStatsQuery(undefined, DASHBOARD_QUERY_OPTIONS)
-  const { adminSocket } = useSocket()
+  const { adminSocket, telemetryEnabled: configuredTelemetryEnabled } = useSocket()
+  const telemetryEnabled = configuredTelemetryEnabled === true
+  const isTelemetryStatusLoading = configuredTelemetryEnabled === null
   const [liveViewerCount, setLiveViewerCount] = useState<number | null>(null)
-  const { data: streamHealth, isError: isStreamHealthError } = useGetStreamHealthSummaryQuery()
+  const { data: streamHealth, isError: isStreamHealthError, isLoading: isStreamHealthLoading } = useGetStreamHealthSummaryQuery(undefined, { skip: !telemetryEnabled })
   const [liveStreamHealth, setLiveStreamHealth] = useState(streamHealth)
-  const { data: chartData, isLoading: isChartLoading } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
-  const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: automationStatus, isLoading: isAutomationStatusLoading } = useGetAutomationStatusQuery(undefined)
   const { data: automationMetrics, isLoading: isAutomationMetricsLoading } = useGetAutomationMetricsQuery(undefined)
   const [triggerManualSync, { isLoading: isSyncLoading }] = useTriggerManualSyncMutation()
@@ -145,30 +133,29 @@ const AdminDashboardPage = () => {
 
   useEffect(() => startTransition(() => setLiveStreamHealth(streamHealth)), [streamHealth])
   useEffect(() => {
-    if (!adminSocket) return
+    if (!adminSocket || !telemetryEnabled) return
     const handleHealth = (payload: NonNullable<typeof streamHealth>) => { setLiveStreamHealth(payload) }
     adminSocket.on('analytics:stream-health', handleHealth)
     return () => { adminSocket.off('analytics:stream-health', handleHealth) }
-  }, [adminSocket])
+  }, [adminSocket, telemetryEnabled])
 
   const revenueValue = typeof data?.totalRevenue === 'number' ? formatCurrency(data.totalRevenue) : formatCurrency(0)
-  const recentUsersList = recentUsers ?? []
-  const chartSeries = chartData?.revenue ?? []
   const matchHealth = data?.liveMatches ? 'Stable' : 'Attention'
   const paymentSuccessRate = data?.totalTransactions
     ? `${Math.round(((data.successfulPayments ?? 0) / data.totalTransactions) * 100)}%`
     : 'N/A'
 
   const automationStatusColor = automationStatus?.status === 'IDLE' ? 'bg-green-500' : automationStatus?.status === 'RUNNING' ? 'bg-blue-500' : automationStatus?.status === 'ERROR' ? 'bg-red-500' : 'bg-yellow-500'
-  const automationLogCount = automationStatus?.logs?.length ?? 0
   const automationTotalRuns = automationMetrics?.totalRuns ?? 0
   const automationSuccessfulRuns = automationMetrics?.successfulRuns ?? 0
   const automationSuccessRate = automationTotalRuns > 0
     ? `${Math.round((automationSuccessfulRuns / automationTotalRuns) * 100)}%`
     : 'N/A'
-  const streamHealthValue = isStreamHealthError
-    ? 'Unavailable'
-    : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`
+  const streamHealthValue = !telemetryEnabled
+    ? 'Disabled'
+    : isStreamHealthError
+      ? 'Unavailable'
+      : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`
 
   const handleManualSync = async () => {
     try {
@@ -242,7 +229,7 @@ const AdminDashboardPage = () => {
           <StatCard title="Total Users" value={data?.totalUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.15} />
           <StatCard title="Live Matches" value={data?.liveMatches ?? 0} icon={Radio} isLoading={isLoading} delay={0.2} />
           <StatCard title="Live Viewers" value={liveViewerCount ?? 'Unavailable'} icon={Users} isLoading={isLoading} delay={0.25} />
-          <StatCard title="Stream Health" value={streamHealthValue} icon={Activity} isLoading={!liveStreamHealth && isLoading} delay={0.3} />
+          <StatCard title="Stream Health" value={streamHealthValue} icon={Activity} isLoading={isTelemetryStatusLoading || (telemetryEnabled && isStreamHealthLoading)} delay={0.3} />
           <StatCard title="Pending Payments" value={data?.pendingPayments ?? 0} icon={Clock3} isLoading={isLoading} delay={0.25} />
           <StatCard title="Active Subscriptions" value={data?.activeSubscriptions ?? 0} icon={ShieldCheck} isLoading={isLoading} delay={0.3} />
           <StatCard title="Premium Users" value={data?.premiumUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.35} />
@@ -287,64 +274,6 @@ const AdminDashboardPage = () => {
           </CardContent>
         </Card>
 
-        <motion.div
-          initial={{ opacity: 0, x: 30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.5, duration: 0.4 }}
-        >
-          <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft) to-(--surface)">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-(--accent)" />
-                Quick actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <motion.div
-                className="rounded-3xl border border-(--border) bg-linear-to-br from-(--surface-soft)/50 to-(--surface-soft)/30 p-4"
-                whileHover={{ scale: 1.02, borderColor: 'var(--accent)' }}
-              >
-                <p className="text-sm text-(--text-muted)">Review pending payments</p>
-                <motion.p
-                  className="mt-2 text-2xl font-semibold text-(--text-secondary) flex items-center gap-2"
-                  initial={{ scale: 0.8 }}
-                  animate={{ scale: 1 }}
-                >
-                  <Clock className="h-4 w-4 text-(--accent)" />
-                  {data?.pendingPayments ?? 0}
-                </motion.p>
-              </motion.div>
-              <motion.div
-                className="rounded-3xl border border-(--border) bg-linear-to-br from-(--surface-soft)/50 to-(--surface-soft)/30 p-4"
-                whileHover={{ scale: 1.02, borderColor: 'var(--accent)' }}
-              >
-                <p className="text-sm text-(--text-muted)">Open matches in progress</p>
-                <motion.p
-                  className="mt-2 text-2xl font-semibold text-(--text-secondary) flex items-center gap-2"
-                  initial={{ scale: 0.8 }}
-                  animate={{ scale: 1 }}
-                >
-                  <Radio className="h-4 w-4 text-red-500 animate-pulse" />
-                  {data?.liveMatches ?? 0}
-                </motion.p>
-              </motion.div>
-              <motion.div
-                className="rounded-3xl border border-(--border) bg-linear-to-br from-(--surface-soft)/50 to-(--surface-soft)/30 p-4"
-                whileHover={{ scale: 1.02, borderColor: 'var(--accent)' }}
-              >
-                <p className="text-sm text-(--text-muted)">Automation logs</p>
-                <motion.div
-                  className="mt-2 text-2xl font-semibold text-(--text-secondary) flex items-center gap-2"
-                  initial={{ scale: 0.8 }}
-                  animate={{ scale: 1 }}
-                >
-                  <Gauge className="h-4 w-4 text-(--accent)" />
-                  {isAutomationStatusLoading ? <Skeleton className="h-8 w-12" /> : automationLogCount}
-                </motion.div>
-              </motion.div>
-            </CardContent>
-          </Card>
-        </motion.div>
       </motion.div>
 
       {/* Automation Status Section */}
@@ -561,160 +490,6 @@ const AdminDashboardPage = () => {
                 </motion.div>
               ) : (
                 <p className="text-sm text-(--text-muted)">No logs yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.8, duration: 0.5 }}
-        className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]"
-      >
-        <motion.div whileHover={{ y: -5 }} transition={{ type: 'spring', stiffness: 300 }}>
-          <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft) to-(--surface)">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-(--accent)" />
-                Revenue overview
-              </CardTitle>
-              <p className="text-xs text-(--text-muted) mt-1">High & Low value trend analysis</p>
-            </CardHeader>
-            <CardContent>
-              {isChartLoading ? (
-                <Skeleton className="h-72 w-full" />
-              ) : (
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={chartSeries}>
-                    <defs>
-                      <linearGradient id="colorHigh" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.8} />
-                        <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorLow" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} stroke="var(--text-muted)" />
-                    <YAxis
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(value) => formatCurrency(Number(value))}
-                      stroke="var(--text-muted)"
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: 'var(--surface-strong)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '12px',
-                      }}
-                      formatter={(value) => formatCurrency(Number(value))}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                    <Line
-                      type="monotone"
-                      dataKey="total"
-                      stroke="var(--accent)"
-                      strokeWidth={2.5}
-                      dot={{ fill: 'var(--accent)', r: 5 }}
-                      activeDot={{ r: 7 }}
-                      name="Average"
-                      isAnimationActive
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="high"
-                      stroke="#8b5cf6"
-                      strokeWidth={2}
-                      dot={{ fill: '#8b5cf6', r: 4 }}
-                      activeDot={{ r: 6 }}
-                      name="High"
-                      isAnimationActive
-                      strokeDasharray="5 5"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="low"
-                      stroke="#ec4899"
-                      strokeWidth={2}
-                      dot={{ fill: '#ec4899', r: 4 }}
-                      activeDot={{ r: 6 }}
-                      name="Low"
-                      isAnimationActive
-                      strokeDasharray="5 5"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div whileHover={{ y: -5 }} transition={{ type: 'spring', stiffness: 300 }}>
-          <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft) to-(--surface)">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-(--accent)" />
-                Recent sign-ups
-              </CardTitle>
-              <p className="text-xs text-(--text-muted) mt-1">Latest user registrations</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {areRecentUsersLoading ? (
-                Array.from({ length: 5 }).map((_, index) => (
-                  <Skeleton key={index} className="h-14 w-full" />
-                ))
-              ) : recentUsersList.length > 0 ? (
-                <motion.div className="space-y-3">
-                  {recentUsersList.slice(0, 5).map((user, index) => (
-                    <motion.div
-                      key={user.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.08 }}
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-(--border) bg-linear-to-r from-(--surface-soft)/50 to-transparent p-3 hover:border-(--accent) transition-colors"
-                      whileHover={{ x: 5 }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <motion.div
-                          className="relative"
-                          whileHover={{ scale: 1.1 }}
-                        >
-                          <Avatar className="h-9 w-9">
-                            <AvatarImage src={buildCloudinaryUrl(user.avatar)} alt={user.fullName || user.email || ''} />
-                            <AvatarFallback className="text-xs font-semibold">
-                              {(user.fullName || user.email || '?').charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <motion.div
-                            className="absolute inset-0 rounded-full border border-(--accent)"
-                            initial={{ opacity: 0 }}
-                            whileHover={{ opacity: 1 }}
-                          />
-                        </motion.div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-(--text-primary) truncate">{user.fullName || user.email}</p>
-                          <p className="text-xs text-(--text-muted) truncate">{user.email}</p>
-                        </div>
-                      </div>
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: index * 0.08 + 0.1 }}
-                        className="shrink-0"
-                      >
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      </motion.div>
-                    </motion.div>
-                  ))}
-                </motion.div>
-              ) : (
-                <p className="text-sm text-(--text-muted) text-center py-8">No recent sign-ups yet.</p>
               )}
             </CardContent>
           </Card>

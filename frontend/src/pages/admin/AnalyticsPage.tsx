@@ -1,6 +1,6 @@
 import type { ElementType } from 'react'
 import { useLayoutEffect, useState } from 'react'
-import { Users, DollarSign, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
+import { Users, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
 import { motion } from 'framer-motion'
 import {
   ResponsiveContainer,
@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
-import { useGetDashboardStatsQuery, useGetChartDataQuery, useGetRecentUsersQuery, useGetAdvertisementAnalyticsQuery } from '../../features/admin/admin.api'
+import { useGetChartDataQuery, useGetRecentUsersQuery, useGetAdvertisementAnalyticsQuery } from '../../features/admin/admin.api'
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { Badge } from '../../shared/ui/Badge'
@@ -71,7 +71,6 @@ const StatCard = ({ title, value, icon: Icon, isLoading, delay = 0 }: { title: s
 
 export default function AnalyticsPage() {
   const [adPeriod, setAdPeriod] = useState('1')
-  const { data, isLoading } = useGetDashboardStatsQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: chartData, isLoading: isChartLoading } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: adAnalytics, isLoading: isAdAnalyticsLoading } = useGetAdvertisementAnalyticsQuery(adPeriod, DASHBOARD_QUERY_OPTIONS)
@@ -91,7 +90,6 @@ export default function AnalyticsPage() {
     return () => { adminSocket.off('analytics:stream-health', handleHealth) }
   }, [adminSocket, telemetryEnabled])
 
-  const revenueValue = typeof data?.totalRevenue === 'number' ? formatCurrency(data.totalRevenue) : formatCurrency(0)
   const chartSeries = chartData?.revenue ?? []
   const userSeries = chartData?.userSignups ?? []
   const recentUsersList = recentUsers ?? []
@@ -184,7 +182,7 @@ export default function AnalyticsPage() {
             {isTelemetryStatusLoading ? <Skeleton className="h-20 w-full" /> : !telemetryEnabled ? <p className="text-center text-sm text-(--text-muted)">Telemetry is currently disabled.</p> : <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <MetricPill tone="accent" label="Health" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.healthPercentage == null ? 'No Active Viewers' : `${liveStreamHealth.healthPercentage}%`} />
-              <MetricPill tone="blue" label="Live viewers" value={data?.totalLiveViewers ?? 'Unavailable'} />
+              <MetricPill tone="blue" label="Live viewers" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.totalActiveViewers ?? 0} />
               <MetricPill tone="green" label="Healthy sessions" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.healthyViewers ?? 0} />
               <MetricPill tone="amber" label="Buffering" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.bufferingViewers ?? 0} />
               <MetricPill tone="red" label="Errors" value={isStreamHealthError ? 'Unavailable' : liveStreamHealth?.errorViewers ?? 0} />
@@ -229,12 +227,8 @@ export default function AnalyticsPage() {
         transition={{ delay: 0.3, duration: 0.5 }}
         className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
       >
-        <StatCard title="Total Revenue" value={revenueValue} icon={DollarSign} isLoading={isLoading} delay={0.1} />
-        <StatCard title="Total Users" value={data?.totalUsers ?? 0} icon={Users} isLoading={isLoading} delay={0.15} />
-        <StatCard title="Premium Users" value={data?.premiumUsers ?? 0} icon={ShieldCheck} isLoading={isLoading} delay={0.2} />
-        <StatCard title="Successful Payments" value={data?.successfulPayments ?? 0} icon={TrendingUp} isLoading={isLoading} delay={0.25} />
-        <StatCard title="Avg Daily Signups" value={averageSignups} icon={Users} isLoading={isChartLoading} delay={0.3} />
-        <StatCard title="Best Month" value={bestMonth.month ?? 'N/A'} icon={BarChart} isLoading={isChartLoading} delay={0.35} />
+        <StatCard title="Avg Daily Signups" value={averageSignups} icon={Users} isLoading={isChartLoading} delay={0.1} />
+        <StatCard title="Best Month" value={bestMonth.month ?? 'N/A'} icon={BarChart} isLoading={isChartLoading} delay={0.15} />
       </motion.div>
 
       <motion.div

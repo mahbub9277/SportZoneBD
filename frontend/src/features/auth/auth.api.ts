@@ -104,8 +104,18 @@ const authApi = emptyApi.injectEndpoints({
         // When using FormData, the browser automatically sets the 'Content-Type'
         // to 'multipart/form-data' with the correct boundary.
       }),
-      transformResponse: (response: ApiResponse<User> | User) => unwrapApiResponse<User>(response),
-      invalidatesTags: ['User'],
+      transformResponse: (response: ApiResponse<User | { user: User }>) => {
+        const result = unwrapApiResponse<User | { user: User }>(response)
+        return 'user' in result ? result.user : result
+      },
+      async onQueryStarted(_formData, { dispatch, queryFulfilled }) {
+        try {
+          const { data: updatedUser } = await queryFulfilled
+          dispatch(authApi.util.updateQueryData('getMe', undefined, (cachedUser) => {
+            Object.assign(cachedUser, updatedUser)
+          }))
+        } catch {}
+      },
     }),
   }),
   // This allows the authApi to be injected into the emptyApi without overwriting other endpoints
