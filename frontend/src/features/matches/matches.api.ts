@@ -98,6 +98,7 @@ export const matchesApi = emptyApi.injectEndpoints({
 
 export const {
   useGetMatchesQuery,
+  useLazyGetMatchesQuery,
   useGetMatchByIdQuery,
   useGetMatchHighlightsQuery,
 } = matchesApi

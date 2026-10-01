@@ -482,8 +482,8 @@ export class MatchAutomationService {
         if (existingMatch) {
           const homeTeamId = homeTeam?.id ?? existingMatch.homeTeamId ?? null
           const awayTeamId = awayTeam?.id ?? existingMatch.awayTeamId ?? null
-          const homeTeamLogo = homeTeam?.logoUrl ?? existingMatch.homeTeamLogo ?? null
-          const awayTeamLogo = awayTeam?.logoUrl ?? existingMatch.awayTeamLogo ?? null
+          const homeTeamLogo = homeTeam?.logoUrl?.trim() || existingMatch.homeTeamLogo?.trim() || fixture.homeTeamCrest || null
+          const awayTeamLogo = awayTeam?.logoUrl?.trim() || existingMatch.awayTeamLogo?.trim() || fixture.awayTeamCrest || null
           const needsUpdate =
             existingMatch.title !== `${homeName} vs ${awayName}` ||
             existingMatch.homeTeamName !== homeName ||
@@ -532,8 +532,8 @@ export class MatchAutomationService {
               awayTeamName: awayName,
               homeTeamId: homeTeam?.id ?? null,
               awayTeamId: awayTeam?.id ?? null,
-              homeTeamLogo: homeTeam?.logoUrl ?? null,
-              awayTeamLogo: awayTeam?.logoUrl ?? null,
+              homeTeamLogo: homeTeam?.logoUrl?.trim() || fixture.homeTeamCrest || null,
+              awayTeamLogo: awayTeam?.logoUrl?.trim() || fixture.awayTeamCrest || null,
               sport: 'FOOTBALL',
               tournamentName: fixture.competitionName,
               status: 'UPCOMING',

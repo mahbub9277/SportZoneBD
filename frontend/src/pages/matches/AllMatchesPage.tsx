@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import { useGetMatchesQuery } from '../../features/matches/matches.api'
+import { useGetMatchesQuery, useLazyGetMatchesQuery } from '../../features/matches/matches.api'
 import { MatchCardSkeleton } from '../../components/skeletons/MatchCardSkeleton'
 import { Search, Star } from 'lucide-react'
 import { Card, CardContent } from '../../components/ui/Card'
@@ -12,15 +12,15 @@ import { MatchCardDisplay } from '../../components/MatchCardDisplay'
 import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { filterMatches, sortMatches } from '../../features/matches/matchOrdering'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
 const emptyMatches: Match[] = []
 const statusFilters = [
   { value: 'Recent', label: 'Recent' },
-  { value: 'All', label: 'All' },
   { value: 'LIVE', label: 'Live' },
   { value: 'UPCOMING', label: 'Upcoming' },
+  { value: 'All', label: 'All' },
 ] as const
 
 type MatchStatus = (typeof matchStatuses)[number]
@@ -38,44 +38,75 @@ export function AllMatchesPage() {
 
   const { filters, setFilters, debouncedFilters } = useFilterState({
     search: '',
-    status: 'All',
+    status: 'Recent',
     premium: false,
   }, ['search']);
 
   const { search, status, premium } = filters
   const normalizedStatus = normalizeStatus(status)
-  const { data, isLoading, isError, isFetching } = useGetMatchesQuery({
+  const [triggerMatches] = useLazyGetMatchesQuery()
+  const [allMatchesResult, setAllMatchesResult] = useState<{ key: string; items: Match[] } | null>(null)
+  const [allMatchesErrorKey, setAllMatchesErrorKey] = useState<string | null>(null)
+  const allQueryKey = JSON.stringify([debouncedFilters.search, premium])
+  const matchQuery = useGetMatchesQuery({
     page: 1,
     limit: 100,
     search: debouncedFilters.search,
-    status: normalizedStatus,
     premium: premium,
-    activeOnly: true,
-  }, { refetchOnMountOrArgChange: 5 })
+    ...(status === 'Recent'
+      ? { activeOnly: true }
+      : normalizedStatus
+        ? { status: normalizedStatus }
+        : {}),
+  }, { skip: status === 'All' })
+
+  useEffect(() => {
+    if (status !== 'All') return
+    let active = true
+
+    const loadAllMatches = async () => {
+      try {
+        const queryArgs = { page: 1, limit: 100, search: debouncedFilters.search, premium }
+        const firstPage = await triggerMatches(queryArgs, true).unwrap()
+        const remainingPages = await Promise.all(
+          Array.from({ length: Math.max(0, firstPage.meta.totalPages - 1) }, (_, index) =>
+            triggerMatches({ ...queryArgs, page: index + 2 }, true).unwrap(),
+          ),
+        )
+
+        if (active) {
+          setAllMatchesResult({
+            key: allQueryKey,
+            items: [firstPage, ...remainingPages].flatMap((page) => page.items),
+          })
+          setAllMatchesErrorKey(null)
+        }
+      } catch {
+        if (active) setAllMatchesErrorKey(allQueryKey)
+      }
+    }
+
+    void loadAllMatches()
+    return () => { active = false }
+  }, [allQueryKey, debouncedFilters.search, premium, status, triggerMatches])
+
+  const isLoading = status === 'All'
+    ? allMatchesResult?.key !== allQueryKey && allMatchesErrorKey !== allQueryKey
+    : matchQuery.isLoading
+  const isError = status === 'All' ? allMatchesErrorKey === allQueryKey : matchQuery.isError
+  const isFetching = status === 'All' ? isLoading : matchQuery.isFetching
+  const matches = status === 'All'
+    ? allMatchesResult?.key === allQueryKey ? allMatchesResult.items : emptyMatches
+    : matchQuery.data?.items ?? emptyMatches
 
   const activeMatches = useMemo(
-    () => sortMatches(filterMatches(data?.items ?? emptyMatches, undefined, premium)),
-    [data?.items, premium],
+    () => sortMatches(filterMatches(matches, normalizedStatus, premium)),
+    [matches, normalizedStatus, premium],
   )
   const visibleMatches = useMemo(() => {
     if (status === 'Recent') return activeMatches.slice(0, 6)
-    if (normalizedStatus) return filterMatches(activeMatches, normalizedStatus as MatchStatus, false)
     return activeMatches
-  }, [activeMatches, normalizedStatus, status])
-  const counts = useMemo(() => {
-    let live = 0
-    let upcoming = 0
-    for (const match of activeMatches) {
-      if (match.status?.toUpperCase() === 'LIVE') live += 1
-      else if (match.status?.toUpperCase() === 'UPCOMING') upcoming += 1
-    }
-    return {
-      Recent: Math.min(activeMatches.length, 6),
-      All: activeMatches.length,
-      LIVE: live,
-      UPCOMING: upcoming,
-    }
-  }, [activeMatches])
+  }, [activeMatches, status])
   const hasNoMatches = !isLoading && (isError || visibleMatches.length === 0)
 
   return (
@@ -116,7 +147,7 @@ export function AllMatchesPage() {
                     'border-[#A8C4EC]/15 bg-[#262B40]/55 text-[#A8C4EC] hover:border-[#0474C4]/40 hover:bg-[#2C444C]/60 hover:text-white',
                 )}
               >
-                {option.label} ({counts[option.value]})
+                {option.label}
               </button>
             )
           })}

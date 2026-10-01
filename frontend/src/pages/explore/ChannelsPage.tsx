@@ -186,7 +186,7 @@ export function ChannelsPage() {
                 <div
                   key={channel.id}
                 >
-                  <Card className="group relative flex h-full min-h-32 flex-col items-center justify-center p-2.5 text-center transition hover:border-accent/50 sm:min-h-36 sm:p-3">
+                  <Card className="group relative flex h-full min-h-[134px] flex-col items-center justify-center p-2.5 text-center transition hover:border-accent/50 sm:min-h-36 sm:p-3">
                     <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className="flex w-full min-w-0 flex-col items-center justify-center">
                       <img src={buildCloudinaryUrl(channel.logo, { width: 60, height: 60, crop: 'fill' })} alt={`${channel.name} logo`} className="mb-2 h-14 w-14 rounded-full border border-border bg-surface-soft p-1 object-contain sm:h-20 sm:w-20 transition-transform duration-200 group-hover:scale-105" />
                       <p className="line-clamp-2 wrap-break-word text-xs font-medium leading-tight text-text-primary sm:text-sm">{channel.name}</p>
@@ -198,7 +198,7 @@ export function ChannelsPage() {
                         e.stopPropagation()
                         dispatch(toggleFavoriteChannel(channel.id))
                       }}
-                      className="absolute right-2 top-2 rounded-full bg-surface-soft/80 p-1.5 text-text-muted opacity-100 transition hover:text-accent sm:opacity-0 sm:group-hover:opacity-100"
+                      className="absolute right-2 top-2 hidden rounded-full bg-surface-soft/80 p-1.5 text-text-muted transition hover:text-accent focus-visible:opacity-100 lg:block lg:opacity-0 lg:group-hover:opacity-100"
                       aria-label={favoriteChannelIds.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}
                     >
                       <span className="block transition-transform duration-150 hover:scale-110"><Heart size={18} className={favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-text-muted'} /></span>
@@ -215,7 +215,7 @@ export function ChannelsPage() {
                 <div
                   key={channel.id}
                 >
-                  <Card className="flex min-w-0 flex-col gap-4 p-4 transition hover:border-accent/50 sm:flex-row sm:items-center">
+                  <Card className="group flex min-w-0 flex-col gap-4 p-4 transition hover:border-accent/50 sm:flex-row sm:items-center">
                     <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className="flex min-w-0 flex-1 items-center gap-4">
                       <img src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })} alt={`${channel.name} logo`} className="h-20 w-20 shrink-0 rounded-2xl border border-border bg-surface-soft p-1 object-contain sm:h-28 sm:w-28 transition-transform duration-200 hover:scale-105" />
                       <div className="min-w-0">
@@ -227,7 +227,7 @@ export function ChannelsPage() {
                       <button
                         type="button"
                         onClick={() => dispatch(toggleFavoriteChannel(channel.id))}
-                        className="text-text-muted hover:text-accent"
+                        className="hidden h-10 w-10 items-center justify-center rounded-full text-text-muted transition hover:bg-accent/10 hover:text-accent focus-visible:opacity-100 lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100"
                         aria-label={favoriteChannelIds.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}
                       >
                         <span className="block transition-transform duration-150 hover:scale-110"><Heart size={18} className={favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-text-muted'} /></span>

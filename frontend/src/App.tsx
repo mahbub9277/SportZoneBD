@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
+import { Download, X } from 'lucide-react'
 import { router } from '@/routes'
 import { SplashScreen } from '@/components/ui/SplashScreen'
-import { Toaster } from 'sonner'
+import { toast, Toaster } from 'sonner'
 import { useGetAdminSettingsQuery } from './features/admin/admin.api'
 import { useInitialLoad } from './hooks/useInitialLoad'
 import { useAppSelector } from './app/hooks'
@@ -60,6 +61,7 @@ export function App() {
     const handleOnline = () => setIsOffline(false)
     const handleOffline = () => setIsOffline(true)
     const handleInstallable = (event: Event) => {
+      event.preventDefault()
       const wasDismissed = readSessionFlag(INSTALL_DISMISSED_KEY)
       if (isInstalled || wasDismissed) return
       setInstallPrompt(event as BeforeInstallPromptEvent)
@@ -100,13 +102,16 @@ export function App() {
   }, [isInstalled])
 
   const handleInstall = async () => {
-    if (!installPrompt) return
+    const pendingPrompt = installPrompt
+    if (!pendingPrompt) return
+    setInstallPrompt(null)
     try {
-      await installPrompt.prompt()
-      const result = await installPrompt.userChoice
-      if (result.outcome === 'accepted') setInstallPrompt(null)
+      await pendingPrompt.prompt()
+      const result = await pendingPrompt.userChoice
+      if (result.outcome === 'dismissed') writeSessionFlag(INSTALL_DISMISSED_KEY, true)
     } catch {
-      setInstallPrompt(null)
+      writeSessionFlag(INSTALL_DISMISSED_KEY, true)
+      toast.error('The install prompt could not be opened. Use the browser menu if it offers an Install App option.')
     }
   }
 
@@ -199,13 +204,13 @@ export function App() {
   return (
     <PwaExperienceContext.Provider value={pwaExperience}>
       {(isOffline || (installPrompt && !isInstalled) || (updateRegistration && !isUpdateDismissed) || isUpdating) && (
-        <div className="fixed inset-x-3 bottom-4 z-9998 mx-auto flex max-w-xl flex-col gap-3 rounded-2xl border border-border bg-(--surface-strong) p-4 text-sm text-text-primary shadow-[0_20px_70px_rgba(0,0,0,0.35)] sm:flex-row sm:items-center sm:justify-between">
+        <div role="region" aria-label={installPrompt && !isInstalled ? 'Install SportZoneBD' : 'SportZoneBD app status'} className="fixed inset-x-3 bottom-4 z-9998 mx-auto flex max-w-2xl flex-col gap-4 rounded-3xl border border-border bg-(--surface-strong) p-5 text-sm text-text-primary shadow-[0_20px_70px_rgba(0,0,0,0.3)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="min-w-0">
-            <p className="font-semibold">{isUpdating ? 'Updating SportZoneBD...' : updateRegistration && !isUpdateDismissed ? 'New version available' : isOffline ? 'You are offline.' : 'Install SportZoneBD'}</p>
-            <p className="mt-1 text-xs text-text-muted">{isUpdating ? 'Please wait while the app reloads.' : updateRegistration && !isUpdateDismissed ? 'A new app version is ready to install.' : isOffline ? 'Cached app resources remain available. Live data needs a connection.' : 'Get a faster, app-like experience.'}</p>
+            <p className="text-base font-semibold">{isUpdating ? 'Updating SportZoneBD...' : updateRegistration && !isUpdateDismissed ? 'New version available' : isOffline ? 'You are offline.' : 'Install SportZoneBD'}</p>
+            <p className="mt-1 text-sm leading-6 text-text-muted">{isUpdating ? 'Please wait while the app reloads.' : updateRegistration && !isUpdateDismissed ? 'A new app version is ready to install.' : isOffline ? 'Cached app resources remain available. Live data needs a connection.' : 'Get a faster, app-like experience.'}</p>
           </div>
-          <div className="flex shrink-0 gap-2">
-            {isUpdating ? <span role="status" aria-live="polite" className="sr-only">Updating SportZoneBD. Please wait.</span> : updateRegistration && !isUpdateDismissed ? <><Button type="button" size="sm" onClick={applyUpdate}>Update now</Button><Button type="button" variant="ghost" size="sm" onClick={dismissUpdate}>Later</Button></> : installPrompt && !isInstalled ? <><Button type="button" size="sm" onClick={() => void handleInstall}>Install App</Button><Button type="button" variant="ghost" size="sm" onClick={() => { writeSessionFlag(INSTALL_DISMISSED_KEY, true); setInstallPrompt(null) }}>Later</Button></> : null}
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+            {isUpdating ? <span role="status" aria-live="polite" className="sr-only">Updating SportZoneBD. Please wait.</span> : updateRegistration && !isUpdateDismissed ? <><Button type="button" className="min-h-11 w-full sm:w-auto" onClick={applyUpdate}>Update now</Button><Button type="button" variant="ghost" className="min-h-11 w-full gap-2 sm:w-auto" onClick={dismissUpdate} aria-label="Dismiss update notice"><X className="h-4 w-4" aria-hidden="true" />Later</Button></> : installPrompt && !isInstalled ? <><Button type="button" className="min-h-11 w-full gap-2 sm:w-auto" onClick={() => void pwaExperience.installApp()}><Download className="h-4 w-4" aria-hidden="true" />Install App</Button><Button type="button" variant="ghost" className="min-h-11 w-full gap-2 sm:w-auto" onClick={() => { writeSessionFlag(INSTALL_DISMISSED_KEY, true); setInstallPrompt(null) }} aria-label="Dismiss install prompt"><X className="h-4 w-4" aria-hidden="true" />Later</Button></> : null}
           </div>
         </div>
       )}

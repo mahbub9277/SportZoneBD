@@ -10,6 +10,7 @@ import { buildCloudinaryUrl } from '../utils/cloudinary'
 import { getMatchStatus } from '../features/matches/matchOrdering'
 import { formatMatchKickoffDate, formatMatchKickoffTime } from '../utils/matchDateTime'
 import { useCountdown } from '../hooks/useCountdown'
+import { VsIcon } from './VsIcon'
 
 interface MatchCardDisplayProps {
   match: Match
@@ -29,10 +30,26 @@ const getTeamName = (value: string | null | undefined, fallback: string) => {
   return trimmed && trimmed.length > 0 ? trimmed : fallback
 }
 
-const buildTeamVisual = (name: string, fallbackText: string, logo?: string | null) => ({
-  name: getTeamName(name, fallbackText),
-  logo: logo && logo.trim() ? buildCloudinaryUrl(logo, { width: 96, height: 96, crop: 'fit', quality: 'auto', format: 'auto' }) : null,
-})
+const buildTeamVisual = (name: string, fallbackText: string, logo?: string | null) => {
+  const normalizedLogo = logo?.trim()
+  let imageUrl: string | null = null
+  if (normalizedLogo) {
+    if (/^[a-z][a-z\d+.-]*:/i.test(normalizedLogo)) {
+      try {
+        const url = new URL(normalizedLogo)
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+          imageUrl = buildCloudinaryUrl(normalizedLogo, { width: 96, height: 96, crop: 'fit', quality: 'auto', format: 'auto' })
+        }
+      } catch {
+        imageUrl = null
+      }
+    } else {
+      imageUrl = buildCloudinaryUrl(normalizedLogo, { width: 96, height: 96, crop: 'fit', quality: 'auto', format: 'auto' })
+    }
+  }
+
+  return { name: getTeamName(name, fallbackText), logo: imageUrl }
+}
 
 export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, compact = false }: MatchCardDisplayProps) {
   const navigate = useNavigate()
@@ -58,8 +75,8 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
   const displayTitle = getMatchDisplayTitle(match)
   const streamCount = match.streams?.filter((stream) => stream.enabled !== false && stream.isEnabled !== false).length ?? 0
 
-  const homeTeam = buildTeamVisual(match.homeTeamName ?? '', 'Team 1', match.homeTeamLogo ?? null)
-  const awayTeam = buildTeamVisual(match.awayTeamName ?? '', 'Team 2', match.awayTeamLogo ?? null)
+  const homeTeam = buildTeamVisual(match.homeTeamName ?? match.homeTeam?.name ?? '', 'Team 1', match.homeTeamLogo || match.homeTeam?.logoUrl)
+  const awayTeam = buildTeamVisual(match.awayTeamName ?? match.awayTeam?.name ?? '', 'Team 2', match.awayTeamLogo || match.awayTeam?.logoUrl)
 
   return (
     <motion.div className="h-full w-full min-w-0">
@@ -78,7 +95,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
               {matchStatus === 'LIVE' ? <span className="text-rose-500 dark:text-rose-300">{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
             </time>
           </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 sm:gap-4">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3 sm:gap-5">
             <div className="flex min-w-0 flex-col items-center gap-2 text-center">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {homeTeam.logo && !homeLogoFailed ? (
@@ -90,7 +107,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
               <p className="w-full wrap-break-word text-xs font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{homeTeam.name}</p>
             </div>
 
-            <div className="pt-8 text-[11px] font-black uppercase tracking-[0.16em] text-(--accent) sm:pt-10 sm:text-xs">VS</div>
+            <div className="flex h-16 items-center justify-center sm:h-20"><VsIcon /></div>
 
             <div className="flex min-w-0 flex-col items-center gap-2 text-center">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">

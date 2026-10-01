@@ -12,6 +12,8 @@ export interface FootballDataFixture {
   competitionName: string
   homeTeamName: string
   awayTeamName: string
+  homeTeamCrest?: string | null
+  awayTeamCrest?: string | null
 }
 
 const FOOTBALL_DATA_API_URL = 'https://api.football-data.org/v4/competitions'
@@ -29,6 +31,16 @@ function requiredRecord(value: unknown, field: string): Record<string, unknown> 
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`Invalid football-data.org ${field}.`)
   return value.trim()
+}
+
+function nullableHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
+  } catch {
+    return null
+  }
 }
 
 function normalizeCompetitionCode(value: string | null | undefined): string {
@@ -112,6 +124,8 @@ function normalizeCompetitionFixtures(value: unknown, competitionCode: string): 
       competitionName: requiredString(competition.name, 'competition name'),
       homeTeamName: requiredString(homeTeam.name, 'home team name'),
       awayTeamName: requiredString(awayTeam.name, 'away team name'),
+      homeTeamCrest: nullableHttpUrl(homeTeam.crest),
+      awayTeamCrest: nullableHttpUrl(awayTeam.crest),
     }
   })
 }
