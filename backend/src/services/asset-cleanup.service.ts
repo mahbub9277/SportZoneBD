@@ -14,7 +14,7 @@ export const isAssetReferenced = async (asset: string): Promise<boolean> => {
   if (!value) return false
   const variants = getAssetVariants(value)
 
-  const [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights] = await Promise.all([
+  const [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights, banners] = await Promise.all([
     prisma.user.count({ where: { deletedAt: null, avatar: { in: variants } } }),
     prisma.channelCategory.count({ where: { image: { in: variants } } }),
     prisma.channel.count({ where: { logo: { in: variants } } }),
@@ -35,9 +35,22 @@ export const isAssetReferenced = async (asset: string): Promise<boolean> => {
         ],
       },
     }),
+    prisma.banner.count({
+      where: {
+        deletedAt: null,
+        OR: [
+          { imageUrl: { in: variants } },
+          { imageUrl: { contains: value } },
+          { videoUrl: { in: variants } },
+          { videoUrl: { contains: value } },
+          { posterUrl: { in: variants } },
+          { posterUrl: { contains: value } },
+        ],
+      },
+    }),
   ])
 
-  return [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights].some((count) => count > 0)
+  return [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights, banners].some((count) => count > 0)
 }
 
 export const cleanupAssetIfUnused = async (asset: string | null | undefined): Promise<void> => {

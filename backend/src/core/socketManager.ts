@@ -284,13 +284,29 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
 
     try {
       const payload = verifyAccessToken(token)
+      const session = await prisma.session.findFirst({
+        where: {
+          id: payload.jti,
+          userId: payload.sub,
+          deletedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        select: { id: true },
+      })
+      if (!session) {
+        return next(new Error('Authentication error: Session is unavailable'))
+      }
+
       const user = await prisma.user.findUnique({
         where: { id: payload.sub, deletedAt: null },
         select: {
           isActive: true,
           isSuspended: true,
           isBanned: true,
-          roles: { select: { role: { select: { name: true } } } },
+          roles: {
+            where: { deletedAt: null, role: { is: { deletedAt: null } } },
+            select: { role: { select: { name: true } } },
+          },
         },
       })
       const isAdmin = user?.roles.some(({ role }) => role.name === 'admin' || role.name === 'super_admin')

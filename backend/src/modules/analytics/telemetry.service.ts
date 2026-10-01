@@ -44,7 +44,7 @@ let telemetrySummaryInFlight: Promise<Awaited<ReturnType<typeof buildTelemetrySu
 let lastGlobalPruneAt = 0
 let lastResourcePruneAt = 0
 let lastPrunedResource: string | null = null
-const TELEMETRY_BROADCAST_INTERVAL_MS = 5_000
+const TELEMETRY_BROADCAST_INTERVAL_MS = 15_000
 const TELEMETRY_PRUNE_INTERVAL_MS = 60_000
 const TELEMETRY_RESOURCE_PRUNE_BATCH_SIZE = 50
 

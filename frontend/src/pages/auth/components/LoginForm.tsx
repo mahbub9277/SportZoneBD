@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { Button } from '../../../components/ui/Button'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../components/ui/Form'
 import { Input } from '../../../components/ui/Input'
-import { authApi, useLoginMutation } from '../../../features/auth/auth.api.ts'
+import { useLoginMutation } from '../../../features/auth/auth.api.ts'
 import { useAppDispatch } from '../../../app/hooks'
 import { setCredentials } from '../../../features/auth/authSlice'
 import { Checkbox } from '../../../components/ui/Checkbox'
@@ -50,9 +50,6 @@ export function LoginForm() {
       if (user) {
         dispatch(setCredentials({ user, rememberMe: values.rememberMe }))
       }
-
-      const refreshedUser = await dispatch(authApi.endpoints.getMe.initiate(undefined, { forceRefetch: true })).unwrap()
-      dispatch(setCredentials({ user: refreshedUser, rememberMe: values.rememberMe }))
 
       toast.success('Login successful! Welcome back.')
 

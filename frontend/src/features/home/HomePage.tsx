@@ -13,7 +13,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
 import { filterMatches, getMatchStatus, sortMatches } from '../matches/matchOrdering'
-import { formatMatchKickoff } from '../../utils/matchDateTime'
+import { formatMatchKickoff, getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
 
 const HOMEPAGE_MATCH_LIMIT = 24
 
@@ -39,7 +39,14 @@ export function HomePage() {
   const { liveMatches, upcomingMatches, allMatches } = useMemo(() => {
     const sortedMatches = sortMatches(matches)
     const live = filterMatches(sortedMatches, 'LIVE')
-    const upcoming = filterMatches(sortedMatches, 'UPCOMING')
+    const now = new Date()
+    const nowTime = now.getTime()
+    const windowEnd = getMatchCalendarWindowEnd(now, 2)
+    const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : nowTime
+    const upcoming = filterMatches(sortedMatches, 'UPCOMING').filter((match) => {
+      const kickoffAt = new Date(match.kickoffAt).getTime()
+      return Number.isFinite(kickoffAt) && kickoffAt >= nowTime && kickoffAt < windowEndTime
+    })
 
     return {
       liveMatches: live.slice(0, 8),

@@ -5,7 +5,7 @@ import * as controller from './event.controller.js'
 
 const router = Router()
 const publicCache = cacheMiddleware(300, ['events', 'event-sidebar'])
-const adminOnly = requireRole('admin')
+const adminOnly = requireRole(['admin', 'super_admin'])
 
 router.get('/sidebar', publicCache, controller.getSidebarEvents)
 router.get('/admin/list', authenticate, adminOnly, cacheMiddleware(300, ['events']), controller.getAdminEvents)

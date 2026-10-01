@@ -8,6 +8,8 @@ import { successResponse } from '../core/api-response.js';
 import { hasPremiumAccess } from '../core/premiumGuard.js';
 import type { Prisma } from '@prisma/client'
 
+const RECENT_MATCH_WINDOW_DAYS = 7
+
 const getAllMatchesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
@@ -18,6 +20,7 @@ const getAllMatchesQuerySchema = z.object({
     return value.toLowerCase() === 'true' ? true : value.toLowerCase() === 'false' ? false : value
   }, z.boolean().optional()),
   activeOnly: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
+  recentOnly: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
   sort: z.string().optional(),
   status: z.preprocess((value) => {
     if (typeof value !== 'string') return value
@@ -34,11 +37,12 @@ const getAllMatchesQuerySchema = z.object({
  */
 export const getAllMatches = asyncHandler(async (req, res) => {
   const parsedQuery = getAllMatchesQuerySchema.parse(req.query);
-  const { status, premium, activeOnly, sort, ...paginationQuery } = parsedQuery
+  const { status, premium, activeOnly, recentOnly, sort, ...paginationQuery } = parsedQuery
+  const now = new Date()
   let sortBy = parsedQuery.sortBy
   if (!sortBy && sort) {
     const [field, order] = sort.includes(':') ? sort.split(':') : sort.split('-')
-    const sortableFields = new Set(['date', 'kickoffAt', 'title', 'createdAt'])
+    const sortableFields = new Set(['date', 'kickoffAt', 'finishedAt', 'title', 'createdAt'])
     const normalizedOrder = order === 'desc' ? 'desc' : 'asc'
     if (sortableFields.has(field)) {
       sortBy = `${field === 'date' ? 'kickoffAt' : field}:${normalizedOrder}`
@@ -46,7 +50,21 @@ export const getAllMatches = asyncHandler(async (req, res) => {
   }
   sortBy ??= 'createdAt:desc'
   const where: Prisma.MatchWhereInput = {
-    ...(status ? { status } : activeOnly ? { status: { in: ['LIVE', 'UPCOMING'] as ('LIVE' | 'UPCOMING')[] } } : {}),
+    deletedAt: null,
+    ...(recentOnly
+      ? {
+          sport: 'FOOTBALL',
+          status: 'FINISHED',
+          kickoffAt: { lte: now },
+          finishedAt: { gte: new Date(now.getTime() - RECENT_MATCH_WINDOW_DAYS * 24 * 60 * 60 * 1000), lte: now },
+        }
+      : status === 'UPCOMING'
+        ? { status, kickoffAt: { gte: now } }
+        : status
+          ? { status }
+          : activeOnly
+            ? { OR: [{ status: 'LIVE' }, { status: 'UPCOMING', kickoffAt: { gte: now } }] }
+            : {}),
     ...(premium !== undefined ? { premium } : {}),
   }
   const { items, meta } = await getPaginatedData({

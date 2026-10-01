@@ -48,11 +48,11 @@ paymentRouter.get('/manual-config', authenticate, getManualPaymentConfig as Requ
 paymentRouter.post('/webhook/:provider', handleWebhook as RequestHandler);
 
 // Admin-only route to get all payments
-paymentRouter.get('/', requireRole('admin'), getAllPayments as RequestHandler)
+paymentRouter.get('/', requireRole(['admin', 'super_admin']), getAllPayments as RequestHandler)
 
 // Admin-only routes for manual verification
-paymentRouter.get('/manual-verification', requireRole('admin'), getPendingVerifications as RequestHandler)
-paymentRouter.patch('/manual-verification/:id', requireRole('admin'), processVerification as RequestHandler)
+paymentRouter.get('/manual-verification', requireRole(['admin', 'super_admin']), getPendingVerifications as RequestHandler)
+paymentRouter.patch('/manual-verification/:id', requireRole(['admin', 'super_admin']), processVerification as RequestHandler)
 
 // This route will be called by the frontend to get the user's payment history.
 paymentRouter.get('/history', authenticate, getHistory as RequestHandler)

@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import localLogo from '../../assets/site.logo.webp'
 import { APP_VERSION } from '../../features/pwa/appInfo'
+import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
 
 interface SplashScreenProps {
   isDataLoading: boolean
@@ -19,7 +20,8 @@ export function SplashScreen({
   channelTagline = 'Live sports, instant access',
   variant = 'standard',
 }: SplashScreenProps) {
-  const shouldReduceMotion = useReducedMotion()
+  const { shouldReduceEffects, reducedMotion } = usePerformanceProfile()
+  const shouldReduceMotion = reducedMotion || shouldReduceEffects
   const isPremium = variant === 'premium'
 
   const logoSource = useMemo(

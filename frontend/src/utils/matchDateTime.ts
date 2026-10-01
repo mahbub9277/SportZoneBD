@@ -39,6 +39,14 @@ export const parseMatchDateTime = (date: string, time: string): string | null =>
   return instant.toISOString()
 }
 
+export const getMatchCalendarWindowEnd = (instant: Date, daysAhead: number): string | null => {
+  const parts = getParts(instant)
+  if (!parts || !Number.isInteger(daysAhead) || daysAhead < 0) return null
+  const endDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + daysAhead + 1))
+  const date = `${String(endDate.getUTCFullYear()).padStart(4, '0')}-${String(endDate.getUTCMonth() + 1).padStart(2, '0')}-${String(endDate.getUTCDate()).padStart(2, '0')}`
+  return parseMatchDateTime(date, '00:00')
+}
+
 export const formatMatchDateTimeInput = (value?: string | null): string => {
   if (!value) return ''
   const parts = getParts(new Date(value))

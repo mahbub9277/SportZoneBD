@@ -12,6 +12,7 @@ interface MailOptions {
 const smtpHost = process.env.SMTP_HOST?.trim()
 const parsedSmtpPort = Number.parseInt(process.env.SMTP_PORT ?? '587', 10)
 const smtpPort = Number.isInteger(parsedSmtpPort) && parsedSmtpPort > 0 && parsedSmtpPort <= 65535 ? parsedSmtpPort : 587
+const smtpSecure = process.env.SMTP_SECURE === 'true'
 const smtpUser = process.env.SMTP_USER?.trim()
 const smtpPass = process.env.SMTP_PASS
 const smtpFrom = process.env.SMTP_FROM ?? '"Sport Zone BD" <no-reply@sportzonebd.com>'
@@ -19,7 +20,7 @@ const smtpFrom = process.env.SMTP_FROM ?? '"Sport Zone BD" <no-reply@sportzonebd
 const transporter: Transporter = nodemailer.createTransport({
   host: smtpHost,
   port: smtpPort,
-  secure: false,
+  secure: smtpSecure,
   auth: { user: smtpUser, pass: smtpPass },
   tls: { rejectUnauthorized: false },
 })

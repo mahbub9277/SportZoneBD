@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { buildCloudinaryUrl } from '../../utils/cloudinary.ts'
 import { SearchBox } from './SearchBox.tsx'
 import { CommandKMenu } from '../../components/shared/CommandKMenu.tsx'
+import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
 import localLogo from '../../assets/logo.png.webp'
 
 const NotificationsPage = lazy(() => import('../../pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })))
@@ -35,6 +36,8 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
   const [now, setNow] = useState(() => Date.now())
   const hasActiveSubscription = Boolean(user?.subscription && user.subscription.status === 'ACTIVE' && new Date(user.subscription.expiresAt).getTime() > now)
   const { theme, toggleTheme } = useTheme()
+  const { deviceTier, isSmartTV, shouldReduceEffects, supportsBackdropFilter } = usePerformanceProfile()
+  const simplifyHeader = deviceTier === 'low' || isSmartTV || shouldReduceEffects
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [logout] = useLogoutMutation()
@@ -70,7 +73,11 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
   }
 
   return (
-    <header className="relative top-0 z-40 border-b border-border/70 bg-surface/90 shadow-[0_18px_70px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+    <header className={cn(
+      'relative top-0 z-40 border-b border-border/70 bg-surface/90',
+      supportsBackdropFilter && !simplifyHeader ? 'backdrop-blur-2xl' : 'backdrop-blur-none',
+      simplifyHeader ? 'shadow-[0_10px_32px_rgba(0,0,0,0.12)]' : 'shadow-[0_18px_70px_rgba(0,0,0,0.24)]',
+    )}>
       <div className="mx-auto flex h-auto min-h-20 max-w-[1600px] items-center justify-between gap-3 px-3 py-3 sm:gap-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -87,7 +94,14 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
 
           <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="Go to homepage">
             <div className="flex h-13 w-auto min-w-0 max-w-70 items-center justify-start overflow-visible sm:h-14 md:h-16">
-              <img src={localLogo} alt="SportZoneBD logo" className="h-full w-auto max-w-none origin-left scale-200 object-contain object-left py-2 sm:scale-170" />
+              <img
+                src={localLogo}
+                alt="SportZoneBD logo"
+                className={cn(
+                  'h-full w-auto max-w-none origin-left object-contain object-left py-2',
+                  simplifyHeader ? 'scale-150 sm:scale-160' : 'scale-200 sm:scale-170',
+                )}
+              />
             </div>
           </Link>
         </div>

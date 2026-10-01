@@ -54,8 +54,17 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
             email: true,
             avatar: true,
             roles: {
+              where: { deletedAt: null, role: { is: { deletedAt: null } } },
               select: {
-                role: { select: { name: true, permissions: { select: { key: true } } } },
+                role: {
+                  select: {
+                    name: true,
+                    permissions: {
+                      where: { deletedAt: null },
+                      select: { key: true },
+                    },
+                  },
+                },
               },
             },
           },
@@ -69,12 +78,18 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
         userId: payload.sub,
         deletedAt: null,
         id: payload.jti,
+        expiresAt: { gt: new Date() },
       },
-      select: { id: true }, // Only need to check for existence
+      select: { id: true, expiresAt: true },
     });
 
     if (!session || !user) {
       next(new UnauthorizedError('User account or session is unavailable'));
+      return
+    }
+
+    if (session.expiresAt <= new Date()) {
+      next(new UnauthorizedError('Session expired'))
       return
     }
 
@@ -119,7 +134,11 @@ export async function getUserRoles(userId: string): Promise<string[]> {
     cacheKey,
     async () => {
       const userRoles = await prisma.userRole.findMany({
-        where: { userId: userId, deletedAt: null },
+        where: {
+          userId: userId,
+          deletedAt: null,
+          role: { is: { deletedAt: null } },
+        },
         include: { role: true },
       })
       return userRoles.map((userRole) => userRole.role.name)
@@ -158,8 +177,17 @@ export async function optionalProtect(req: Request, _res: Response, next: NextFu
             email: true,
             avatar: true,
             roles: {
+              where: { deletedAt: null, role: { is: { deletedAt: null } } },
               select: {
-                role: { select: { name: true, permissions: { select: { key: true } } } },
+                role: {
+                  select: {
+                    name: true,
+                    permissions: {
+                      where: { deletedAt: null },
+                      select: { key: true },
+                    },
+                  },
+                },
               },
             },
           },

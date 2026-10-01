@@ -12,9 +12,11 @@ import { MatchCardDisplay } from '../../components/MatchCardDisplay'
 import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { filterMatches, sortMatches } from '../../features/matches/matchOrdering'
+import { getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
 import { useEffect, useMemo, useState } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
+const RECENT_MATCH_LIMIT = 24
 const emptyMatches: Match[] = []
 const statusFilters = [
   { value: 'Recent', label: 'Recent' },
@@ -44,19 +46,20 @@ export function AllMatchesPage() {
 
   const { search, status, premium } = filters
   const normalizedStatus = normalizeStatus(status)
+  const isRecent = status === 'Recent'
   const [triggerMatches] = useLazyGetMatchesQuery()
   const [allMatchesResult, setAllMatchesResult] = useState<{ key: string; items: Match[] } | null>(null)
   const [allMatchesErrorKey, setAllMatchesErrorKey] = useState<string | null>(null)
   const allQueryKey = JSON.stringify([debouncedFilters.search, premium])
   const matchQuery = useGetMatchesQuery({
     page: 1,
-    limit: 100,
+    limit: isRecent ? RECENT_MATCH_LIMIT : 100,
     search: debouncedFilters.search,
     premium: premium,
-    ...(status === 'Recent'
-      ? { activeOnly: true }
+    ...(isRecent
+      ? { recentOnly: true, status: 'FINISHED', sort: 'finishedAt:desc' }
       : normalizedStatus
-        ? { status: normalizedStatus }
+        ? { status: normalizedStatus, ...(normalizedStatus === 'UPCOMING' ? { sort: 'date-asc' } : {}) }
         : {}),
   }, { skip: status === 'All' })
 
@@ -99,14 +102,23 @@ export function AllMatchesPage() {
     ? allMatchesResult?.key === allQueryKey ? allMatchesResult.items : emptyMatches
     : matchQuery.data?.items ?? emptyMatches
 
-  const activeMatches = useMemo(
-    () => sortMatches(filterMatches(matches, normalizedStatus, premium)),
-    [matches, normalizedStatus, premium],
-  )
-  const visibleMatches = useMemo(() => {
-    if (status === 'Recent') return activeMatches.slice(0, 6)
-    return activeMatches
-  }, [activeMatches, status])
+  const activeMatches = useMemo(() => {
+    if (isRecent) {
+      return [...matches].sort((left, right) => Date.parse(right.finishedAt ?? '') - Date.parse(left.finishedAt ?? ''))
+    }
+    if (status === 'UPCOMING') {
+      const now = new Date()
+      const nowTime = now.getTime()
+      const windowEnd = getMatchCalendarWindowEnd(now, 2)
+      const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : nowTime
+      return sortMatches(filterMatches(matches, 'UPCOMING', premium)).filter((match) => {
+        const kickoffAt = new Date(match.kickoffAt).getTime()
+        return Number.isFinite(kickoffAt) && kickoffAt >= nowTime && kickoffAt < windowEndTime
+      })
+    }
+    return sortMatches(filterMatches(matches, normalizedStatus, premium))
+  }, [isRecent, matches, normalizedStatus, premium, status])
+  const visibleMatches = activeMatches
   const hasNoMatches = !isLoading && (isError || visibleMatches.length === 0)
 
   return (
@@ -181,7 +193,7 @@ export function AllMatchesPage() {
               </div>
               <h3 className="text-xl font-semibold text-text-primary sm:text-2xl">No Matches Found</h3>
               <p className="max-w-xl text-sm leading-6 text-text-muted sm:text-base">
-                {isError ? 'There was an error fetching matches.' : 'Try adjusting your filters to find what you\'re looking for.'}
+                {isError ? 'There was an error fetching matches.' : isRecent ? 'No recently completed matches from the last 7 days.' : 'Try adjusting your filters to find what you\'re looking for.'}
               </p>
             </CardContent>
           </Card>

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createBrowserRouter, Navigate, Outlet, useNavigate, type ActionFunctionArgs, redirect } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet, useLocation, useNavigate, type ActionFunctionArgs, redirect } from 'react-router-dom'
 import { lazy, useEffect, type ComponentType } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/app/hooks'
@@ -11,8 +11,15 @@ import AuthLayout from '@/hooks/common/layouts/AuthLayout'
 
 import { store } from '@/app/store'
 import { authApi } from '@/features/auth/auth.api.ts'
-import { selectIsInitializing, setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
+import { selectIsAuthenticated, selectIsInitializing, setAuthInitializing, setCredentials } from '@/features/auth/authSlice'
 import { useGetMeQuery } from '@/features/auth/auth.api'
+import {
+  acquireAuthBootstrapLock,
+  hasAuthBootstrapHint,
+  hasAuthBootstrapLock,
+  releaseAuthBootstrapLock,
+  setAuthBootstrapHint,
+} from '@/features/auth/storage'
 // Lazy-loaded Pages
 const lazyRoute = (factory: () => Promise<Record<string, unknown>>, exportName: string) =>
   lazy(async () => {
@@ -102,8 +109,11 @@ import type { User } from '@/features/auth/auth.types'
  * It redirects authenticated users to the home page.
  */
 const GuestRoute = () => {
+  const location = useLocation()
   const { isAuthenticated, isInitializing } = useAppSelector((state: RootState) => state.auth)
-  if (isInitializing) return null
+  const isExplicitGuestRoute = ['/login', '/verify-email', '/forgot-password', '/reset-password'].includes(location.pathname)
+
+  if (isInitializing && !isExplicitGuestRoute) return null
   return isAuthenticated ? <Navigate to="/" replace /> : <Outlet />
 }
 
@@ -111,20 +121,44 @@ const GoogleAuthCallback = () => {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const isAuthInitializing = useAppSelector(selectIsInitializing)
-  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, { skip: isAuthInitializing })
+  const isAuthenticated = useAppSelector(selectIsAuthenticated)
+  const bootstrapLocked = hasAuthBootstrapLock()
+  const { data: user, isLoading, isFetching, isError } = useGetMeQuery(undefined, {
+    skip: isAuthInitializing || isAuthenticated || bootstrapLocked,
+  })
 
   useEffect(() => {
-    if (isAuthInitializing) return
+    if (isAuthenticated) {
+      dispatch(setAuthInitializing(false))
+      navigate('/profile', { replace: true })
+      return
+    }
+
+    if (!hasAuthBootstrapHint()) {
+      setAuthBootstrapHint(true)
+    }
+
+    if (!hasAuthBootstrapLock()) {
+      acquireAuthBootstrapLock()
+    }
+  }, [dispatch, isAuthenticated, isAuthInitializing, navigate])
+
+  useEffect(() => {
+    if (isAuthenticated) return
 
     if (isError) {
+      releaseAuthBootstrapLock()
+      dispatch(setAuthInitializing(false))
       navigate('/login?error=google-session-failed', { replace: true })
-    } else if (!isLoading && !isFetching) {
-      if (user) {
-        dispatch(setCredentials({ user, rememberMe: true }))
-        navigate('/profile', { replace: true })
-      }
+      return
     }
-  }, [dispatch, isAuthInitializing, isError, isFetching, isLoading, navigate, user])
+
+    if (!isLoading && !isFetching && user) {
+      dispatch(setCredentials({ user, rememberMe: true }))
+      releaseAuthBootstrapLock()
+      navigate('/profile', { replace: true })
+    }
+  }, [dispatch, isAuthenticated, isError, isFetching, isLoading, navigate, user])
 
   return (
     <main className="flex min-h-[60vh] items-center justify-center p-6">

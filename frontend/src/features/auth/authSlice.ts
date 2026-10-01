@@ -1,7 +1,7 @@
 import { createSlice, type PayloadAction, createSelector, isAnyOf } from '@reduxjs/toolkit'
 import type { RootState } from '../../app/store'
 import type { LoginResponse, User } from './auth.types'
-import { loadAuthState, clearAuthState } from './storage'
+import { loadAuthState, clearAuthState, setAuthBootstrapHint } from './storage'
 import { authApi } from './auth.api.ts'
 import { accountRestricted, unauthenticated } from '../../app/api/baseQueryWithReauth'
 
@@ -44,6 +44,7 @@ const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginRes
   state.isInitializing = false
   state.accountStatus = null
   state.accountStatusMessage = null
+  setAuthBootstrapHint(true)
 }
 const authSlice = createSlice({
   name: 'auth',
@@ -63,7 +64,7 @@ const authSlice = createSlice({
       state.isInitializing = false
       state.accountStatus = null
       state.accountStatusMessage = null
-      clearAuthState()
+      setAuthBootstrapHint(true)
     },
     setUser: (state, action: PayloadAction<{ user: User }>) => {
       const { user } = action.payload
@@ -73,11 +74,13 @@ const authSlice = createSlice({
       state.isInitializing = false
       state.accountStatus = null
       state.accountStatusMessage = null
+      setAuthBootstrapHint(true)
     },
     logout: (state) => {
       state.isAuthenticated = false
       state.user = null
       state.isInitializing = false
+      setAuthBootstrapHint(false)
       clearAuthState()
     },
   },
@@ -117,6 +120,7 @@ const authSlice = createSlice({
       })
       // Listener for the unauthenticated action from baseQueryWithReauth
       .addMatcher(unauthenticated.match, (state) => {
+        setAuthBootstrapHint(false)
         return authSlice.reducer(state, logout())
       })
       .addMatcher(accountRestricted.match, (state, action) => {

@@ -14,7 +14,7 @@ import { selectIsAuthenticated, selectIsPremiumSubscriber } from '../../features
 import { cn } from '../../lib/utils'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { startTransition, useEffect, useState, useMemo, useRef } from 'react'
-import { useViewerCount } from '../../hooks/useViewerCount'
+import { useResourceViewerCount } from '../../hooks/useResourceViewerCount'
 import { Input } from '../../components/ui/Input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
@@ -336,7 +336,7 @@ export function WatchChannelPage() {
           <Button type="button" variant="outline" size="sm" onClick={() => void handleShare()} aria-label="Share channel"><Share2 className="mr-1.5 h-4 w-4" />Share</Button>
         </div>
       </Card>
-      <Card className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <Card className="flex flex-row items-center gap-3 p-3 sm:gap-4 sm:p-6">
           <div className="flex min-w-0 items-center gap-4">
             <motion.div
               className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-surface-soft p-2 shadow-[0_12px_30px_rgba(2,6,23,0.18)] sm:h-24 sm:w-24"
@@ -362,7 +362,7 @@ export function WatchChannelPage() {
           </div>
         <button
           onClick={() => dispatch(toggleFavoriteChannel(channel.id))} 
-          className="shrink-0 self-end text-text-muted transition-colors hover:text-accent sm:self-auto"
+          className="shrink-0 self-center text-text-muted transition-colors hover:text-accent"
           aria-label={favoriteChannelIds.includes(channel.id) ? `Remove ${channel.name} from favorites` : `Add ${channel.name} to favorites`}
         > 
           <Heart
@@ -383,7 +383,7 @@ export function WatchChannelPage() {
             {paginatedRelatedChannels.map((relatedChannel: Channel, index: number) => (
               <Link to={`/watch/${relatedChannel.id}`} key={relatedChannel.id || index}>
                 <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.2 }}>
-                <Card className="flex h-full min-w-0 flex-col items-center justify-center p-2 text-center transition-all hover:border-accent/50 sm:p-4">
+                <Card className="flex min-h-34 min-w-0 flex-col items-center justify-center p-2 text-center transition-all hover:border-accent/50 sm:min-h-40 sm:p-4">
                   <img
                     loading="lazy"
                     decoding="async"
@@ -393,9 +393,9 @@ export function WatchChannelPage() {
                     src={buildCloudinaryUrl(relatedChannel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })}
                     alt={relatedChannel.name}
                       onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
-                    className="mb-2 h-12 w-12 rounded-full border border-border bg-surface-soft object-contain p-1 sm:h-16 sm:w-16"
+                    className="mb-2 h-16 w-16 rounded-full border border-border bg-surface-soft object-contain p-1 sm:h-20 sm:w-20"
                   />
-                  <p className="max-w-full wrap-break-word text-xs font-medium sm:text-sm">{relatedChannel.name}</p>
+                  <p className="line-clamp-2 w-full wrap-break-word text-[13px] font-medium leading-4 sm:text-sm">{relatedChannel.name}</p>
                 </Card>
                 </motion.div>
               </Link>
@@ -639,7 +639,7 @@ function ChannelsBrowser() {
 }
 
 function ViewerCountDisplay({ channelId, initial }: { channelId: string; initial?: number | null }) {
-  const count = useViewerCount(channelId, initial)
+  const count = useResourceViewerCount('channel', channelId, initial ?? null)
   const formattedCount = count === null ? 'Unavailable' : formatViewerCount(Math.max(0, count))
 
   return (

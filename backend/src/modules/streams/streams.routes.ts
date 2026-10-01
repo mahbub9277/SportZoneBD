@@ -22,7 +22,7 @@ const streamSchema = z.object({
 
 const streamsRouter = Router()
 
-streamsRouter.use(requireRole('admin'))
+streamsRouter.use(requireRole(['admin', 'super_admin']))
 
 streamsRouter.route('/')
   .get(getStreams)

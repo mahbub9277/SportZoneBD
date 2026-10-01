@@ -1,7 +1,7 @@
 import { startTransition, useState, useEffect, useMemo } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useLowPowerDevice } from '@/hooks/useLowPowerDevice'
+import { usePerformanceProfile } from '@/hooks/usePerformanceProfile'
 import { useGetMatchByIdQuery } from '../../features/matches/matches.api'
 import { getPreferredStreamUrl, getStreamUrlCandidates, isPlayableStream, type Match, type Stream } from '../../features/matches/matches.types'
 import { useAppSelector } from '../../app/hooks'
@@ -45,7 +45,8 @@ export function MatchPage() {
   const openMatch = useAdvertisementGate('MATCH')
   const navigate = useNavigate()
   const location = useLocation()
-  const { isLowPower } = useLowPowerDevice()
+  const { deviceTier, shouldReduceEffects } = usePerformanceProfile()
+  const isLowPower = deviceTier === 'low' || shouldReduceEffects
   const matchViewerCount = useResourceViewerCount('match', match?.id)
   const matchTimer = useCountdown(match?.status === 'LIVE' ? match.kickoffAt : null)
   const isMissingMatch = typeof error === 'object' && error !== null && 'status' in error && error.status === 404

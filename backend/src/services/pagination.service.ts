@@ -58,6 +58,7 @@ export async function getPaginatedData<T>(
     'status',
     'premium',
     'kickoffAt',
+    'finishedAt',
     'createdAt',
     'updatedAt',
     'startTime',

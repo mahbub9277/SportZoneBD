@@ -48,7 +48,7 @@ const setAuthCookies = (res: Response, accessToken: string, refreshToken: string
   res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
     ...sharedCookieOptions,
     path: '/api/v1/auth', // Important: Path should be specific to refresh/logout routes
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 7 * 24 * 60 * 60 * 1000, // Refresh token retains its existing lifetime.
   })
 }
 
@@ -64,7 +64,7 @@ export async function createSessionAndSetCookies(res: Response, userId: string):
     const session = await tx.session.create({
       data: {
         userId,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days absolute session lifetime
       },
     })
     // 2. Create Access and Refresh tokens
@@ -164,6 +164,10 @@ export async function loginUser(req: Request, res: Response) {
     return res.status(401).json(errorResponse('Account not verified. Please check your email for a verification code.'))
   }
 
+  if (user.isSuspended || user.isBanned) {
+    return res.status(403).json(errorResponse('This account is suspended or banned.'))
+  }
+
   const userProfile = await getUserProfile(user.id)
   await createSessionAndSetCookies(res, user.id)
 
@@ -175,7 +179,12 @@ export async function loginAdmin(req: Request, res: Response) {
 
   const user = await prisma.user.findUnique({
     where: { email },
-    include: { roles: { select: { role: { select: { name: true } } } } },
+    include: {
+      roles: {
+        where: { deletedAt: null, role: { is: { deletedAt: null } } },
+        select: { role: { select: { name: true } } },
+      },
+    },
   })
 
   if (!user || !user.passwordHash || !(await comparePassword(password, user.passwordHash))) {
@@ -436,11 +445,23 @@ export async function refreshAccessToken(req: Request, res: Response) {
 
     // 2. Find the session in the database
     const session = await prisma.session.findFirst({
-      where: { id: payload.jti, deletedAt: null },
+      where: {
+        id: payload.jti,
+        deletedAt: null,
+        expiresAt: { gt: new Date() },
+      },
     })
 
     if (!session || !session.refreshTokenHash) {
-      throw new UnauthorizedError('Invalid session')
+      throw new UnauthorizedError('Invalid or expired session')
+    }
+
+    if (session.expiresAt <= new Date()) {
+      await prisma.session.update({
+        where: { id: session.id },
+        data: { deletedAt: new Date(), refreshTokenHash: null },
+      })
+      throw new UnauthorizedError('Session expired')
     }
 
     // 3. Compare the incoming token with the stored hash

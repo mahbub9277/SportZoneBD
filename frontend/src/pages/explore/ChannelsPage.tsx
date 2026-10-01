@@ -188,8 +188,8 @@ export function ChannelsPage() {
                 >
                   <Card className="group relative flex h-full min-h-33.5 flex-col items-center justify-center p-2.5 text-center transition hover:border-accent/50 sm:min-h-36 sm:p-3">
                     <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className="flex w-full min-w-0 flex-col items-center justify-center">
-                      <img src={buildCloudinaryUrl(channel.logo, { width: 60, height: 60, crop: 'fill' })} alt={`${channel.name} logo`} className="mb-2 h-14 w-14 rounded-full border border-border bg-surface-soft p-1 object-contain sm:h-20 sm:w-20 transition-transform duration-200 group-hover:scale-105" />
-                      <p className="line-clamp-2 wrap-break-word text-xs font-medium leading-tight text-text-primary sm:text-sm">{channel.name}</p>
+                      <img src={buildCloudinaryUrl(channel.logo, { width: 60, height: 60, crop: 'fill' })} alt={`${channel.name} logo`} className="mb-2 h-16 w-16 rounded-full border border-border bg-surface-soft p-1 object-contain transition-transform duration-200 group-hover:scale-105 sm:h-20 sm:w-20" />
+                      <p className="line-clamp-2 w-full wrap-break-word text-[13px] font-medium leading-4 text-text-primary sm:text-sm">{channel.name}</p>
                       {channel.isPremium && <span className="mt-1.5 rounded-full bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold text-(--accent)">PREMIUM</span>}
                     </Link>
                     <button

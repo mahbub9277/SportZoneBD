@@ -10,6 +10,7 @@ import { buildCloudinaryUrl } from '../utils/cloudinary'
 import { getMatchStatus } from '../features/matches/matchOrdering'
 import { formatMatchKickoffDate, formatMatchKickoffTime } from '../utils/matchDateTime'
 import { useCountdown } from '../hooks/useCountdown'
+import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { VsIcon } from './VsIcon'
 
 interface MatchCardDisplayProps {
@@ -53,6 +54,8 @@ const buildTeamVisual = (name: string, fallbackText: string, logo?: string | nul
 
 export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, compact = false }: MatchCardDisplayProps) {
   const navigate = useNavigate()
+  const { deviceTier, isSmartTV, reducedMotion, shouldReduceEffects } = usePerformanceProfile()
+  const simplifyMatchCard = deviceTier === 'low' || isSmartTV || shouldReduceEffects || reducedMotion
   const [homeLogoFailed, setHomeLogoFailed] = useState(false)
   const [awayLogoFailed, setAwayLogoFailed] = useState(false)
   const matchStatus = getMatchStatus(match) ?? 'UPCOMING'
@@ -86,7 +89,10 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
         role="link"
         tabIndex={0}
         aria-label={`Open ${displayTitle}`}
-        className="group relative flex h-full w-full min-h-0 cursor-pointer flex-col overflow-hidden rounded-2xl border border-(--border)/80 bg-(--surface)/95 p-0 text-left shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
+        className={cn(
+          'group relative flex h-full w-full min-h-0 cursor-pointer flex-col overflow-hidden rounded-2xl border border-(--border)/80 bg-(--surface)/95 p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)',
+          simplifyMatchCard ? 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-150' : 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-200 hover:-translate-y-0.5',
+        )}
       >
         <div className="relative overflow-hidden bg-(--surface-strong) px-3 pb-4 pt-4 sm:px-4">
           <div className="mb-3 flex items-center justify-between gap-3 border-b border-(--border) pb-2.5">
@@ -127,7 +133,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
           <div className="flex min-w-0 items-center justify-between gap-2 border-t border-(--border) pt-2 text-[10px] font-semibold sm:text-xs" aria-live="polite">
             <span className="min-w-0 truncate text-(--text-muted)">{streamCount} stream{streamCount === 1 ? '' : 's'} available</span>
             <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1', matchStatus === 'LIVE' ? 'bg-rose-500/12 text-rose-600 dark:text-rose-300' : matchStatus === 'FINISHED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300')}>
-              {matchStatus === 'LIVE' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden="true" />}
+              {matchStatus === 'LIVE' && <span className={cn('h-1.5 w-1.5 rounded-full bg-current', simplifyMatchCard ? '' : 'animate-pulse')} aria-hidden="true" />}
               {matchStatus === 'LIVE' ? 'LIVE' : matchStatus === 'FINISHED' ? 'FINISHED' : 'UPCOMING'}
             </span>
             {match.premium && <span className="inline-flex shrink-0 items-center gap-1 text-yellow-600 dark:text-yellow-400"><ShieldCheck className="h-3 w-3" aria-hidden="true" /> Premium</span>}

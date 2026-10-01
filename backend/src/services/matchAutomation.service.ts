@@ -12,12 +12,14 @@ import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
 import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
 
-const DISCOVERY_DAYS = Number(process.env.MATCH_DISCOVERY_DAYS ?? 14)
+const DISCOVERY_DAYS = 2
+const RECENT_MATCH_RETENTION_MINUTES = 7 * 24 * 60
 const PRE_MATCH_HEALTH_WINDOW_MINUTES = Number(process.env.PRE_MATCH_HEALTH_WINDOW_MINUTES ?? 90)
 const STREAM_HEALTH_TIMEOUT_MS = Number(process.env.STREAM_HEALTH_TIMEOUT_MS ?? 8000)
-const FINISHED_MATCH_RETENTION_MINUTES = Math.max(1, Number(process.env.FINISHED_MATCH_RETENTION_MINUTES ?? 15))
+const FINISHED_MATCH_RETENTION_MINUTES = Math.max(RECENT_MATCH_RETENTION_MINUTES, Number(process.env.FINISHED_MATCH_RETENTION_MINUTES ?? RECENT_MATCH_RETENTION_MINUTES))
 const FINISHED_MATCH_CLEANUP_BATCH_SIZE = 25
 const STREAM_HEALTH_FAILURE_THRESHOLD = Number(process.env.STREAM_HEALTH_FAILURE_THRESHOLD ?? 3)
+const STREAM_HEALTH_CHECK_INTERVAL_MINUTES = 2
 const AUTOMATION_LOCK_TTL_SECONDS = 55
 const STREAM_HEALTH_MAX_BYTES = 64 * 1024
 
@@ -55,6 +57,22 @@ function normalizeTeamName(value: string | null | undefined): string {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase()
+}
+
+function normalizeProviderMatchStatus(status: string): 'UPCOMING' | 'LIVE' | 'FINISHED' | null {
+  switch (status) {
+    case 'SCHEDULED':
+    case 'TIMED':
+      return 'UPCOMING'
+    case 'IN_PLAY':
+    case 'PAUSED':
+      return 'LIVE'
+    case 'FINISHED':
+    case 'AWARDED':
+      return 'FINISHED'
+    default:
+      return null
+  }
 }
 
 function normalizeApprovedMatchTitle(home: string, away: string): string {
@@ -308,7 +326,9 @@ export class MatchAutomationService {
     }
 
     await this.syncProviderMatches()
-    await this.syncApprovedStreamHealth()
+    if (now.getMinutes() % STREAM_HEALTH_CHECK_INTERVAL_MINUTES === 0) {
+      await this.syncApprovedStreamHealth()
+    }
     await prewarmUpcomingMatches(now)
 
     const scheduleParts = new Intl.DateTimeFormat('en-US', {
@@ -319,7 +339,7 @@ export class MatchAutomationService {
       hour12: false,
     }).formatToParts(now)
     const schedulePart = (type: Intl.DateTimeFormatPartTypes) => scheduleParts.find((part) => part.type === type)?.value
-    if (schedulePart('weekday') === 'Sun' && schedulePart('hour') === '03' && Number(schedulePart('minute')) < 2) {
+    if (schedulePart('weekday') === 'Sun' && schedulePart('hour') === '03' && Number(schedulePart('minute')) === 0) {
       await cleanupCloudinaryOrphans()
     }
 
@@ -405,9 +425,13 @@ export class MatchAutomationService {
 
     try {
       const from = new Date()
-      const to = new Date(Date.now() + DISCOVERY_DAYS * 24 * 60 * 60 * 1000)
       const fromDate = from.toISOString().slice(0, 10)
+      const to = new Date(`${fromDate}T00:00:00.000Z`)
+      to.setUTCDate(to.getUTCDate() + DISCOVERY_DAYS)
       const toDate = to.toISOString().slice(0, 10)
+      const fixtureWindowStart = new Date(`${fromDate}T00:00:00.000Z`)
+      const fixtureWindowEndExclusive = new Date(to)
+      fixtureWindowEndExclusive.setUTCDate(fixtureWindowEndExclusive.getUTCDate() + 1)
       const competitionCodes = getConfiguredCompetitionCodes()
       const fixtures = (await Promise.all(competitionCodes.map(async (competitionCode) => {
         const cacheKey = `sportzonebd:football:fixtures:${competitionCode}:${fromDate}:${toDate}`
@@ -431,8 +455,8 @@ export class MatchAutomationService {
         where: {
           deletedAt: null,
           kickoffAt: {
-            gte: new Date(Date.now() - 60 * 60 * 1000),
-            lte: new Date(Date.now() + DISCOVERY_DAYS * 24 * 60 * 60 * 1000),
+            gte: fixtureWindowStart,
+            lt: fixtureWindowEndExclusive,
           },
         },
         select: {
@@ -462,8 +486,9 @@ export class MatchAutomationService {
         const homeName = fixture.homeTeamName.trim()
         const awayName = fixture.awayTeamName.trim()
         const kickoffAt = new Date(fixture.kickoffAt)
+        const providerStatus = normalizeProviderMatchStatus(fixture.status)
 
-        if (!homeName || !awayName || Number.isNaN(kickoffAt.getTime())) {
+        if (!homeName || !awayName || Number.isNaN(kickoffAt.getTime()) || !providerStatus) {
           skippedCount++
           continue
         }
@@ -489,6 +514,12 @@ export class MatchAutomationService {
           const awayTeamId = awayTeam?.id ?? existingMatch.awayTeamId ?? null
           const homeTeamLogo = homeTeam?.logoUrl?.trim() || existingMatch.homeTeamLogo?.trim() || fixture.homeTeamCrest || null
           const awayTeamLogo = awayTeam?.logoUrl?.trim() || existingMatch.awayTeamLogo?.trim() || fixture.awayTeamCrest || null
+            const status = existingMatch.status === 'FINISHED'
+              ? 'FINISHED'
+              : existingMatch.status === 'LIVE' && providerStatus === 'UPCOMING'
+                ? 'LIVE'
+                : providerStatus
+            const finishedAt = status === 'FINISHED' ? existingMatch.finishedAt ?? new Date() : null
           const needsUpdate =
             existingMatch.title !== `${homeName} vs ${awayName}` ||
             existingMatch.homeTeamName !== homeName ||
@@ -499,7 +530,9 @@ export class MatchAutomationService {
             existingMatch.awayTeamId !== awayTeamId ||
             existingMatch.homeTeamLogo !== homeTeamLogo ||
             existingMatch.awayTeamLogo !== awayTeamLogo ||
-            existingMatch.sport !== 'FOOTBALL'
+            existingMatch.sport !== 'FOOTBALL' ||
+            existingMatch.status !== status ||
+            (existingMatch.finishedAt?.getTime() ?? null) !== (finishedAt?.getTime() ?? null)
 
           if (needsUpdate) {
             await prisma.match.update({
@@ -515,8 +548,8 @@ export class MatchAutomationService {
                 awayTeamLogo,
                 sport: 'FOOTBALL',
                 tournamentName: fixture.competitionName || existingMatch.tournamentName || null,
-                status: ['LIVE', 'FINISHED'].includes(existingMatch.status) ? existingMatch.status : 'UPCOMING',
-                finishedAt: existingMatch.status === 'FINISHED' ? (existingMatch.finishedAt ?? new Date()) : null,
+                status,
+                finishedAt,
               },
             })
             updatedCount++
@@ -541,7 +574,8 @@ export class MatchAutomationService {
               awayTeamLogo: awayTeam?.logoUrl?.trim() || fixture.awayTeamCrest || null,
               sport: 'FOOTBALL',
               tournamentName: fixture.competitionName,
-              status: 'UPCOMING',
+              status: providerStatus,
+              finishedAt: providerStatus === 'FINISHED' ? new Date() : null,
               premium: false,
               autoFinish: false,
               startTime: new Date(kickoffAt.getTime() - PRE_MATCH_HEALTH_WINDOW_MINUTES * 60 * 1000),
@@ -559,6 +593,10 @@ export class MatchAutomationService {
         }
       }
 
+      if (createdCount > 0 || updatedCount > 0) {
+        await invalidateTags(['matches', 'AdminStats'])
+      }
+
       const newLog = await prisma.automationLog.create({
         data: {
           jobId: this.jobId,
@@ -570,6 +608,9 @@ export class MatchAutomationService {
       })
       emitAutomationLogEntry(newLog)
     } catch (error) {
+      if (createdCount > 0 || updatedCount > 0) {
+        await invalidateTags(['matches', 'AdminStats'])
+      }
       logger.error({ error }, 'Provider match sync failed')
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       const newLog = await prisma.automationLog.create({
@@ -599,7 +640,7 @@ export class MatchAutomationService {
           status: 'LIVE',
         },
         include: {
-          streams: true,
+          streams: { where: { deletedAt: null } },
         },
       })
 
@@ -617,7 +658,7 @@ export class MatchAutomationService {
         }
 
         for (const stream of match.streams) {
-          const candidateUrls = [stream.primaryUrl, stream.backupUrl].filter((value): value is string => Boolean(value?.trim()))
+          const candidateUrls = [...new Set([stream.primaryUrl, stream.backupUrl].filter((value): value is string => Boolean(value?.trim())))]
 
           let nextStatus: 'READY' | 'LIVE' | 'OFFLINE' | 'ERROR' = 'OFFLINE'
           let isHealthy = false

@@ -4,7 +4,7 @@ import { Unlock, Tv, RotateCcw, AlertCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TooltipProvider } from '../ui/Tooltip'
 import { useHlsPlayer } from '../../hooks/useHlsPlayer'
-import { useLowPowerDevice } from '../../hooks/useLowPowerDevice'
+import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
 import { useSocket } from '../../hooks/useSocket'
 import { usePlayerTelemetry } from '../../hooks/usePlayerTelemetry'
 import { useAutoHideControls } from '../../hooks/useAutoHideControls'
@@ -131,7 +131,8 @@ export function CustomVideoPlayer({
   matchMetadata,
 }: CustomVideoPlayerProps) {
   const { socket } = useSocket()
-  const { isLowPower } = useLowPowerDevice() // Changed to use useLowPowerDevice hook
+  const { deviceTier, networkQuality, shouldReduceEffects, isSmartTV, reducedMotion } = usePerformanceProfile()
+  const isLowPower = deviceTier === 'low' || shouldReduceEffects
   const playerRef = useRef<ReactPlayerInstance | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const settingsMenuRef = useRef<HTMLDivElement>(null)
@@ -146,6 +147,12 @@ export function CustomVideoPlayer({
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
   const [currentLevel, setCurrentLevel] = useState<number>(-1) // -1 for Auto
   const [refreshKey, setRefreshKey] = useState(0)
+  const refreshKeyRef = useRef(0)
+  const refreshPlayer = useCallback(() => {
+    const nextKey = refreshKeyRef.current + 1
+    refreshKeyRef.current = nextKey
+    setRefreshKey(nextKey)
+  }, [])
   const [, setHasNativeMediaReady] = useState(false)
   const [qualityToast, setQualityToast] = useState<string | null>(null)
   const { currentUrl, errorMessage, retry, setError } = useHlsPlayer(url, streamId)
@@ -182,6 +189,8 @@ export function CustomVideoPlayer({
   const qualityToastTimeoutRef = useRef<number | null>(null)
   const presenceActiveRef = useRef(false)
   const presenceKeyRef = useRef<string | null>(null)
+  const suppressAutoplayOnSourceChangeRef = useRef(false)
+  const retryInProgressRef = useRef(false)
   const presenceIdentity = presenceId || streamId || null
   const { track: trackTelemetry } = usePlayerTelemetry({
     streamId,
@@ -362,6 +371,7 @@ export function CustomVideoPlayer({
       try {
         internalPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
         internalPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
+        internalPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
       } catch {
         // Ignore cleanup failures during player shutdown.
       }
@@ -560,6 +570,7 @@ export function CustomVideoPlayer({
     if (/\.m3u8(\?|$)/i.test(resolvedUrl)) return true
     return /\/stream\/proxy(\?|$)/i.test(resolvedUrl)
   }, [resolvedUrl])
+  const isLiveHlsSource = isHlsSource && (presenceType === 'channel' || liveWindow.isLive)
   const showSeekControls = Boolean(resolvedUrl) && !isHlsSource
 
   const handlePlayPause = useCallback(() => {
@@ -823,23 +834,42 @@ export function CustomVideoPlayer({
   }, [seekBy])
 
   const handleRetry = useCallback(() => {
+    if (retryInProgressRef.current) return
+    retryInProgressRef.current = true
+
+    if (isLiveHlsSource) {
+      stopPlayback()
+      terminatedRef.current = false
+      currentSourceKeyRef.current = sourceKey
+      clearQualityToast()
+      dispatch({ type: 'SET_ERROR', payload: null })
+      refreshPlayer()
+      writeRef(proxyTriedRef, false)
+      writeRef(proxyFailedRef, false)
+      return
+    }
+
+    if (!retry()) {
+      retryInProgressRef.current = false
+      const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
+      dispatch({ type: 'SET_ERROR', payload: exhaustedMessage })
+      if (typeof onPlayerError === 'function') {
+        onPlayerError(exhaustedMessage)
+      }
+      return
+    }
+
+    suppressAutoplayOnSourceChangeRef.current = true
     stopPlayback()
     terminatedRef.current = false
     currentSourceKeyRef.current = sourceKey
     clearQualityToast()
     dispatch({ type: 'SET_ERROR', payload: null });
     dispatch({ type: 'SET_PLAYING', payload: false });
-    setRefreshKey(prev => prev + 1)
+    refreshPlayer()
     writeRef(proxyTriedRef, false)
     writeRef(proxyFailedRef, false)
-    if (!retry()) {
-      const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
-      dispatch({ type: 'SET_ERROR', payload: exhaustedMessage })
-      if (typeof onPlayerError === 'function') {
-        onPlayerError(exhaustedMessage)
-      }
-    }
-  }, [clearQualityToast, retry, sourceKey, stopPlayback, onPlayerError])
+  }, [clearQualityToast, isLiveHlsSource, refreshPlayer, retry, sourceKey, stopPlayback, onPlayerError])
 
   useEffect(() => {
     if (!resolvedUrl) return
@@ -856,6 +886,7 @@ export function CustomVideoPlayer({
   
   const handleReady = useCallback(() => { // Changed to use useCallback
     if (terminatedRef.current || currentSourceKeyRef.current !== sourceKey) return
+    retryInProgressRef.current = false
 
     setHasNativeMediaReady(true)
 
@@ -932,6 +963,7 @@ export function CustomVideoPlayer({
         try {
           hlsPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
           hlsPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
+          hlsPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
         } catch {
           // ignore listener cleanup failures
         }
@@ -941,7 +973,12 @@ export function CustomVideoPlayer({
         const handleQualityEvent = (event: string, data: HlsEventData) => {
             if (sourceGenerationRef.current !== sourceGeneration || hlsRef.current !== hlsPlayer) return
           if (event === 'hlsManifestParsed') {
+            retryInProgressRef.current = false
             syncQualityState()
+            return
+          }
+          if (event === 'hlsBufferStalled') {
+            retryInProgressRef.current = false
             return
           }
 
@@ -961,6 +998,7 @@ export function CustomVideoPlayer({
         hlsLevelSwitchListenerRef.current = handleQualityEvent
         hlsPlayer.on('hlsLevelSwitched', handleQualityEvent)
         hlsPlayer.on('hlsManifestParsed', handleQualityEvent)
+        hlsPlayer.on('hlsBufferStalled', handleQualityEvent)
       } catch {
         // ignore listener attach failures
       }
@@ -968,6 +1006,7 @@ export function CustomVideoPlayer({
       const handleHlsFatalError = (event: string, data: HlsEventData) => {
         if (event !== 'hlsError' || !data.fatal) return
         if (terminatedRef.current || sourceGenerationRef.current !== sourceGeneration || currentSourceKeyRef.current !== sourceKey) return
+        retryInProgressRef.current = false
         const currentInternalPlayer = playerRef.current?.getInternalPlayer?.()
         if (currentInternalPlayer !== hlsPlayer || hlsRef.current !== hlsPlayer) return
 
@@ -1043,6 +1082,7 @@ export function CustomVideoPlayer({
           try {
             currentPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
             currentPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
+            currentPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
           } catch {
             // ignore cleanup failures
           }
@@ -1062,7 +1102,7 @@ export function CustomVideoPlayer({
       terminatedRef.current = false
       currentSourceKeyRef.current = sourceKey
       previousSourceKeyRef.current = sourceKey
-      setRefreshKey((key) => key + 1)
+      refreshPlayer()
     }
 
     writeRef(proxyTriedRef, false)
@@ -1071,14 +1111,16 @@ export function CustomVideoPlayer({
     writeRef(qualityToastTimeoutRef, null)
     startTransition(() => setQualityToast(null))
     startTransition(() => setHasNativeMediaReady(false))
-    dispatch({ type: 'RESET_FOR_NEW_URL', payload: autoPlay })
+    const shouldAutoPlay = autoPlay && !suppressAutoplayOnSourceChangeRef.current
+    suppressAutoplayOnSourceChangeRef.current = false
+    dispatch({ type: 'RESET_FOR_NEW_URL', payload: shouldAutoPlay })
     startTransition(() => {
       setQualityLevels([])
       setCurrentLevel(-1)
       setLiveWindow({ hasTimeshift: false, liveStart: 0, liveEdge: 0, currentTime: 0, isLive: false })
     })
     manualQualityRef.current = false
-  }, [autoPlay, clearQualityToast, resolvedUrl, sourceKey, stopPlayback])
+  }, [autoPlay, clearQualityToast, refreshPlayer, resolvedUrl, sourceKey, stopPlayback])
   
   const handleSetQuality = (levelIndex: number) => { // Changed to use handleSetQuality
     const internalPlayer: unknown = typeof playerRef.current?.getInternalPlayer === 'function'
@@ -1233,7 +1275,8 @@ export function CustomVideoPlayer({
 
     const events = ['timeupdate', 'progress', 'durationchange', 'loadedmetadata', 'canplay', 'seeking', 'seeked']
     events.forEach((eventName) => video.addEventListener(eventName, refreshLiveWindow))
-    const liveWindowTimer = window.setInterval(refreshLiveWindow, 1000)
+    const liveWindowRefreshMs = shouldReduceEffects || isSmartTV ? 2000 : 1000
+    const liveWindowTimer = window.setInterval(refreshLiveWindow, liveWindowRefreshMs)
     refreshLiveWindow()
 
     return () => {
@@ -1241,7 +1284,7 @@ export function CustomVideoPlayer({
       window.clearInterval(liveWindowTimer)
       if (frameId !== null) window.cancelAnimationFrame(frameId)
     }
-  }, [getVideoElement, resolvedUrl, updateLiveWindow, updateTimelineDom, url])
+  }, [getVideoElement, isSmartTV, resolvedUrl, shouldReduceEffects, updateLiveWindow, updateTimelineDom, url])
 
   useEffect(() => { // Changed to use useEffect
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -1269,19 +1312,20 @@ export function CustomVideoPlayer({
   
   const hlsOptions = useMemo<Record<string, unknown>>(() => { // Changed to use useMemo
     const baseOptions: Record<string, unknown> = {
+      startPosition: -1,
       xhrSetup: (xhr: XMLHttpRequest) => {
         xhr.withCredentials = false
       },
     }
 
-    if (isLowPower) {
+    if (isLowPower || networkQuality === 'slow' || reducedMotion) {
       return {
         ...baseOptions,
-        maxBufferLength: 20,
-        maxBufferSize: 20 * 1000 * 1000,
-        backBufferLength: 12,
-        liveSyncDurationCount: 3,
-        maxMaxBufferLength: 30,
+        maxBufferLength: 18,
+        maxBufferSize: 18 * 1000 * 1000,
+        backBufferLength: 10,
+        liveSyncDurationCount: 2,
+        maxMaxBufferLength: 24,
       }
     }
 
@@ -1293,7 +1337,7 @@ export function CustomVideoPlayer({
       liveSyncDurationCount: 3,
       maxMaxBufferLength: 45,
     }
-  }, [isLowPower])
+  }, [isLowPower, networkQuality, reducedMotion])
   
   const playerConfig = useMemo<ReactPlayerProps['config']>(() => ({ // Changed to use useMemo
     file: {
@@ -1352,6 +1396,7 @@ export function CustomVideoPlayer({
             height="100%"
             controls={false}
             onReady={() => {
+              if (refreshKey !== refreshKeyRef.current) return
               handleReady()
             }}
             onProgress={() => {
@@ -1365,8 +1410,10 @@ export function CustomVideoPlayer({
             }}
             playsInline={true}
             onError={(e: unknown) => {
+              if (refreshKey !== refreshKeyRef.current) return
               if (terminatedRef.current) return
               if (currentSourceKeyRef.current !== sourceKey) return
+              retryInProgressRef.current = false
 
               const playerError = e as { nativeEvent?: unknown; target?: { error?: MediaError | null } | null }
               const nativeError = playerError.nativeEvent ?? e

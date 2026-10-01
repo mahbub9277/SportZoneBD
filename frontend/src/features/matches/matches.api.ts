@@ -10,6 +10,7 @@ interface GetMatchesParams {
   status?: string
   premium?: boolean
   activeOnly?: boolean
+  recentOnly?: boolean
   sort?: string
 }
 
@@ -36,6 +37,8 @@ const transformSortParam = (sort?: string) => {
       return `title:${order}`
     case 'createdat':
       return `createdAt:${order}`
+    case 'finishedat':
+      return `finishedAt:${order}`
     case 'kickoffAt':
       return `kickoffAt:${order}`
     default:

@@ -9,6 +9,7 @@ export const FOOTBALL_DISCOVERY_COMPETITION = DEFAULT_FOOTBALL_DISCOVERY_COMPETI
 export interface FootballDataFixture {
   id?: string
   kickoffAt: string
+  status: string
   competitionCode: string
   competitionName: string
   homeTeamName: string
@@ -121,6 +122,7 @@ function normalizeCompetitionFixtures(value: unknown, competitionCode: string): 
     return {
       id: typeof match.id === 'number' ? String(match.id) : undefined,
       kickoffAt,
+      status: requiredString(match.status, 'match status').toUpperCase(),
       competitionCode,
       competitionName: requiredString(competition.name, 'competition name'),
       homeTeamName: requiredString(homeTeam.name, 'home team name'),
