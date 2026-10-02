@@ -14,6 +14,12 @@ import { Switch } from '../../components/ui/Switch'
 import { Button } from '../../components/ui/Button'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { useDebounce } from '../../hooks/useDebounce'
+import {
+  CHANNEL_CARD_BASE,
+  CHANNEL_CARD_LINK,
+  CHANNEL_LOGO_CLASS,
+  CHANNEL_NAME_CLASS,
+} from '../../components/ui/channelCardStyles'
 
 export function ChannelsPage() {
   const openChannel = useAdvertisementGate('CHANNEL')
@@ -186,11 +192,11 @@ export function ChannelsPage() {
                 <div
                   key={channel.id}
                 >
-                  <Card className="group relative flex h-full min-h-33.5 flex-col items-center justify-center p-2.5 text-center transition hover:border-accent/50 sm:min-h-36 sm:p-3">
-                    <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className="flex w-full min-w-0 flex-col items-center justify-center">
-                      <img src={buildCloudinaryUrl(channel.logo, { width: 60, height: 60, crop: 'fill' })} alt={`${channel.name} logo`} className="mb-2 h-16 w-16 rounded-full border border-border bg-surface-soft p-1 object-contain transition-transform duration-200 group-hover:scale-105 sm:h-20 sm:w-20" />
-                      <p className="line-clamp-2 w-full wrap-break-word text-[13px] font-medium leading-4 text-text-primary sm:text-sm">{channel.name}</p>
-                      {channel.isPremium && <span className="mt-1.5 rounded-full bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold text-(--accent)">PREMIUM</span>}
+                  <Card className={CHANNEL_CARD_BASE}>
+                    <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className={CHANNEL_CARD_LINK}>
+                      <img src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className={CHANNEL_LOGO_CLASS} />
+                      <p className={CHANNEL_NAME_CLASS}>{channel.name}</p>
+                      {channel.isPremium && <span className="mt-1 rounded-full bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold text-(--accent)">PREMIUM</span>}
                     </Link>
                     <button
                       type="button"

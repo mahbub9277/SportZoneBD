@@ -36,6 +36,12 @@ import { BackToTopButton } from '../../components/shared/BackToTopButton'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { toast } from 'sonner'
 import { useLazyGetRelatedChannelsQuery } from '../../features/admin/channels.api'
+ import {
+  CHANNEL_CARD_BASE,
+  CHANNEL_CARD_LINK,
+  CHANNEL_LOGO_CLASS,
+  CHANNEL_NAME_CLASS,
+} from '../../components/ui/channelCardStyles'
 
 const formatViewerCount = (count: number) => {
   if (count >= 1000000) {
@@ -336,40 +342,42 @@ export function WatchChannelPage() {
           <Button type="button" variant="outline" size="sm" onClick={() => void handleShare()} aria-label="Share channel"><Share2 className="mr-1.5 h-4 w-4" />Share</Button>
         </div>
       </Card>
-      <Card className="flex flex-row items-center gap-3 p-3 sm:gap-4 sm:p-6">
-          <div className="flex min-w-0 items-center gap-4">
-            <motion.div
-              className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-surface-soft p-2 shadow-[0_12px_30px_rgba(2,6,23,0.18)] sm:h-24 sm:w-24"
-              whileHover={{ scale: 1.06, rotate: 2 }}
-            >
-              <img
-                width={96}
-                height={96}
-                src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })}
-                alt={`${channel.name} logo`}
-                onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
-                className="h-full w-full rounded-xl object-contain"
-              />
-            </motion.div>
-            <div className="min-w-0 space-y-2">
-              <h1 className="wrap-break-word text-2xl font-bold text-text-primary">{channel.name}</h1>
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <motion.span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 1.8 }} />
-                <span>Live channel</span>
-              </div>
-              <ViewerCountDisplay channelId={channel.id} initial={watchData?.liveViewers ?? null} />
+      <Card className="p-3 sm:p-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <motion.div
+            className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-surface-soft p-2 shadow-[0_12px_30px_rgba(2,6,23,0.18)] sm:h-20 sm:w-20"
+            whileHover={{ scale: 1.06, rotate: 2 }}
+          >
+            <img
+              width={96}
+              height={96}
+              src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })}
+              alt={`${channel.name} logo`}
+              onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
+              className="h-full w-full rounded-xl object-contain"
+            />
+          </motion.div>
+
+          <div className="min-w-0 flex-1 space-y-2">
+            <h1 className="wrap-break-word text-xl font-semibold leading-snug tracking-[-0.02em] text-text-primary sm:text-2xl">{channel.name}</h1>
+            <div className="flex items-center gap-2 text-sm text-text-muted">
+              <motion.span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 1.8 }} />
+              <span>Live channel</span>
             </div>
+            <ViewerCountDisplay channelId={channel.id} initial={watchData?.liveViewers ?? null} />
           </div>
-        <button
-          onClick={() => dispatch(toggleFavoriteChannel(channel.id))} 
-          className="shrink-0 self-center text-text-muted transition-colors hover:text-accent"
-          aria-label={favoriteChannelIds.includes(channel.id) ? `Remove ${channel.name} from favorites` : `Add ${channel.name} to favorites`}
-        > 
-          <Heart
-            size={24}
-            className={cn('transition-colors', favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-text-muted')}
-          />
-        </button>
+
+          <button
+            onClick={() => dispatch(toggleFavoriteChannel(channel.id))}
+            className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-soft/80 text-text-muted transition-colors hover:text-accent"
+            aria-label={favoriteChannelIds.includes(channel.id) ? `Remove ${channel.name} from favorites` : `Add ${channel.name} to favorites`}
+          >
+            <Heart
+              size={20}
+              className={cn('transition-colors', favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-text-muted')}
+            />
+          </button>
+        </div>
       </Card>
       </motion.div>
 
@@ -381,24 +389,24 @@ export function WatchChannelPage() {
           </h2>
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {paginatedRelatedChannels.map((relatedChannel: Channel, index: number) => (
-              <Link to={`/watch/${relatedChannel.id}`} key={relatedChannel.id || index}>
-                <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.2 }}>
-                <Card className="flex min-h-34 min-w-0 flex-col items-center justify-center p-2 text-center transition-all hover:border-accent/50 sm:min-h-40 sm:p-4">
-                  <img
-                    loading="lazy"
-                    decoding="async"
-                    fetchPriority="low"
-                    width={80}
-                    height={80}
-                    src={buildCloudinaryUrl(relatedChannel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })}
-                    alt={relatedChannel.name}
+              <motion.div key={relatedChannel.id || index} whileHover={{ y: -4 }} transition={{ duration: 0.2 }}>
+                <Card className={CHANNEL_CARD_BASE}>
+                  <Link to={`/watch/${relatedChannel.id}`} className={CHANNEL_CARD_LINK}>
+                    <img
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      width={80}
+                      height={80}
+                      src={buildCloudinaryUrl(relatedChannel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })}
+                      alt={relatedChannel.name}
                       onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }}
-                    className="mb-2 h-16 w-16 rounded-full border border-border bg-surface-soft object-contain p-1 sm:h-20 sm:w-20"
-                  />
-                  <p className="line-clamp-2 w-full wrap-break-word text-[13px] font-medium leading-4 sm:text-sm">{relatedChannel.name}</p>
+                      className={CHANNEL_LOGO_CLASS}
+                    />
+                    <p className={CHANNEL_NAME_CLASS}>{relatedChannel.name}</p>
+                  </Link>
                 </Card>
-                </motion.div>
-              </Link>
+              </motion.div>
             ))}
           </div>
 
@@ -557,10 +565,10 @@ function ChannelsBrowser() {
               <h3 className="text-lg font-semibold mb-3">{category.name}</h3>
               <div className="grid grid-cols-3 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {(category.channels ?? []).map((channel) => (
-                  <Card key={channel.id} className="flex min-w-0 flex-col items-center justify-center p-2 text-center h-full relative group sm:p-4">
-                    <Link to={`/watch/${channel.id}`} className="flex flex-col items-center justify-center h-full w-full">
-                      <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className="h-12 w-12 rounded-full object-contain bg-gray-700 p-1 mb-2 sm:h-16 sm:w-16" />
-                      <p className="max-w-full wrap-break-word text-xs font-medium sm:text-sm">{channel.name}</p>
+                  <Card key={channel.id} className={CHANNEL_CARD_BASE}>
+                    <Link to={`/watch/${channel.id}`} className={CHANNEL_CARD_LINK}>
+                      <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className={CHANNEL_LOGO_CLASS} />
+                      <p className={CHANNEL_NAME_CLASS}>{channel.name}</p>
                     </Link>
                   </Card>
                 ))}
@@ -581,10 +589,10 @@ function ChannelsBrowser() {
           </div>
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                   {paginatedChannels.map((channel) => (
-              <Card key={channel.id} className="flex min-w-0 flex-col items-center justify-center p-2 text-center h-full relative group sm:p-4">
-                <Link to={`/watch/${channel.id}`} className="flex flex-col items-center justify-center h-full w-full"> 
-                  <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className="h-12 w-12 rounded-full object-contain bg-gray-700 p-1 mb-2 sm:h-16 sm:w-16" />
-                  <p className="max-w-full wrap-break-word text-xs font-medium sm:text-sm">{channel.name}</p>
+              <Card key={channel.id} className={CHANNEL_CARD_BASE}>
+                <Link to={`/watch/${channel.id}`} className={CHANNEL_CARD_LINK}>
+                  <img loading="lazy" decoding="async" fetchPriority="low" width={80} height={80} src={buildCloudinaryUrl(channel.logo, { width: 160, height: 160, crop: 'fill', quality: 'auto', format: 'auto' })} alt={channel.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-image.svg' }} className={CHANNEL_LOGO_CLASS} />
+                  <p className={CHANNEL_NAME_CLASS}>{channel.name}</p>
                 </Link>
               </Card>
             ))}

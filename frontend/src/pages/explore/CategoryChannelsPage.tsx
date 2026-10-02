@@ -10,6 +10,12 @@ import { selectFavoriteChannelIds, toggleFavoriteChannel } from '../../features/
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
+import {
+  CHANNEL_CARD_BASE,
+  CHANNEL_CARD_LINK,
+  CHANNEL_LOGO_CLASS,
+  CHANNEL_NAME_CLASS,
+} from '../../components/ui/channelCardStyles'
 import type { ChannelCategory } from '../../shared/types'
 
 export function CategoryChannelsPage() {
@@ -42,10 +48,10 @@ export function CategoryChannelsPage() {
         <motion.div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: simplifyChannelCards ? 0 : 0.045 } } }}>
           {channels.map((channel) => (
             <motion.div key={channel.id} variants={{ hidden: { opacity: 0, y: simplifyChannelCards ? 0 : 10 }, visible: { opacity: 1, y: 0 } }} whileHover={simplifyChannelCards ? undefined : { y: -4 }} transition={{ duration: simplifyChannelCards ? 0 : 0.2 }}>
-              <Card className="group relative flex min-h-36 flex-col items-center justify-center p-3 text-center">
-                <button type="button" onClick={() => openChannel(`/watch/${channel.id}`, channel.isPremium === true)} className="flex w-full min-w-0 flex-col items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0474C4]">
-                  <motion.img whileHover={simplifyChannelCards ? undefined : { scale: 1.08, rotate: 2 }} src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className="h-18 w-18 rounded-full border border-border bg-surface-soft p-1 object-contain transition group-hover:scale-105 sm:h-20 sm:w-20" />
-                  <span className="line-clamp-2 w-full wrap-break-word text-[13px] font-medium leading-4 text-text-primary sm:text-sm">{channel.name}</span>
+              <Card className={CHANNEL_CARD_BASE}>
+                <button type="button" onClick={() => openChannel(`/watch/${channel.id}`, channel.isPremium === true)} className={`${CHANNEL_CARD_LINK} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0474C4]`}>
+                  <motion.img whileHover={simplifyChannelCards ? undefined : { scale: 1.08, rotate: 2 }} src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className={CHANNEL_LOGO_CLASS} />
+                  <span className={CHANNEL_NAME_CLASS}>{channel.name}</span>
                 </button>
                 <button type="button" onClick={() => dispatch(toggleFavoriteChannel(channel.id))} className="absolute right-2 top-2 rounded-full p-1.5 text-text-muted opacity-100 transition hover:text-accent sm:opacity-0 sm:group-hover:opacity-100" aria-label={favorites.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}>
                   <motion.span whileHover={simplifyChannelCards ? undefined : { scale: 1.15, rotate: 8 }} whileTap={simplifyChannelCards ? undefined : { scale: 0.9 }}><Heart className="h-4 w-4" fill={favorites.includes(channel.id) ? 'currentColor' : 'none'} /></motion.span>
