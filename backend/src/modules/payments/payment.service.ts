@@ -25,7 +25,10 @@ export async function createPaymentIntent(args: CreatePaymentIntentArgs) {
   if (args.provider?.toLowerCase() === 'bkash') {
     throw new AppError(400, 'Use the manual bKash payment flow for this development environment.');
   }
-  const plan = await prisma.subscriptionPlan.findUnique({ where: { id: args.subscriptionPlanId } });
+  const plan = await prisma.subscriptionPlan.findUnique({
+    where: { id: args.subscriptionPlanId },
+    select: { id: true, deletedAt: true, status: true, price: true },
+  });
   if (!plan || plan.deletedAt || plan.status !== 'ACTIVE') throw new AppError(404, 'Subscription plan not found.');
   return prisma.payment.create({
     data: {
@@ -46,7 +49,10 @@ export async function getManualPaymentConfig() {
 }
 
 export async function createManualPayment(args: { userId: string; subscriptionPlanId: string; transactionId: string }) {
-  const plan = await prisma.subscriptionPlan.findUnique({ where: { id: args.subscriptionPlanId } });
+  const plan = await prisma.subscriptionPlan.findUnique({
+    where: { id: args.subscriptionPlanId },
+    select: { id: true, deletedAt: true, status: true, price: true },
+  });
   if (!plan || plan.deletedAt || plan.status !== 'ACTIVE') throw new AppError(404, 'Subscription plan not found.');
 
   try {
@@ -85,10 +91,15 @@ export async function createManualPayment(args: { userId: string; subscriptionPl
 export async function completePaymentAndUpdateSubscription(args: { paymentId: string; reviewerId: string }) {
   const { paymentId, reviewerId } = args;
 
-  return prisma.$transaction(async (tx) => {
+  const user = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
       where: { id: paymentId },
-      include: { subscriptionPlan: true },
+      select: {
+        userId: true,
+        status: true,
+        subscriptionPlanId: true,
+        subscriptionPlan: { select: { name: true, durationDays: true } },
+      },
     });
 
     if (!payment) throw new AppError(404, 'Payment not found.');
@@ -191,10 +202,12 @@ export async function completePaymentAndUpdateSubscription(args: { paymentId: st
       },
     });
 
-    await invalidateTags([`user:${payment.userId}`, 'user-list']);
-
-    return tx.user.findUnique({ where: { id: payment.userId } });
+    const updatedUser = await tx.user.findUnique({ where: { id: payment.userId } });
+    return { user: updatedUser, userId: payment.userId };
   });
+
+  await invalidateTags([`user:${user.userId}`, 'user-list']);
+  return user.user
 }
 
 /**
@@ -211,6 +224,7 @@ export async function verifyAndCompleteWebhookPayment(webhookPayload: { transact
   // 1. Find the payment in our database using the transaction ID.
   const payment = await prisma.payment.findUnique({
     where: { transactionId },
+    select: { status: true },
   });
 
   if (!payment) {
@@ -231,7 +245,7 @@ export async function verifyAndCompleteWebhookPayment(webhookPayload: { transact
 export async function getPaymentHistory(userId: string) {
   return prisma.payment.findMany({
     where: { userId, deletedAt: null },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: { subscriptionPlan: { select: { name: true } } },
   });
 }
@@ -284,7 +298,7 @@ export async function getAllPayments(args: { page: number; limit: number; search
   const [items, totalItems] = await prisma.$transaction([
     prisma.payment.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
       include: { user: { select: { id: true, fullName: true, email: true } }, subscriptionPlan: { select: { id: true, name: true } } },

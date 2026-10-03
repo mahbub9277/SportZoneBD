@@ -177,13 +177,18 @@ export const createChannel = asyncHandler(async (req: AuthenticatedRequest, res:
   const isPremium = body.isPremium === 'true'
   const status = normalizeChannelStatus(body.status)
 
-  const viewers = Number(body.viewers ?? 1280)
+  const viewers = body.viewers === undefined || body.viewers === null || body.viewers === ''
+    ? null
+    : Number(body.viewers)
+  if (viewers !== null && (!Number.isInteger(viewers) || viewers < 0)) {
+    throw new BadRequestError('viewers must be a non-negative integer.')
+  }
 
   const channelData = {
     name: String(body.name ?? '').trim(),
     url: String(body.url ?? '').trim(),
     categoryId: String(body.categoryId ?? '').trim(),
-    viewers: Number.isFinite(viewers) ? Math.max(0, viewers) : 1280,
+    viewers,
     isPremium,
     status,
     logo: body.logo ? String(body.logo).trim() : null,
@@ -221,8 +226,15 @@ export const updateChannel = asyncHandler(async (req: AuthenticatedRequest, res:
   }
 
   if (body.viewers !== undefined) {
-    const viewers = Number(body.viewers)
-    updateData.viewers = Number.isFinite(viewers) ? Math.max(0, viewers) : 1280
+    if (body.viewers === null || body.viewers === '') {
+      updateData.viewers = null
+    } else {
+      const viewers = Number(body.viewers)
+      if (!Number.isInteger(viewers) || viewers < 0) {
+        throw new BadRequestError('viewers must be a non-negative integer.')
+      }
+      updateData.viewers = viewers
+    }
   }
 
   if (body.logo !== undefined) {

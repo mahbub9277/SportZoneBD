@@ -8,32 +8,30 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/Tabs'
 import { useGetLeagueStandingsQuery } from '../../features/standings/standings.api'
 import type { LeagueCode, LeagueStanding } from '../../features/standings/standings.types'
-
-const COMPETITIONS: Array<{ code: LeagueCode; name: string }> = [
-  { code: 'PL', name: 'Premier League' },
-  { code: 'PD', name: 'La Liga' },
-  { code: 'CL', name: 'UEFA Champions League' },
-  { code: 'SA', name: 'Serie A' },
-  { code: 'BL1', name: 'Bundesliga' },
-]
+import { useGetStandingsCompetitionsQuery } from '../../features/standings/standings.api'
 
 const SKELETON_ROWS = Array.from({ length: 8 }, (_, index) => index)
 
 export function StandingsPage() {
   const [selectedLeagueCode, setSelectedLeagueCode] = useState<LeagueCode>('PL')
-  const { currentData, isFetching, isError, refetch } = useGetLeagueStandingsQuery({ leagueCode: selectedLeagueCode })
-  const selectedCompetition = COMPETITIONS.find(({ code }) => code === selectedLeagueCode)
+  const { data: competitions = [] } = useGetStandingsCompetitionsQuery()
+  const selectedCompetition = competitions.find(({ code }) => code === selectedLeagueCode)
+  const canLoadStandings = selectedCompetition?.standingsSupported === true
+  const { currentData, isFetching, isError, refetch } = useGetLeagueStandingsQuery(
+    { leagueCode: selectedLeagueCode },
+    { skip: !canLoadStandings },
+  )
   const isInitialLoading = isFetching && !currentData
 
   return (
     <main className="app-page space-y-4">
       <PageHero
         title="League standings"
-        description="Follow the table across Europe's top competitions."
+        description="Follow the table across supported competitions."
         eyebrow="Football tables"
         icon={BarChart3}
       >
-        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching} aria-label="Refresh standings">
+        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching || !canLoadStandings} aria-label="Refresh standings">
           <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
@@ -47,7 +45,7 @@ export function StandingsPage() {
               <SelectValue placeholder="Select competition" />
             </SelectTrigger>
             <SelectContent>
-              {COMPETITIONS.map((competition) => (
+              {competitions.map((competition) => (
                 <SelectItem key={competition.code} value={competition.code}>{competition.name}</SelectItem>
               ))}
             </SelectContent>
@@ -56,7 +54,7 @@ export function StandingsPage() {
         <div className="hidden rounded-2xl border border-(--border) bg-(--surface-soft)/70 p-2 sm:block">
           <Tabs value={selectedLeagueCode} onValueChange={(value) => setSelectedLeagueCode(value as LeagueCode)}>
             <TabsList className="w-full flex-wrap bg-transparent shadow-none">
-              {COMPETITIONS.map((competition) => (
+              {competitions.map((competition) => (
                 <TabsTrigger key={competition.code} value={competition.code} className="min-h-10 flex-1 rounded-xl px-3">
                   {competition.name}
                 </TabsTrigger>
@@ -67,6 +65,16 @@ export function StandingsPage() {
       </section>
 
       {isInitialLoading && <StandingsLoadingState />}
+
+      {selectedCompetition && !selectedCompetition.standingsSupported && (
+        <Card className="border-dashed border-(--border) bg-(--surface-soft)/50 shadow-none">
+          <CardContent className="py-12 text-center">
+            <Trophy className="mx-auto h-8 w-8 text-(--text-muted)" aria-hidden="true" />
+            <h2 className="mt-3 text-lg font-semibold text-(--text-primary)">Standings are not available</h2>
+            <p className="mt-1 text-sm text-(--text-muted)">football-data.org does not provide current standings for this tournament.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {isError && !currentData && (
         <Card role="alert" className="border-(--danger)/30 bg-(--danger-soft)/30 shadow-none">

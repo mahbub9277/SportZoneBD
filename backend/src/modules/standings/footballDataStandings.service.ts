@@ -4,8 +4,10 @@ import { BadRequestError, ServiceUnavailableError } from '../../core/errors.js'
 import { cacheRedis } from '../../core/redis.js'
 import logger from '../../core/logger.js'
 import { getRedisErrorCode } from '../../core/redisFailover.js'
+import { FOOTBALL_DATA_COMPETITIONS, type StandingsCompetitionCode } from '../matches/footballDataCompetitions.js'
+import { acquireFootballDataRequestSlot } from '../matches/footballDataRequestLimiter.js'
 
-export type LeagueCode = 'PL' | 'PD' | 'CL' | 'SA' | 'BL1'
+export type LeagueCode = StandingsCompetitionCode
 
 type StandingsPayload = Omit<LeagueStandingsResponse, 'meta'>
 
@@ -49,14 +51,6 @@ export interface LeagueStandingsResponse {
   }
 }
 
-const COMPETITION_PATHS: Record<LeagueCode, string> = {
-  PL: 'PL',
-  PD: 'PD',
-  CL: 'CL',
-  SA: 'SA',
-  BL1: 'BL1',
-}
-
 const FOOTBALL_DATA_API_URL = 'https://api.football-data.org/v4/competitions'
 const FRESH_CACHE_TTL_SECONDS = 600
 const STALE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -96,10 +90,13 @@ function nullableInteger(value: unknown): number | null {
 export function validateLeagueCode(value: unknown): LeagueCode {
   if (typeof value !== 'string') throw new BadRequestError('Unsupported competition code.')
   const code = value.trim().toUpperCase()
-  if (!Object.prototype.hasOwnProperty.call(COMPETITION_PATHS, code)) {
-    throw new BadRequestError('Unsupported competition code.')
-  }
+  const competition = FOOTBALL_DATA_COMPETITIONS.find((entry) => entry.code === code)
+  if (!competition?.standingsSupported) throw new BadRequestError('Standings are not available for this competition.')
   return code as LeagueCode
+}
+
+export function getStandingsCompetitions() {
+  return FOOTBALL_DATA_COMPETITIONS
 }
 
 export function normalizeFootballDataStandings(value: unknown, requestedCode: LeagueCode): StandingsPayload {
@@ -208,9 +205,11 @@ async function fetchAndCacheStandings(
   try {
     const apiKey = process.env.FOOTBALL_API_KEY
     if (!apiKey) throw new Error('provider-key-not-configured')
+    if (!await acquireFootballDataRequestSlot('standings')) {
+      throw new Error('football-data-request-limit-reached')
+    }
 
-    const competitionPath = COMPETITION_PATHS[leagueCode]
-    const response = await axios.get<unknown>(`${FOOTBALL_DATA_API_URL}/${competitionPath}/standings`, {
+    const response = await axios.get<unknown>(`${FOOTBALL_DATA_API_URL}/${leagueCode}/standings`, {
       headers: {
         'X-Auth-Token': apiKey,
         Accept: 'application/json',

@@ -1,5 +1,30 @@
 import { prisma } from '../core/prisma.js'
+import type { Prisma } from '@prisma/client'
 import { enqueueUserNotifications, type NotificationQueuePayload } from '../core/notificationQueue.js'
+
+const BROADCAST_USER_BATCH_SIZE = 500
+
+async function* iterateBroadcastUsers(where: Prisma.UserWhereInput, userId?: string): AsyncGenerator<Array<{ id: string }>> {
+  if (userId) {
+    yield [{ id: userId }]
+    return
+  }
+
+  let afterId: string | undefined
+  while (true) {
+    const users = await prisma.user.findMany({
+      where: afterId ? { AND: [where, { id: { gt: afterId } }] } : where,
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: BROADCAST_USER_BATCH_SIZE,
+    })
+    if (users.length === 0) return
+
+    yield users
+    afterId = users[users.length - 1].id
+    if (users.length < BROADCAST_USER_BATCH_SIZE) return
+  }
+}
 
 interface NotificationEvent {
   title: string
@@ -17,27 +42,24 @@ async function broadcastNotificationChannel(
     ? { type: event.type, channel, link: event.link ?? null, deletedAt: null }
     : { title: event.title, body: event.body, channel, link: event.link ?? null, deletedAt: null }
 
-  const users = await prisma.user.findMany({
-    where: {
-      isActive: true,
-      isSuspended: false,
-      isBanned: false,
-      deletedAt: null,
-      notifications: { none: existingNotificationWhere },
-      ...(channel === 'PUSH' ? {
-        pushSubscriptions: { some: { isActive: true, deletedAt: null } },
-        OR: [
-          { notificationPreferences: null },
-          { notificationPreferences: { is: { [event.preference]: true } } },
-        ],
-      } : {}),
-    },
-    select: { id: true },
-  })
+  const where: Prisma.UserWhereInput = {
+    isActive: true,
+    isSuspended: false,
+    isBanned: false,
+    deletedAt: null,
+    notifications: { none: existingNotificationWhere },
+    ...(channel === 'PUSH' ? {
+      pushSubscriptions: { some: { isActive: true, deletedAt: null } },
+      OR: [
+        { notificationPreferences: null },
+        { notificationPreferences: { is: { [event.preference]: true } } },
+      ],
+    } : {}),
+  }
 
-  if (users.length === 0) return 0
-
-  const payloads: NotificationQueuePayload[] = users.map((user) => ({
+  let queuedCount = 0
+  for await (const users of iterateBroadcastUsers(where)) {
+    const payloads: NotificationQueuePayload[] = users.map((user) => ({
       userId: user.id,
       title: event.title,
       body: event.body,
@@ -46,8 +68,11 @@ async function broadcastNotificationChannel(
       channel,
       dedupeKey: `${channel}:${event.title}:${event.body}:${event.link ?? ''}:${user.id}`,
     }))
-  const results = await enqueueUserNotifications(payloads)
-  return results.filter(Boolean).length
+    const results = await enqueueUserNotifications(payloads)
+    queuedCount += results.filter(Boolean).length
+  }
+
+  return queuedCount
 }
 
 /**
@@ -133,65 +158,67 @@ export async function createAdminBroadcastNotification(payload: {
   channel?: 'IN_APP' | 'PUSH' | 'BOTH'
 }): Promise<number> {
   const channel = payload.channel ?? 'BOTH'
-  const targetUsers = payload.userId
-    ? [{ id: payload.userId }]
-    : await prisma.user.findMany({
-        where: {
-          isActive: true,
-          isSuspended: false,
-          isBanned: false,
-          deletedAt: null,
-          ...(payload.targetAudience === 'PREMIUM'
-            ? { subscriptions: { some: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-            : payload.targetAudience === 'FREE'
-              ? { subscriptions: { none: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-              : {}),
-        },
-        select: { id: true },
-      })
+  const targetWhere: Prisma.UserWhereInput = {
+    isActive: true,
+    isSuspended: false,
+    isBanned: false,
+    deletedAt: null,
+    ...(payload.targetAudience === 'PREMIUM'
+      ? { subscriptions: { some: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
+      : payload.targetAudience === 'FREE'
+        ? { subscriptions: { none: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
+        : {}),
+  }
 
-  const pushEligibleUserIds = channel === 'IN_APP' || targetUsers.length === 0
-    ? new Set<string>()
-    : new Set((await prisma.pushSubscription.findMany({
-        where: {
-          userId: { in: targetUsers.map(({ id }) => id) },
-          isActive: true,
-          deletedAt: null,
-        },
-        select: { userId: true },
-        distinct: ['userId'],
-      })).map(({ userId }) => userId))
+  let recipientCount = 0
+  for await (const targetUsers of iterateBroadcastUsers(targetWhere, payload.userId)) {
+    const targetUserIds = targetUsers.map(({ id }) => id)
+    const pushEligibleUserIds = channel === 'IN_APP'
+      ? new Set<string>()
+      : new Set((await prisma.pushSubscription.findMany({
+          where: {
+            userId: { in: targetUserIds },
+            isActive: true,
+            deletedAt: null,
+          },
+          select: { userId: true },
+          distinct: ['userId'],
+        })).map(({ userId }) => userId))
 
-  const queuePayloads: NotificationQueuePayload[] = []
-  const recipientIndexes: number[] = []
-  targetUsers.forEach((user, index) => {
-    if (channel !== 'PUSH') {
-      queuePayloads.push({
-        userId: user.id,
-        title: payload.title,
-        body: payload.body,
-        type: payload.type ?? 'info',
-        link: payload.link,
-        channel: 'IN_APP',
-        dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:IN_APP`,
-      })
-      recipientIndexes.push(index)
-    }
+    const queuePayloads: NotificationQueuePayload[] = []
+    targetUsers.forEach((user) => {
+      if (channel !== 'PUSH') {
+        queuePayloads.push({
+          userId: user.id,
+          title: payload.title,
+          body: payload.body,
+          type: payload.type ?? 'info',
+          link: payload.link,
+          channel: 'IN_APP',
+          dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:IN_APP`,
+        })
+      }
 
-    if (channel !== 'IN_APP' && pushEligibleUserIds.has(user.id)) {
-      queuePayloads.push({
-        userId: user.id,
-        title: payload.title,
-        body: payload.body,
-        type: payload.type ?? 'info',
-        link: payload.link,
-        channel: 'PUSH',
-        dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
-      })
-      recipientIndexes.push(index)
-    }
-  })
+      if (channel !== 'IN_APP' && pushEligibleUserIds.has(user.id)) {
+        queuePayloads.push({
+          userId: user.id,
+          title: payload.title,
+          body: payload.body,
+          type: payload.type ?? 'info',
+          link: payload.link,
+          channel: 'PUSH',
+          dedupeKey: `${payload.title}:${payload.body}:${payload.link ?? ''}:${user.id}:PUSH`,
+        })
+      }
+    })
 
-  const results = await enqueueUserNotifications(queuePayloads)
-  return new Set(results.flatMap((result, index) => result ? [recipientIndexes[index]] : [])).size
+    const results = await enqueueUserNotifications(queuePayloads)
+    const acceptedRecipients = new Set<string>()
+    queuePayloads.forEach((item, index) => {
+      if (results[index]) acceptedRecipients.add(item.userId)
+    })
+    recipientCount += acceptedRecipients.size
+  }
+
+  return recipientCount
 }

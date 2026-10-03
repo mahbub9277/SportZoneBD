@@ -1,10 +1,15 @@
 import axios from 'axios'
 import { ServiceUnavailableError } from '../../core/errors.js'
 import logger from '../../core/logger.js'
+import { FOOTBALL_DATA_COMPETITIONS, type FootballDataCompetitionCode } from './footballDataCompetitions.js'
+import { acquireFootballDataRequestSlot } from './footballDataRequestLimiter.js'
 
 export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITION = 'PL'
-export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS = ['PL', 'PD', 'CL', 'SA', 'BL1'] as const
+export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS: readonly FootballDataCompetitionCode[] = FOOTBALL_DATA_COMPETITIONS
+  .filter(({ matchDiscoverySupported }) => matchDiscoverySupported)
+  .map(({ code }) => code)
 export const FOOTBALL_DISCOVERY_COMPETITION = DEFAULT_FOOTBALL_DISCOVERY_COMPETITION
+export const MAX_COMPETITION_FIXTURE_REQUESTS_PER_CYCLE = 6
 
 export interface FootballDataFixture {
   id?: string
@@ -62,6 +67,15 @@ export function getConfiguredCompetitionCodes(): string[] {
   )]
 }
 
+export function getCompetitionCodesForCycle(codes: readonly string[], now = Date.now()): string[] {
+  if (codes.length <= MAX_COMPETITION_FIXTURE_REQUESTS_PER_CYCLE) return [...codes]
+
+  const cycleCount = Math.ceil(codes.length / MAX_COMPETITION_FIXTURE_REQUESTS_PER_CYCLE)
+  const cycleIndex = Math.floor(now / 60_000) % cycleCount
+  const startIndex = cycleIndex * MAX_COMPETITION_FIXTURE_REQUESTS_PER_CYCLE
+  return codes.slice(startIndex, startIndex + MAX_COMPETITION_FIXTURE_REQUESTS_PER_CYCLE)
+}
+
 export async function getCompetitionFixtures(
   competitionCode: string,
   dateFrom: string,
@@ -72,6 +86,10 @@ export async function getCompetitionFixtures(
   if (!apiKey) throw new ServiceUnavailableError('FOOTBALL_API_KEY is not configured.')
 
   try {
+    if (!await acquireFootballDataRequestSlot('fixture')) {
+      throw new ServiceUnavailableError('Football fixture request limit reached for this minute.')
+    }
+
     const response = await axios.get<unknown>(`${FOOTBALL_DATA_API_URL}/${normalizedCode}/matches`, {
       params: { dateFrom, dateTo },
       headers: {
@@ -91,13 +109,15 @@ export async function getCompetitionFixtures(
 export async function getConfiguredCompetitionFixtures(
   dateFrom: string,
   dateTo: string,
+  loadFixtures: typeof getCompetitionFixtures = getCompetitionFixtures,
+  now = Date.now(),
 ): Promise<FootballDataFixture[]> {
-  const competitions = getConfiguredCompetitionCodes()
+  const competitions = getCompetitionCodesForCycle(getConfiguredCompetitionCodes(), now)
   if (competitions.length === 0) return []
 
   const fixturesByCompetition = await Promise.all(competitions.map(async (competitionCode) => {
     try {
-      return await getCompetitionFixtures(competitionCode, dateFrom, dateTo)
+      return await loadFixtures(competitionCode, dateFrom, dateTo)
     } catch {
       return []
     }

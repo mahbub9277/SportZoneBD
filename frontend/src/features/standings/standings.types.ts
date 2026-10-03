@@ -1,4 +1,12 @@
-export type LeagueCode = 'PL' | 'PD' | 'CL' | 'SA' | 'BL1'
+export type LeagueCode = string
+
+export interface StandingsCompetition {
+  code: LeagueCode
+  name: string
+  type: 'LEAGUE' | 'CUP'
+  matchDiscoverySupported: boolean
+  standingsSupported: boolean
+}
 
 export interface LeagueStanding {
   position: number

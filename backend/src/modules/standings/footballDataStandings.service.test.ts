@@ -8,6 +8,7 @@ type StandingsService = typeof import('./footballDataStandings.service.js')
 
 let cacheRedis: RedisCache
 let getStandings: StandingsService['getStandings']
+let getStandingsCompetitions: StandingsService['getStandingsCompetitions']
 let normalizeFootballDataStandings: StandingsService['normalizeFootballDataStandings']
 let validateLeagueCode: StandingsService['validateLeagueCode']
 
@@ -28,13 +29,27 @@ before(async () => {
   const standingsModule = await import('./footballDataStandings.service.js')
   cacheRedis = redisModule.cacheRedis
   getStandings = standingsModule.getStandings
+  getStandingsCompetitions = standingsModule.getStandingsCompetitions
   normalizeFootballDataStandings = standingsModule.normalizeFootballDataStandings
   validateLeagueCode = standingsModule.validateLeagueCode
 })
 
-test('accepts only the five supported competition codes', async () => {
-  for (const code of ['PL', 'PD', 'CL', 'SA', 'BL1']) {
+test('exposes all verified competitions and accepts only those with current standings', async () => {
+  const competitions = getStandingsCompetitions()
+  assert.equal(competitions.length, 12)
+  assert.deepEqual(competitions.filter(({ standingsSupported }) => standingsSupported).map(({ code }) => code), [
+    'PL', 'PD', 'CL', 'SA', 'BL1', 'DED', 'BSA', 'FL1', 'ELC', 'PPL',
+  ])
+
+  for (const code of ['PL', 'PD', 'CL', 'SA', 'BL1', 'DED', 'BSA', 'FL1', 'ELC', 'PPL']) {
     assert.equal(validateLeagueCode(code), code)
+  }
+
+  for (const code of ['WC', 'EC']) {
+    await assert.rejects(
+      getStandings(code),
+      (error: unknown) => error instanceof Error && 'statusCode' in error && error.statusCode === 400,
+    )
   }
 
   await assert.rejects(

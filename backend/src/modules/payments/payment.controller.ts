@@ -118,8 +118,10 @@ export const clearHistory = asyncHandler(async (req: Request, res: Response) => 
 });
 
 export const getAllPayments = asyncHandler(async (req: Request, res: Response) => {
-  const page = Number(req.query.page) || 1;
-  const limit = Number(req.query.limit) || 10;
+  const requestedPage = Number(req.query.page)
+  const requestedLimit = Number(req.query.limit)
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
+  const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, Math.floor(requestedLimit))) : 10
   const search = typeof req.query.search === 'string' ? req.query.search : undefined;
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   const paginatedPayments = await paymentService.getAllPayments({ page, limit, search, status });

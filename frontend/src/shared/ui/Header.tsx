@@ -78,18 +78,18 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
       supportsBackdropFilter && !simplifyHeader ? 'backdrop-blur-2xl' : 'backdrop-blur-none',
       simplifyHeader ? 'shadow-[0_10px_32px_rgba(0,0,0,0.12)]' : 'shadow-[0_18px_70px_rgba(0,0,0,0.24)]',
     )}>
-      <div className="mx-auto flex h-auto min-h-20 max-w-[1600px] items-center justify-between gap-3 px-3 py-3 sm:gap-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="mx-auto flex h-auto min-h-20 max-w-[1600px] items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="icon"
-            className="h-12 w-12 shrink-0 rounded-2xl xl:hidden"
+            className="h-[3.09rem] w-[3.09rem] shrink-0 rounded-2xl sm:h-12 sm:w-12 xl:hidden"
             onClick={onMenuClick}
             aria-label="Open sidebar"
             aria-expanded={isMenuOpen}
             aria-controls="mobile-sidebar"
           >
-            {isMenuOpen ? <X className="h-[1.85rem] w-[1.85rem]" /> : <Menu className="h-[1.85rem] w-[1.85rem]" />}
+            {isMenuOpen ? <X className="h-[1.91rem] w-[1.91rem] sm:h-[1.85rem] sm:w-[1.85rem]" /> : <Menu className="h-[1.91rem] w-[1.91rem] sm:h-[1.85rem] sm:w-[1.85rem]" />}
           </Button>
 
           <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="Go to homepage">
@@ -99,7 +99,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
                 alt="SportZoneBD logo"
                 className={cn(
                   'h-full w-auto max-w-none origin-left object-contain object-left py-2',
-                  simplifyHeader ? 'scale-150 sm:scale-160' : 'scale-200 sm:scale-170',
+                  simplifyHeader ? 'scale-[1.55] sm:scale-160' : 'scale-[2.06] sm:scale-170',
                 )}
               />
             </div>
@@ -114,11 +114,11 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-11 w-11 md:hidden"
+            className="h-[2.83rem] w-[2.83rem] sm:h-11 sm:w-11 md:hidden"
             onClick={() => setIsSearchOpen(true)}
             aria-label="Open search"
           >
-            <Search className="h-6 w-6" />
+            <Search className="h-[1.545rem] w-[1.545rem] sm:h-6 sm:w-6" />
           </Button>
 
           <Link
@@ -134,7 +134,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             onClick={toggleTheme}
             variant="ghost"
             size="icon"
-            className="relative h-9 w-9 overflow-hidden rounded-full"
+            className="relative h-[2.32rem] w-[2.32rem] overflow-hidden rounded-full sm:h-9 sm:w-9"
             aria-label="Toggle theme"
           >
             <SunMedium
@@ -157,13 +157,13 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full"
+              className="h-[2.32rem] w-[2.32rem] rounded-full sm:h-9 sm:w-9"
               onClick={() => setIsNotificationsOpen((isOpen) => !isOpen)}
               aria-label="View notifications"
               aria-expanded={isNotificationsOpen}
               aria-controls="notifications-panel"
             >
-              <Bell className={cn('h-7 w-7 transition-all', notificationData && notificationData.count > 0 && 'fill-accent text-accent')} />
+              <Bell className={cn('h-[1.8rem] w-[1.8rem] transition-all sm:h-7 sm:w-7', notificationData && notificationData.count > 0 && 'fill-accent text-accent')} />
             </Button>
             {notificationData && notificationData.count > 0 && (
               <span className="pointer-events-none absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
@@ -227,7 +227,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             <Button
               asChild
               variant="outline"
-              className="rounded-full px-4"
+              className="h-[2.83rem] rounded-full px-[1.03rem] sm:h-11 sm:px-4"
             >
               <Link
                 to="/login"

@@ -10,7 +10,7 @@ import { isRedisConfigured, redis } from '../core/redis.js'
 import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
-import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
+import { getCompetitionFixtures, getConfiguredCompetitionCodes, getConfiguredCompetitionFixtures, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
 
 const DISCOVERY_DAYS = 2
 const RECENT_MATCH_RETENTION_MINUTES = 7 * 24 * 60
@@ -432,15 +432,10 @@ export class MatchAutomationService {
       const fixtureWindowStart = new Date(`${fromDate}T00:00:00.000Z`)
       const fixtureWindowEndExclusive = new Date(to)
       fixtureWindowEndExclusive.setUTCDate(fixtureWindowEndExclusive.getUTCDate() + 1)
-      const competitionCodes = getConfiguredCompetitionCodes()
-      const fixtures = (await Promise.all(competitionCodes.map(async (competitionCode) => {
-        const cacheKey = `sportzonebd:football:fixtures:${competitionCode}:${fromDate}:${toDate}`
-        try {
-          return await cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, fromDate, toDate), 120)
-        } catch {
-          return []
-        }
-      }))).flat()
+      const fixtures = await getConfiguredCompetitionFixtures(fromDate, toDate, async (competitionCode, requestFromDate, requestToDate) => {
+        const cacheKey = `sportzone:football:fixtures:${competitionCode}:${requestFromDate}:${requestToDate}`
+        return cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, requestFromDate, requestToDate), 120)
+      })
 
       const uniqueFixtures: FootballDataFixture[] = []
       const seenFixtureKeys = new Set<string>()
@@ -700,19 +695,29 @@ export class MatchAutomationService {
           }
 
           const failureKey = `sportzone:stream-health-failures:${stream.id}`
+          const alreadyInErrorState = stream.status === 'ERROR'
+
           if (!isHealthy) {
-            const failures = Number(await redis.incr(failureKey))
-            await redis.expire(failureKey, 15 * 60)
-            if (failures < STREAM_HEALTH_FAILURE_THRESHOLD) {
-              logger.warn({ streamId: stream.id, failures }, 'Transient stream health failure retained')
-              continue
+            if (!alreadyInErrorState) {
+              const failures = Number(await redis.incr(failureKey))
+              await redis.expire(failureKey, 15 * 60)
+              if (failures < STREAM_HEALTH_FAILURE_THRESHOLD) {
+                logger.warn({ streamId: stream.id, failures }, 'Transient stream health failure retained')
+                continue
+              }
+              nextStatus = 'ERROR'
+              errorCount++
+            } else {
+              nextStatus = 'ERROR'
             }
-            nextStatus = 'ERROR'
-            errorCount++
           } else if (nextStatus === 'OFFLINE') {
             offlineCount++
           } else {
             await redis.del(failureKey)
+          }
+
+          if (nextStatus === 'ERROR' && alreadyInErrorState && stream.enabled === false) {
+            continue
           }
 
           await prisma.stream.update({

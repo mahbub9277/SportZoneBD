@@ -264,9 +264,22 @@ export async function enqueueUserNotifications(payloads: NotificationQueuePayloa
   if (payloads.length === 0) return []
   if (!queueInstance || !isRedisConfigured) return dispatchNotificationsDirectly(payloads)
 
+  const uniquePayloads: NotificationQueuePayload[] = []
+  const seenJobIds = new Set<string>()
+  for (const payload of payloads) {
+    const jobId = getNotificationJobId(payload)
+    if (seenJobIds.has(jobId)) {
+      continue
+    }
+    seenJobIds.add(jobId)
+    uniquePayloads.push(payload)
+  }
+
+  if (uniquePayloads.length === 0) return Array(payloads.length).fill(null)
+
   const ids: Array<string | null> = []
-  for (let offset = 0; offset < payloads.length; offset += NOTIFICATION_BATCH_SIZE) {
-    const batch = payloads.slice(offset, offset + NOTIFICATION_BATCH_SIZE)
+  for (let offset = 0; offset < uniquePayloads.length; offset += NOTIFICATION_BATCH_SIZE) {
+    const batch = uniquePayloads.slice(offset, offset + NOTIFICATION_BATCH_SIZE)
     try {
       const jobs = await queueInstance.addBulk(batch.map((payload) => ({
         name: 'send' as const,

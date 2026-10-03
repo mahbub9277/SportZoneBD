@@ -153,7 +153,7 @@ model Subscription {
   plan     SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
   payments Payment[]
 
-  @@index([userId])
+  @@index([userId, status, deletedAt, expiresAt])
   @@index([status])
 }
 
@@ -196,7 +196,7 @@ model Payment {
   subscriptionPlan SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id], onDelete: SetNull)
   subscription     Subscription?     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
-  @@index([userId])
+  @@index([userId, deletedAt, createdAt, id])
   @@index([status])
 }
 
@@ -388,7 +388,7 @@ model Channel {
   name       String
   logo       String?
   url        String        @db.Text
-  viewers    Int           @default(1280)
+  viewers    Int?
   isPremium  Boolean       @default(false) // e.g., "active", "inactive", "maintenance"
   status     ChannelStatus @default(ACTIVE)
   categoryId String        @db.Uuid

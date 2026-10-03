@@ -1,10 +1,15 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse } from '../../app/api/types'
-import type { LeagueCode, LeagueStandingsResponse } from './standings.types'
+import type { LeagueCode, LeagueStandingsResponse, StandingsCompetition } from './standings.types'
 
 export const standingsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
+    getStandingsCompetitions: builder.query<StandingsCompetition[], void>({
+      query: () => 'standings/competitions',
+      transformResponse: (response: ApiResponse<StandingsCompetition[]>) => unwrapApiResponse(response),
+      providesTags: ['Standings'],
+    }),
     getLeagueStandings: builder.query<LeagueStandingsResponse, { leagueCode: LeagueCode }>({
       query: ({ leagueCode }) => ({
         url: 'standings',
@@ -17,4 +22,4 @@ export const standingsApi = emptyApi.injectEndpoints({
   overrideExisting: false,
 })
 
-export const { useGetLeagueStandingsQuery } = standingsApi
+export const { useGetLeagueStandingsQuery, useGetStandingsCompetitionsQuery } = standingsApi
