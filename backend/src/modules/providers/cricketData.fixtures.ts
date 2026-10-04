@@ -124,20 +124,26 @@ export async function getCricketFixtures(
     return { fixtures: [], skipped: true, reason: 'not-configured' }
   }
 
-  if (!await acquireProviderRequestSlot(PROVIDER, getCricketDailyRequestLimit(), now)) {
-    logger.warn({ provider: PROVIDER }, 'CricketData daily request budget exhausted; skipping this cycle')
-    return { fixtures: [], skipped: true, reason: 'daily-budget-exhausted' }
-  }
-
   const windowStart = new Date(`${dateFrom}T00:00:00.000Z`)
   const windowEnd = new Date(`${dateTo}T23:59:59.999Z`)
 
   try {
-    const fixtures = await cache<CanonicalFixture[]>(
+    // The budget slot stands for a real upstream request, so it is reserved inside the cache loader:
+    // a cache hit returns without consuming the provider budget.
+    const fixtures = await cache<CanonicalFixture[] | null>(
       `sportzone:provider:cricket-data:${getCricketEndpoint()}:${dateFrom}:${dateTo}`,
-      async () => withinWindow(normalizeCricketFixtures(await loadMatches()), windowStart, windowEnd),
+      async () => {
+        if (!await acquireProviderRequestSlot(PROVIDER, getCricketDailyRequestLimit(), now)) {
+          logger.warn({ provider: PROVIDER }, 'CricketData daily request budget exhausted; skipping this cycle')
+          return null
+        }
+
+        return withinWindow(normalizeCricketFixtures(await loadMatches()), windowStart, windowEnd)
+      },
       FIXTURE_CACHE_TTL_SECONDS,
     )
+
+    if (!fixtures) return { fixtures: [], skipped: true, reason: 'daily-budget-exhausted' }
     return { fixtures, skipped: false }
   } catch (error) {
     logger.warn({ provider: PROVIDER, providerStatus: getCricketProviderStatus(error) }, 'CricketData fixture request failed')

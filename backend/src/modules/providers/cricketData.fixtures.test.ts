@@ -155,3 +155,90 @@ test('propagates a genuine provider failure so the run is reported accurately', 
     else process.env.CRICKET_API_KEY = previousKey
   }
 })
+
+/**
+ * Regression guard for the provider budget/cache ordering: a budget slot must stand for a real
+ * upstream request, so it is reserved per provider request and never when the cache serves the run.
+ */
+test('reserves one provider slot per real provider request and blocks the provider once the budget is spent', async () => {
+  const previousKey = process.env.CRICKET_API_KEY
+  const previousLimit = process.env.CRICKET_DAILY_REQUEST_LIMIT
+  process.env.CRICKET_API_KEY = 'test-key'
+  process.env.CRICKET_DAILY_REQUEST_LIMIT = '2'
+
+  try {
+    // A dedicated budget day keeps this test independent of the other tests' counter.
+    const now = Date.UTC(2031, 0, 2, 12)
+    let loaderCalls = 0
+    const loader = async () => {
+      loaderCalls += 1
+      return { data: [match()] }
+    }
+
+    const first = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+    const second = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+
+    assert.equal(first.skipped, false)
+    assert.equal(second.skipped, false)
+    assert.equal(loaderCalls, 2, 'each real provider request reserves exactly one slot')
+
+    const blocked = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+
+    assert.deepEqual(blocked, { fixtures: [], skipped: true, reason: 'daily-budget-exhausted' })
+    assert.equal(loaderCalls, 2, 'an exhausted budget must never reach the provider')
+
+    // The rejected reservation is not stored, so the provider stays blocked instead of serving data.
+    const stillBlocked = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+    assert.deepEqual(stillBlocked, { fixtures: [], skipped: true, reason: 'daily-budget-exhausted' })
+    assert.equal(loaderCalls, 2)
+  } finally {
+    if (previousKey === undefined) delete process.env.CRICKET_API_KEY
+    else process.env.CRICKET_API_KEY = previousKey
+    if (previousLimit === undefined) delete process.env.CRICKET_DAILY_REQUEST_LIMIT
+    else process.env.CRICKET_DAILY_REQUEST_LIMIT = previousLimit
+  }
+})
+
+test('serves a cached fixture payload without calling the provider or its budget', async () => {
+  const previousKey = process.env.CRICKET_API_KEY
+  const previousLimit = process.env.CRICKET_DAILY_REQUEST_LIMIT
+  process.env.CRICKET_API_KEY = 'test-key'
+  process.env.CRICKET_DAILY_REQUEST_LIMIT = '1'
+
+  const cachedFixture = normalizeCricketMatch(match())
+  assert.ok(cachedFixture, 'the cached payload must be a real normalized fixture')
+
+  const redisModule = await import('../../core/redis.js')
+  const cacheClient = redisModule.cacheRedis as { get: (key: string) => Promise<string | null> }
+  const originalGet = cacheClient.get
+
+  try {
+    const now = Date.UTC(2031, 1, 2, 12)
+    let loaderCalls = 0
+    const loader = async () => {
+      loaderCalls += 1
+      return { data: [match()] }
+    }
+
+    // Spend the only slot so the budget is exhausted for the rest of this test.
+    const spending = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+    assert.equal(spending.skipped, false)
+    assert.equal(loaderCalls, 1)
+
+    cacheClient.get = async (key: string) => (
+      key.includes('cricket-data') ? JSON.stringify([cachedFixture]) : originalGet(key)
+    )
+
+    const hit = await getCricketFixtures('2026-10-05', '2026-10-07', now, loader)
+
+    assert.equal(hit.skipped, false)
+    assert.deepEqual(hit.fixtures.map((fixture) => fixture.providerMatchId), ['cric-1'])
+    assert.equal(loaderCalls, 1, 'a cache hit must not reach the provider')
+  } finally {
+    cacheClient.get = originalGet
+    if (previousKey === undefined) delete process.env.CRICKET_API_KEY
+    else process.env.CRICKET_API_KEY = previousKey
+    if (previousLimit === undefined) delete process.env.CRICKET_DAILY_REQUEST_LIMIT
+    else process.env.CRICKET_DAILY_REQUEST_LIMIT = previousLimit
+  }
+})

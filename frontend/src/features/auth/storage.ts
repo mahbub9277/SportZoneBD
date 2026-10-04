@@ -30,12 +30,37 @@ export function hasAuthBootstrapHint(): boolean {
   }
 }
 
-export function acquireAuthBootstrapLock(): boolean {
+/**
+ * The bootstrap lock is a short-lived optimization hint: it stops a second tab from repeating the
+ * refresh + /auth/me bootstrap while one is already in flight. It is stored as the acquisition
+ * timestamp so a lock left behind by a closed/reloaded tab can expire instead of blocking a new
+ * bootstrap attempt forever. The window is comfortably longer than the 8s bootstrap safety timeout,
+ * so an in-flight bootstrap is never treated as stale.
+ */
+const AUTH_BOOTSTRAP_LOCK_TTL_MS = 15_000
+
+function readAuthBootstrapLockAt(): number | null {
   try {
-    if (sessionStorage.getItem(AUTH_BOOTSTRAP_LOCK_KEY) === 'true') {
-      return false
+    const raw = sessionStorage.getItem(AUTH_BOOTSTRAP_LOCK_KEY)
+    if (!raw) return null
+    const acquiredAt = Number(raw)
+    if (!Number.isFinite(acquiredAt) || acquiredAt <= 0) {
+      // Legacy 'true' value (or corrupted data) carries no expiry, so it cannot be trusted.
+      sessionStorage.removeItem(AUTH_BOOTSTRAP_LOCK_KEY)
+      return null
     }
-    sessionStorage.setItem(AUTH_BOOTSTRAP_LOCK_KEY, 'true')
+    return acquiredAt
+  } catch {
+    return null
+  }
+}
+
+export function acquireAuthBootstrapLock(): boolean {
+  if (hasAuthBootstrapLock()) {
+    return false
+  }
+  try {
+    sessionStorage.setItem(AUTH_BOOTSTRAP_LOCK_KEY, String(Date.now()))
     return true
   } catch {
     return false
@@ -51,11 +76,15 @@ export function releaseAuthBootstrapLock(): void {
 }
 
 export function hasAuthBootstrapLock(): boolean {
-  try {
-    return sessionStorage.getItem(AUTH_BOOTSTRAP_LOCK_KEY) === 'true'
-  } catch {
+  const acquiredAt = readAuthBootstrapLockAt()
+  if (acquiredAt === null) return false
+
+  if (Date.now() - acquiredAt > AUTH_BOOTSTRAP_LOCK_TTL_MS) {
+    releaseAuthBootstrapLock()
     return false
   }
+
+  return true
 }
 
 /**

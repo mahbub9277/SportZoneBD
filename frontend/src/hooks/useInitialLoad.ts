@@ -53,6 +53,17 @@ export function useInitialLoad() {
   useEffect(() => {
     if (!shouldAttemptBootstrap) return
 
+    // Both bootstrap queries can be skipped (a bootstrap lock from this tab), in which case no
+    // loading/success/error state will ever arrive. That state must terminate as anonymous instead
+    // of leaving the splash screen visible forever.
+    const isRefreshIdle = !isRefreshLoading && !isRefreshSuccessful && !isRefreshError
+    const isSessionIdle = !isSessionLoading && !isSessionFetching && !isSessionSuccessful && !isSessionError && !sessionUser
+    if (isRefreshIdle && isSessionIdle) {
+      releaseAuthBootstrapLock()
+      dispatch(setAuthInitializing(false))
+      return
+    }
+
     if (!isRefreshLoading && (isRefreshSuccessful || isRefreshError) && !isSessionLoading && !isSessionFetching && (sessionUser || isSessionSuccessful || isSessionError)) {
       releaseAuthBootstrapLock()
       dispatch(setAuthInitializing(false))
