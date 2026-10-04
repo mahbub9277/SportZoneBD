@@ -9,7 +9,7 @@ import { streamsRouter } from '../modules/streams/streams.routes.js'
 import { channelsRouter } from '../modules/channels/channel.routes.js'
 import { authRouter } from '../modules/auth/auth.routes.js'
 import { highlightsRouter } from '../modules/highlights/highlight.routes.js'
-import { authenticate, requireRole } from '../core/middleware/index.js'
+import { authenticate, requireRole, verifyRequestOrigin } from '../core/middleware/index.js'
 import { analyticsRouter } from '../modules/analytics/analytics.routes.js'
 import { notificationsRouter } from '../modules/notifications/notification.routes.js'
 import { publicAdvertisementsRouter } from '../modules/advertisements/advertisements.routes.js'
@@ -25,6 +25,11 @@ import { aiRouter } from '../modules/ai/description.routes.js'
 import { teamsRouter } from '../modules/teams/team.routes.js'
 import { paymentLimiter } from '../middleware/rateLimiter.js'
 const apiRouter: ExpressRouter = Router()
+
+// Reject cross-site state-changing requests before any route handler or rate limiter runs.
+// Cookies are SameSite=None in production (cross-site Vercel frontend), so this is the
+// application's CSRF defence.
+apiRouter.use(verifyRequestOrigin)
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

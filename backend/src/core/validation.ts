@@ -1,6 +1,16 @@
 import type { NextFunction, Request, Response } from 'express'
-import { ZodError, type ZodTypeAny } from 'zod'
+import { ZodError, z, type ZodTypeAny } from 'zod'
 import { ValidationError } from './errors.js'
+
+/**
+ * Validates a UUID route/query parameter so malformed ids are rejected with a 400
+ * instead of reaching the database and surfacing as a 500.
+ */
+export function parseUuidParam(value: unknown, label = 'id'): string {
+  const result = z.string().uuid().safeParse(value)
+  if (!result.success) throw new ValidationError(`Invalid ${label}`, result.error.format())
+  return result.data
+}
 
 export function validateBody<TSchema extends ZodTypeAny>(schema: TSchema) {
   return (req: Request, _res: Response, next: NextFunction): void => {

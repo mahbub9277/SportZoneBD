@@ -19,8 +19,10 @@ export const FOOTBALL_DATA_COMPETITIONS = [
   { code: 'FL1', name: 'Ligue 1', type: 'LEAGUE', matchDiscoverySupported: true, standingsSupported: true },
   { code: 'ELC', name: 'Championship', type: 'LEAGUE', matchDiscoverySupported: true, standingsSupported: true },
   { code: 'PPL', name: 'Primeira Liga', type: 'LEAGUE', matchDiscoverySupported: true, standingsSupported: true },
-  { code: 'WC', name: 'FIFA World Cup', type: 'CUP', matchDiscoverySupported: true, standingsSupported: false },
-  { code: 'EC', name: 'European Championship', type: 'CUP', matchDiscoverySupported: true, standingsSupported: false },
+  // Tournament cups stay listed for the competition selector, but their seasons are dormant
+  // outside tournament years (no fixtures and no standings), so they are not polled.
+  { code: 'WC', name: 'FIFA World Cup', type: 'CUP', matchDiscoverySupported: false, standingsSupported: false },
+  { code: 'EC', name: 'European Championship', type: 'CUP', matchDiscoverySupported: false, standingsSupported: false },
 ] as const satisfies readonly FootballDataCompetitionDefinition[]
 
 export type FootballDataCompetitionCode = typeof FOOTBALL_DATA_COMPETITIONS[number]['code']

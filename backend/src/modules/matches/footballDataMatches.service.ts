@@ -111,6 +111,7 @@ export async function getConfiguredCompetitionFixtures(
   dateTo: string,
   loadFixtures: typeof getCompetitionFixtures = getCompetitionFixtures,
   now = Date.now(),
+  onCompetitionError?: (competitionCode: string, error: unknown) => void,
 ): Promise<FootballDataFixture[]> {
   const competitions = getCompetitionCodesForCycle(getConfiguredCompetitionCodes(), now)
   if (competitions.length === 0) return []
@@ -118,7 +119,10 @@ export async function getConfiguredCompetitionFixtures(
   const fixturesByCompetition = await Promise.all(competitions.map(async (competitionCode) => {
     try {
       return await loadFixtures(competitionCode, dateFrom, dateTo)
-    } catch {
+    } catch (error) {
+      // A single failing competition must not abort the batch, but the caller still
+      // needs to know it failed so the automation result is not reported as full success.
+      onCompetitionError?.(competitionCode, error)
       return []
     }
   }))

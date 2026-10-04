@@ -16,6 +16,7 @@ class NoopRedisPipeline {
 class NoopRedisClient {
   on(): this { return this }
   async get(..._args: unknown[]): Promise<null> { return null }
+  async mget(...keys: unknown[]): Promise<(string | null)[]> { return keys.map(() => null) }
   async connect(): Promise<'OK'> { return 'OK' }
   async ping(): Promise<'PONG'> { return 'PONG' }
   async set(..._args: unknown[]): Promise<'OK'> { return 'OK' }
@@ -108,6 +109,7 @@ const runCacheCommand = <Result>(operation: (client: any) => Promise<Result>) =>
 
 export const cacheRedis = {
   get: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.get(...args)),
+  mget: (...args: any[]): Promise<(string | null)[]> => runCacheCommand<(string | null)[]>((client) => client.mget(...args)),
   set: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.set(...args)),
   eval: (...args: unknown[]): Promise<number> => runCacheCommand<number>((client) => client.eval(...args)),
   del: (...args: any[]): Promise<number> => runCacheCommand<number>((client) => client.del(...args)),

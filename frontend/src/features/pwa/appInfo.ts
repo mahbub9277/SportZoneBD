@@ -9,6 +9,29 @@ export interface ReleaseNoteCategory {
 }
 
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNoteCategory[]> = {
+  '2.0.0': [
+    {
+      category: 'Improvements',
+      items: [
+        'Streaming pages navigate and settle faster, with quieter page and banner transitions.',
+        'Live viewer counts and player telemetry now use noticeably fewer Redis operations.',
+        'Finished matches are cleared automatically shortly after they end, keeping the match list current.',
+      ],
+    },
+    {
+      category: 'Fixes',
+      items: [
+        'Dark and light themes apply on the first paint, removing the flash when the app loads.',
+        'The player banner toggle no longer shifts or jitters the video below it.',
+      ],
+    },
+    {
+      category: 'Security',
+      items: [
+        'Google sign-in verifies the OAuth state of the browser that started the flow.',
+      ],
+    },
+  ],
   '1.0.1': [
     {
       category: 'Improvements',

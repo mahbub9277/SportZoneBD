@@ -39,14 +39,34 @@ export async function prewarmUpcomingMatches(now = new Date()): Promise<void> {
       },
     })
 
-    for (const match of matches) {
-      const key = `/api/v1/matches/${match.id}`
-      await cacheRedis.set(key, JSON.stringify(successResponse(match, 'Match retrieved successfully')), 'EX', PREWARM_TTL_SECONDS)
+    if (matches.length === 0) {
+      return
     }
 
-    if (matches.length > 0) {
-      logger.info({ matchIds: matches.map(({ id }) => id), count: matches.length }, 'Upcoming match cache pre-warm completed')
+    const entries = matches.map((match) => ({
+      key: `/api/v1/matches/${match.id}`,
+      body: JSON.stringify(successResponse(match, 'Match retrieved successfully')),
+    }))
+
+    // One MGET validates every prewarm entry at once. An entry that already holds the exact same
+    // payload is left untouched with its remaining TTL, so a steady cycle costs one command instead
+    // of one SET per match. A single entry is cheaper to write than to verify, so the read only
+    // happens from two entries upward. The result is never cached locally, so instances stay correct.
+    const cachedBodies = entries.length > 1
+      ? await cacheRedis.mget(...entries.map((entry) => entry.key))
+      : []
+
+    let writtenCount = 0
+    for (const [index, entry] of entries.entries()) {
+      if (cachedBodies[index] === entry.body) continue
+      await cacheRedis.set(entry.key, entry.body, 'EX', PREWARM_TTL_SECONDS)
+      writtenCount += 1
     }
+
+    logger.info(
+      { matchIds: matches.map(({ id }) => id), count: matches.length, writtenCount },
+      'Upcoming match cache pre-warm completed',
+    )
   } catch (error) {
     logger.warn({ error }, 'Upcoming match cache pre-warm failed')
   }

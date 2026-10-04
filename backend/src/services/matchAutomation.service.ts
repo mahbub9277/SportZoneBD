@@ -10,17 +10,32 @@ import { isRedisConfigured, redis } from '../core/redis.js'
 import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
-import { getCompetitionFixtures, getConfiguredCompetitionCodes, getConfiguredCompetitionFixtures, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
+import { renewLockWithRedis, startLockRenewal, type LockRenewalHandle } from '../core/redisLock.js'
+import { evaluateFixtureCreationWindow, getMatchDiscoveryDays, getMatchDiscoveryWindowMs } from '../core/fixtureCreationWindow.js'
+import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
+import { getFootballDataFixtures } from '../modules/providers/footballData.adapter.js'
+import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixtures.js'
+import { getCricketFixtures } from '../modules/providers/cricketData.fixtures.js'
+import { PROVIDER_KEY_PREFIX, PROVIDER_LABEL, providerFixtureKey, type CanonicalFixture, type ProviderFetchResult, type ProviderId } from '../modules/providers/types.js'
+import { resolveDiscoveryStatus, summarizeDiscoveryResult } from './automationResult.js'
+import { isFinishedMatchExpired, resolveFinishedMatchCleanupCutoff, resolveFinishedMatchRetentionMinutes, FINISHED_MATCH_MIN_RETENTION_MINUTES } from './finishedMatchRetention.js'
 
-const DISCOVERY_DAYS = 2
-const RECENT_MATCH_RETENTION_MINUTES = 7 * 24 * 60
 const PRE_MATCH_HEALTH_WINDOW_MINUTES = Number(process.env.PRE_MATCH_HEALTH_WINDOW_MINUTES ?? 90)
 const STREAM_HEALTH_TIMEOUT_MS = Number(process.env.STREAM_HEALTH_TIMEOUT_MS ?? 8000)
-const FINISHED_MATCH_RETENTION_MINUTES = Math.max(RECENT_MATCH_RETENTION_MINUTES, Number(process.env.FINISHED_MATCH_RETENTION_MINUTES ?? RECENT_MATCH_RETENTION_MINUTES))
+const FINISHED_MATCH_RETENTION_MINUTES = resolveFinishedMatchRetentionMinutes(process.env.FINISHED_MATCH_RETENTION_MINUTES)
+if (FINISHED_MATCH_RETENTION_MINUTES > FINISHED_MATCH_MIN_RETENTION_MINUTES) {
+  logger.warn(
+    { retentionMinutes: FINISHED_MATCH_RETENTION_MINUTES, productRuleMinutes: FINISHED_MATCH_MIN_RETENTION_MINUTES },
+    'Finished match retention is configured above the 15 minute product rule; finished matches are deleted later than required',
+  )
+}
 const FINISHED_MATCH_CLEANUP_BATCH_SIZE = 25
 const STREAM_HEALTH_FAILURE_THRESHOLD = Number(process.env.STREAM_HEALTH_FAILURE_THRESHOLD ?? 3)
 const STREAM_HEALTH_CHECK_INTERVAL_MINUTES = 2
 const AUTOMATION_LOCK_TTL_SECONDS = 55
+// Stream health checks and the weekly Cloudinary sweep can run well past the lock TTL,
+// so the lock is renewed at a third of its TTL (~one EXPIRE every 18s while running).
+const AUTOMATION_LOCK_RENEWAL_INTERVAL_MS = Math.floor((AUTOMATION_LOCK_TTL_SECONDS * 1000) / 3)
 const STREAM_HEALTH_MAX_BYTES = 64 * 1024
 
 async function readHealthResponsePrefix(response: Response, maxBytes: number): Promise<{ text: string; bytesRead: number }> {
@@ -61,16 +76,24 @@ function normalizeTeamName(value: string | null | undefined): string {
 
 function normalizeProviderMatchStatus(status: string): 'UPCOMING' | 'LIVE' | 'FINISHED' | null {
   switch (status) {
+    // Providers whose adapter already emits canonical statuses (API-Football, CricketData).
+    case 'UPCOMING':
+      return 'UPCOMING'
+    case 'LIVE':
+      return 'LIVE'
+    case 'FINISHED':
+      return 'FINISHED'
+    // football-data.org native codes.
     case 'SCHEDULED':
     case 'TIMED':
       return 'UPCOMING'
     case 'IN_PLAY':
     case 'PAUSED':
       return 'LIVE'
-    case 'FINISHED':
     case 'AWARDED':
       return 'FINISHED'
     default:
+      // Postponed/cancelled/suspended/abandoned have no SportZoneBD equivalent.
       return null
   }
 }
@@ -83,7 +106,7 @@ function isInCloseKickoffWindow(candidate: Date, target: Date, maxDeltaMs: numbe
   return Math.abs(candidate.getTime() - target.getTime()) <= maxDeltaMs
 }
 
-function getFixtureIdentityKey(fixture: Pick<FootballDataFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
+function getFixtureIdentityKey(fixture: Pick<CanonicalFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
   const kickoffAt = new Date(fixture.kickoffAt)
   const kickoffKey = Number.isNaN(kickoffAt.getTime()) ? fixture.kickoffAt : kickoffAt.toISOString()
 
@@ -95,10 +118,42 @@ function getFixtureIdentityKey(fixture: Pick<FootballDataFixture, 'competitionCo
   ].join('|')
 }
 
-function createProviderFixtureKey(fixture: Pick<FootballDataFixture, 'id' | 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
-  if (fixture.id?.trim()) return `football-data-org:${fixture.id.trim()}`
-  const key = getFixtureIdentityKey(fixture)
-  return `football-data-org:${key}`
+/** Provider-prefixed unique key; falls back to the identity key when a provider exposes no id. */
+function buildProviderFixtureKey(fixture: CanonicalFixture): string {
+  return providerFixtureKey(fixture) ?? `${PROVIDER_KEY_PREFIX[fixture.provider]}:${getFixtureIdentityKey(fixture)}`
+}
+
+/**
+ * Identifies which provider owns an existing match from its stored key prefix.
+ * Manually/admin-created matches have no prefix and remain updatable by every provider,
+ * preserving the existing behaviour.
+ */
+function providerFromFixtureKey(key: string | null | undefined): ProviderId | null {
+  if (!key) return null
+  for (const [provider, prefix] of Object.entries(PROVIDER_KEY_PREFIX) as [ProviderId, string][]) {
+    if (key.startsWith(`${prefix}:`)) return provider
+  }
+  return null
+}
+
+/**
+ * Cross-provider duplicate protection: when two providers describe the same canonical match, the
+ * higher-priority source owns it so the two cannot overwrite each other on every sync cycle.
+ */
+const PROVIDER_PRIORITY: Record<ProviderId, number> = {
+  FOOTBALL_DATA: 0,
+  API_FOOTBALL: 1,
+  CRICKET_DATA: 2,
+}
+
+/**
+ * Rank used to pick the canonical row when more than one existing match describes the same fixture.
+ * Lower is more authoritative; matches that were not created by the provider pipeline (no key
+ * prefix, e.g. admin-created) rank last and stay updatable by any provider.
+ */
+function getCanonicalOwnerRank(match: { providerFixtureKey: string | null }): number {
+  const provider = providerFromFixtureKey(match.providerFixtureKey)
+  return provider ? PROVIDER_PRIORITY[provider] : Number.MAX_SAFE_INTEGER
 }
 
 function getMatchIdentityKey(match: {
@@ -195,6 +250,7 @@ export class MatchAutomationService {
     const lockKey = 'sportzone:automation:match-lifecycle'
     const lockToken = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`
     let lockAcquired = false
+    let lockRenewal: LockRenewalHandle | null = null
     try {
       if (!isRedisConfigured) {
         if (!this.hasLoggedRedisLockUnavailable) {
@@ -217,6 +273,14 @@ export class MatchAutomationService {
       this.hasLoggedRedisLockUnavailable = false
       lockAcquired = Boolean(lock)
       if (!lockAcquired) return
+
+      lockRenewal = startLockRenewal({
+        lockKey,
+        lockToken,
+        ttlSeconds: AUTOMATION_LOCK_TTL_SECONDS,
+        intervalMs: AUTOMATION_LOCK_RENEWAL_INTERVAL_MS,
+        renew: (key, token, ttlSeconds) => renewLockWithRedis(redis, key, token, ttlSeconds),
+      })
 
     if (!this.jobId) {
       await this.ensureAutomationJob()
@@ -305,19 +369,23 @@ export class MatchAutomationService {
       }
     }
 
-    const cleanupCutoff = new Date(now.getTime() - FINISHED_MATCH_RETENTION_MINUTES * 60 * 1000)
+    const cleanupCutoff = resolveFinishedMatchCleanupCutoff(now, FINISHED_MATCH_RETENTION_MINUTES)
     const expiredFinishedMatches = await prisma.match.findMany({
       where: {
         status: 'FINISHED',
         deletedAt: null,
-        finishedAt: { lte: cleanupCutoff },
+        OR: [
+          { finishedAt: { lte: cleanupCutoff } },
+          { finishedAt: null, updatedAt: { lte: cleanupCutoff } },
+        ],
       },
-      select: { id: true },
+      select: { id: true, status: true, deletedAt: true, finishedAt: true, updatedAt: true },
       orderBy: { finishedAt: 'asc' },
       take: FINISHED_MATCH_CLEANUP_BATCH_SIZE,
     })
 
     for (const match of expiredFinishedMatches) {
+      if (!isFinishedMatchExpired(match, cleanupCutoff)) continue
       try {
         await cleanupMatch(match.id, 'FINISHED_RETENTION_EXPIRED')
       } catch (error) {
@@ -347,7 +415,7 @@ export class MatchAutomationService {
     if (this.jobId) {
       const [totalRuns, successfulRuns, failedRuns] = await Promise.all([
         prisma.automationLog.count({ where: { jobId: this.jobId } }),
-        prisma.automationLog.count({ where: { jobId: this.jobId, status: 'SUCCESS' } }),
+        prisma.automationLog.count({ where: { jobId: this.jobId, status: { in: ['SUCCESS', 'PARTIAL'] } } }),
         prisma.automationLog.count({ where: { jobId: this.jobId, status: 'FAILED' } }),
       ])
 
@@ -355,7 +423,7 @@ export class MatchAutomationService {
         where: {
           jobId: this.jobId,
           action: 'DISCOVER_MATCHES',
-          status: 'SUCCESS',
+          status: { in: ['SUCCESS', 'PARTIAL'] },
           createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
         },
       })
@@ -393,6 +461,7 @@ export class MatchAutomationService {
     }
     } finally {
       this.isRunning = false
+      lockRenewal?.stop()
       if (lockAcquired) {
         try {
           await redis.eval(
@@ -410,37 +479,83 @@ export class MatchAutomationService {
 
   private async syncProviderMatches(): Promise<void> {
     if (!this.jobId) return
-    if (!process.env.FOOTBALL_API_KEY?.trim()) {
-      if (!this.hasLoggedFootballDataKeyUnavailable) {
-        logger.warn({ environmentVariable: 'FOOTBALL_API_KEY', competitions: getConfiguredCompetitionCodes() }, 'Skipping football fixture sync because its provider key is not configured')
-        this.hasLoggedFootballDataKeyUnavailable = true
-      }
-      return
-    }
-    this.hasLoggedFootballDataKeyUnavailable = false
 
     let createdCount = 0
     let updatedCount = 0
     let skippedCount = 0
 
+    const footballDataKeyConfigured = Boolean(process.env.FOOTBALL_API_KEY?.trim())
+    if (!footballDataKeyConfigured) {
+      if (!this.hasLoggedFootballDataKeyUnavailable) {
+        logger.warn({ environmentVariable: 'FOOTBALL_API_KEY', competitions: getConfiguredCompetitionCodes() }, 'Skipping football-data.org fixture sync because its provider key is not configured')
+        this.hasLoggedFootballDataKeyUnavailable = true
+      }
+    } else {
+      this.hasLoggedFootballDataKeyUnavailable = false
+    }
+
     try {
-      const from = new Date()
-      const fromDate = from.toISOString().slice(0, 10)
+      const now = new Date()
+      const fromDate = now.toISOString().slice(0, 10)
       const to = new Date(`${fromDate}T00:00:00.000Z`)
-      to.setUTCDate(to.getUTCDate() + DISCOVERY_DAYS)
+      to.setUTCDate(to.getUTCDate() + getMatchDiscoveryDays())
       const toDate = to.toISOString().slice(0, 10)
       const fixtureWindowStart = new Date(`${fromDate}T00:00:00.000Z`)
       const fixtureWindowEndExclusive = new Date(to)
       fixtureWindowEndExclusive.setUTCDate(fixtureWindowEndExclusive.getUTCDate() + 1)
-      const fixtures = await getConfiguredCompetitionFixtures(fromDate, toDate, async (competitionCode, requestFromDate, requestToDate) => {
-        const cacheKey = `sportzone:football:fixtures:${competitionCode}:${requestFromDate}:${requestToDate}`
-        return cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, requestFromDate, requestToDate), 120)
-      })
+      const cycleNow = Date.now()
+      const maxLeadMs = getMatchDiscoveryWindowMs()
 
-      const uniqueFixtures: FootballDataFixture[] = []
+      const attemptedSources: string[] = []
+      const failedSources: string[] = []
+      const fixtures: CanonicalFixture[] = []
+
+      // football-data.org stays the primary football source and keeps its existing 120s cache.
+      if (footballDataKeyConfigured) {
+        try {
+          const result = await getFootballDataFixtures(fromDate, toDate, async (competitionCode, requestFromDate, requestToDate) => {
+            const cacheKey = `sportzone:football:fixtures:${competitionCode}:${requestFromDate}:${requestToDate}`
+            return cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, requestFromDate, requestToDate), 120)
+          }, cycleNow)
+          attemptedSources.push(...result.attemptedSources)
+          failedSources.push(...result.failedSources)
+          fixtures.push(...result.fixtures)
+        } catch (error) {
+          attemptedSources.push(PROVIDER_LABEL.FOOTBALL_DATA)
+          failedSources.push(PROVIDER_LABEL.FOOTBALL_DATA)
+          logger.error({ error, provider: 'FOOTBALL_DATA' }, 'football-data.org fixture discovery failed')
+        }
+      }
+
+      // Secondary providers. A provider that is unconfigured or over its daily budget is skipped
+      // (not a failure), and a genuine failure never stops the other providers. Providers that read
+      // several sources report per-source labels so a partial failure is not logged as full success.
+      const secondaryProviders: Array<{ provider: ProviderId; load: () => Promise<ProviderFetchResult> }> = [
+        { provider: 'API_FOOTBALL', load: () => getApiFootballFixtures(fromDate, toDate, cycleNow) },
+        { provider: 'CRICKET_DATA', load: () => getCricketFixtures(fromDate, toDate, cycleNow) },
+      ]
+
+      for (const { provider, load } of secondaryProviders) {
+        try {
+          const result = await load()
+          if (result.skipped) {
+            logger.info({ provider, reason: result.reason }, 'Provider fixture sync skipped for this cycle')
+            continue
+          }
+          attemptedSources.push(...(result.attemptedSources?.length ? result.attemptedSources : [PROVIDER_LABEL[provider]]))
+          failedSources.push(...(result.failedSources ?? []))
+          fixtures.push(...result.fixtures)
+        } catch (error) {
+          attemptedSources.push(PROVIDER_LABEL[provider])
+          failedSources.push(PROVIDER_LABEL[provider])
+          logger.warn({ error, provider }, 'Provider fixture discovery failed')
+        }
+      }
+
+      const uniqueFixtures: CanonicalFixture[] = []
       const seenFixtureKeys = new Set<string>()
       for (const fixture of fixtures) {
-        const fixtureKey = getFixtureIdentityKey(fixture)
+        const fixtureKey = `${fixture.provider}|${getFixtureIdentityKey(fixture)}`
         if (seenFixtureKeys.has(fixtureKey)) continue
         seenFixtureKeys.add(fixtureKey)
         uniqueFixtures.push(fixture)
@@ -456,6 +571,7 @@ export class MatchAutomationService {
         },
         select: {
           id: true,
+          providerFixtureKey: true,
           title: true,
           kickoffAt: true,
           homeTeamName: true,
@@ -477,6 +593,11 @@ export class MatchAutomationService {
         if (lookupKey) existingMatchLookup.set(lookupKey, match)
       }
 
+      // Matches created earlier in this same cycle have to be visible to the providers that are
+      // processed after them. Without this, two providers describing the same real fixture would
+      // each create their own row before either could see the other.
+      const matchesCreatedThisCycle: Array<(typeof existingMatches)[number]> = []
+
       for (const fixture of uniqueFixtures) {
         const homeName = fixture.homeTeamName.trim()
         const awayName = fixture.awayTeamName.trim()
@@ -492,14 +613,32 @@ export class MatchAutomationService {
         const normalizedAway = normalizeTeamName(awayName)
         const desiredTitle = normalizeApprovedMatchTitle(homeName, awayName)
         const matchWindow = 4 * 60 * 60 * 1000
-        const existingMatch = existingMatchLookup.get(getFixtureIdentityKey(fixture)) ?? existingMatches.find((match) => {
-          if (!match.kickoffAt) return false
-          if (!isInCloseKickoffWindow(match.kickoffAt, kickoffAt, matchWindow)) return false
+        const existingMatch = existingMatchLookup.get(getFixtureIdentityKey(fixture)) ?? [...existingMatches, ...matchesCreatedThisCycle]
+          .filter((match) => {
+            if (!match.kickoffAt) return false
+            if (!isInCloseKickoffWindow(match.kickoffAt, kickoffAt, matchWindow)) return false
 
-          const existingHome = normalizeTeamName(match.homeTeamName ?? match.title.split(' vs ')[0] ?? '')
-          const existingAway = normalizeTeamName(match.awayTeamName ?? match.title.split(' vs ')[1] ?? '')
-          return existingHome === normalizedHome && existingAway === normalizedAway
-        })
+            const existingHome = normalizeTeamName(match.homeTeamName ?? match.title.split(' vs ')[0] ?? '')
+            const existingAway = normalizeTeamName(match.awayTeamName ?? match.title.split(' vs ')[1] ?? '')
+            return existingHome === normalizedHome && existingAway === normalizedAway
+          })
+          // When several providers describe the same fixture, the highest-priority provider owns
+          // the canonical match, so provider ownership never depends on row order.
+          .sort((left, right) => getCanonicalOwnerRank(left) - getCanonicalOwnerRank(right))[0]
+
+        // Cross-provider duplicate protection: never let a lower-priority provider overwrite a
+        // canonical match that a higher-priority provider owns.
+        if (existingMatch) {
+          const existingProvider = providerFromFixtureKey(existingMatch.providerFixtureKey)
+          if (existingProvider && PROVIDER_PRIORITY[existingProvider] < PROVIDER_PRIORITY[fixture.provider]) {
+            skippedCount++
+            logger.info(
+              { provider: fixture.provider, existingProvider, title: desiredTitle, kickoffAt },
+              'Duplicate detected: lower-priority provider skipped for an existing canonical match',
+            )
+            continue
+          }
+        }
 
         const homeTeam = await prisma.team.findFirst({ where: { deletedAt: null, normalizedName: normalizedHome } })
         const awayTeam = await prisma.team.findFirst({ where: { deletedAt: null, normalizedName: normalizedAway } })
@@ -525,7 +664,7 @@ export class MatchAutomationService {
             existingMatch.awayTeamId !== awayTeamId ||
             existingMatch.homeTeamLogo !== homeTeamLogo ||
             existingMatch.awayTeamLogo !== awayTeamLogo ||
-            existingMatch.sport !== 'FOOTBALL' ||
+            existingMatch.sport !== fixture.sport ||
             existingMatch.status !== status ||
             (existingMatch.finishedAt?.getTime() ?? null) !== (finishedAt?.getTime() ?? null)
 
@@ -541,7 +680,7 @@ export class MatchAutomationService {
                 awayTeamId,
                 homeTeamLogo,
                 awayTeamLogo,
-                sport: 'FOOTBALL',
+                sport: fixture.sport,
                 tournamentName: fixture.competitionName || existingMatch.tournamentName || null,
                 status,
                 finishedAt,
@@ -553,10 +692,30 @@ export class MatchAutomationService {
           continue
         }
 
-        const providerFixtureKey = createProviderFixtureKey(fixture)
+        // Creation window (RULES 1-3): a fixture may only become a match once kickoff is within the
+        // configured lead time. Evaluated per fixture so scheduler jitter cannot create weeks early.
+        const creationDecision = evaluateFixtureCreationWindow({
+          kickoffAt,
+          now: new Date(cycleNow),
+          maxLeadMs,
+          providerStatus,
+        })
+
+        if (creationDecision !== 'create') {
+          skippedCount++
+          logger.info(
+            { provider: fixture.provider, title: desiredTitle, kickoffAt, creationDecision },
+            creationDecision === 'too-early'
+              ? 'Fixture skipped because it is too early to create'
+              : 'Fixture skipped because the provider still reports an already-started fixture as upcoming',
+          )
+          continue
+        }
+
+        const providerFixtureKey = buildProviderFixtureKey(fixture)
 
         try {
-          await prisma.match.create({
+          const createdMatch = await prisma.match.create({
             data: {
               providerFixtureKey,
               title: `${homeName} vs ${awayName}`,
@@ -567,7 +726,7 @@ export class MatchAutomationService {
               awayTeamId: awayTeam?.id ?? null,
               homeTeamLogo: homeTeam?.logoUrl?.trim() || fixture.homeTeamCrest || null,
               awayTeamLogo: awayTeam?.logoUrl?.trim() || fixture.awayTeamCrest || null,
-              sport: 'FOOTBALL',
+              sport: fixture.sport,
               tournamentName: fixture.competitionName,
               status: providerStatus,
               finishedAt: providerStatus === 'FINISHED' ? new Date() : null,
@@ -577,7 +736,8 @@ export class MatchAutomationService {
             },
           })
           createdCount++
-          logger.info({ title: desiredTitle, kickoffAt }, 'Created new upcoming match from provider sync')
+          matchesCreatedThisCycle.push(createdMatch)
+          logger.info({ provider: fixture.provider, title: desiredTitle, kickoffAt }, 'Created new match from provider sync')
         } catch (error) {
           if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
             skippedCount++
@@ -596,9 +756,12 @@ export class MatchAutomationService {
         data: {
           jobId: this.jobId,
           action: 'DISCOVER_MATCHES',
-          status: 'SUCCESS',
-          summary: `Created ${createdCount}, updated ${updatedCount}, skipped ${skippedCount}`,
-          details: { createdCount, updatedCount, skippedCount },
+          status: resolveDiscoveryStatus(attemptedSources.length, failedSources.length),
+          summary: summarizeDiscoveryResult(createdCount, updatedCount, skippedCount, attemptedSources.length, failedSources),
+          errorMessage: failedSources.length > 0
+            ? `${failedSources.length} of ${attemptedSources.length} provider sources failed: ${failedSources.join(', ')}`
+            : null,
+          details: { createdCount, updatedCount, skippedCount, attemptedSources, failedSources },
         },
       })
       emitAutomationLogEntry(newLog)

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getPaginatedData } from '../services/pagination.service.js';
 import { successResponse } from '../core/api-response.js';
 import { hasPremiumAccess } from '../core/premiumGuard.js';
+import { getUpcomingVisibilityBounds } from '../core/upcomingWindow.js';
 import type { Prisma } from '@prisma/client'
 
 const RECENT_MATCH_WINDOW_DAYS = 7
@@ -59,11 +60,11 @@ export const getAllMatches = asyncHandler(async (req, res) => {
           finishedAt: { gte: new Date(now.getTime() - RECENT_MATCH_WINDOW_DAYS * 24 * 60 * 60 * 1000), lte: now },
         }
       : status === 'UPCOMING'
-        ? { status, kickoffAt: { gte: now } }
+        ? { status, kickoffAt: getUpcomingVisibilityBounds(now) }
         : status
           ? { status }
           : activeOnly
-            ? { OR: [{ status: 'LIVE' }, { status: 'UPCOMING', kickoffAt: { gte: now } }] }
+            ? { OR: [{ status: 'LIVE' }, { status: 'UPCOMING', kickoffAt: getUpcomingVisibilityBounds(now) }] }
             : {}),
     ...(premium !== undefined ? { premium } : {}),
   }

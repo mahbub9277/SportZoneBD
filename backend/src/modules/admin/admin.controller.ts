@@ -129,9 +129,16 @@ export const getAdvertisementAnalytics = asyncHandler(async (req: Request, res: 
   const periodFilter = since ? { createdAt: { gte: since } } : {}
   const adTypes = ['ADVERTISEMENT_IMPRESSION', 'ADVERTISEMENT_WATCH_NOW', 'ADVERTISEMENT_SESSION_STARTED', 'ADVERTISEMENT_SESSION_COMPLETED', 'ADVERTISEMENT_SESSION_CANCELLED']
 
-  const [events, uniqueUsers, byType, audience] = await prisma.$transaction([
+  const [events, uniqueUserRows, byType, audience] = await prisma.$transaction([
     prisma.analyticsEvent.count({ where: { ...periodFilter, type: { in: adTypes } } }),
-    prisma.analyticsEvent.findMany({ where: { ...periodFilter, type: { in: adTypes }, userId: { not: null } }, distinct: ['userId'], select: { userId: true } }),
+    // Counted in the database: the previous findMany(distinct) streamed one row per viewer.
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(DISTINCT e."userId")::bigint AS count
+      FROM "AnalyticsEvent" e
+      WHERE e.type IN ('ADVERTISEMENT_IMPRESSION', 'ADVERTISEMENT_WATCH_NOW', 'ADVERTISEMENT_SESSION_STARTED', 'ADVERTISEMENT_SESSION_COMPLETED', 'ADVERTISEMENT_SESSION_CANCELLED')
+        AND e."userId" IS NOT NULL
+        ${since ? Prisma.sql`AND e."createdAt" >= ${since}` : Prisma.empty}
+    `,
     prisma.analyticsEvent.groupBy({ by: ['type'], where: { ...periodFilter, type: { in: adTypes } }, orderBy: { type: 'asc' }, _count: { _all: true } }),
     prisma.$queryRaw<Array<{ audience: string; count: number }>>`
       SELECT CASE
@@ -155,7 +162,7 @@ export const getAdvertisementAnalytics = asyncHandler(async (req: Request, res: 
   res.json(successResponse({
     period: periodValue,
     totalEvents: events,
-    uniqueUsers: uniqueUsers.length,
+    uniqueUsers: Number(uniqueUserRows[0]?.count ?? 0),
     impressions: countByType.ADVERTISEMENT_IMPRESSION ?? 0,
     watchClicks: countByType.ADVERTISEMENT_WATCH_NOW ?? 0,
     sessionsStarted: countByType.ADVERTISEMENT_SESSION_STARTED ?? 0,

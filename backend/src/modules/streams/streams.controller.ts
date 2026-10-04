@@ -4,6 +4,7 @@ import { successResponse } from '../../core/api-response.js'
 import { NotFoundError } from '../../core/errors.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
+import { parseUuidParam } from '../../core/validation.js'
 import type { StreamStatus } from '@prisma/client'
 
 export async function getStreams(req: Request, res: Response, next: NextFunction) {
@@ -23,7 +24,7 @@ export async function getStreams(req: Request, res: Response, next: NextFunction
 
 export async function getStreamById(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = String(req.params.id)
+    const id = parseUuidParam(req.params.id, 'stream id')
     const stream = await streamsService.getStream(id)
 
     if (!stream || stream.deletedAt) {
@@ -67,7 +68,7 @@ export async function createStream(req: Request, res: Response, next: NextFuncti
 
 export async function updateStream(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = String(req.params.id)
+    const id = parseUuidParam(req.params.id, 'stream id')
     const payload = req.body as Partial<{
       matchId: string
       name: string
@@ -98,7 +99,7 @@ export async function updateStream(req: Request, res: Response, next: NextFuncti
 
 export async function deleteStream(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = String(req.params.id)
+    const id = parseUuidParam(req.params.id, 'stream id')
     const stream = await streamsService.removeStream(id)
     if (!stream) throw new NotFoundError('Stream not found')
     

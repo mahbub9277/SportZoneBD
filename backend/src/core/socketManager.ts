@@ -59,12 +59,47 @@ export interface ClientToServerEvents {
 const ADMIN_ROOM = 'admin-room'
 const ACCESS_TOKEN_COOKIE = 'accessToken'
 const TELEMETRY_SETTING_KEY = 'telemetry.enabled'
-const VIEWER_TTL_SECONDS = 75
+// The client heartbeats every 60s; the TTL keeps the previous 2.5x interval tolerance so a single
+// missed heartbeat (background tab timer throttling) still leaves the viewer counted.
+const VIEWER_TTL_SECONDS = 150
 const VIEWER_ALL_KEY = 'sportzone:live-viewers:all'
 const viewerResourceKey = (kind: string, id: string) => `sportzone:live-viewers:${kind}:${id}`
 const viewerSocketKey = (socketId: string) => `sportzone:live-viewers:socket:${socketId}`
 const unavailableViewerResources = new Set<string>()
 let totalLiveViewersUnavailable = false
+const VIEWER_MEMBERSHIP_PRUNE_INTERVAL_MS = 60_000
+const MAX_TRACKED_VIEWER_COUNT_SCOPES = 500
+let lastViewerMembershipPruneAt = 0
+const emittedViewerCounts = new Map<string, number>()
+
+type ViewerCountEmitMode = 'force' | 'onChange'
+
+/**
+ * Throttles the housekeeping prune of the presence sorted sets. Expired members are already
+ * excluded by the score based ZCOUNT reads, so delaying the prune never changes a reported
+ * viewer count, it only reclaims memory.
+ */
+function shouldPruneViewerMembership(): boolean {
+  const now = Date.now()
+  if (now - lastViewerMembershipPruneAt < VIEWER_MEMBERSHIP_PRUNE_INTERVAL_MS) return false
+  lastViewerMembershipPruneAt = now
+  return true
+}
+
+/**
+ * Heartbeat driven count updates are skipped while the value is unchanged. Join, leave and
+ * disconnect paths emit with 'force' so a client that just subscribed always receives the value.
+ */
+function shouldEmitViewerCount(scope: string, count: number, mode: ViewerCountEmitMode): boolean {
+  if (mode === 'onChange' && emittedViewerCounts.get(scope) === count) return false
+  if (emittedViewerCounts.size > MAX_TRACKED_VIEWER_COUNT_SCOPES) emittedViewerCounts.clear()
+  emittedViewerCounts.set(scope, count)
+  return true
+}
+
+function forgetViewerCount(scope: string): void {
+  emittedViewerCounts.delete(scope)
+}
 
 type ViewerPresence = { kind: 'stream' | 'channel' | 'match'; streamId: string }
 
@@ -74,23 +109,25 @@ function normalizeViewerPresence(streamId: unknown, kind: unknown): ViewerPresen
   return { kind: normalizedKind, streamId: streamId.trim() }
 }
 
-async function emitLiveViewerCount(totalLiveViewers: number | null): Promise<void> {
+async function emitLiveViewerCount(totalLiveViewers: number | null, mode: ViewerCountEmitMode = 'force'): Promise<void> {
   if (!ioInstance) return
   if (totalLiveViewers === null) {
     if (totalLiveViewersUnavailable) return
     totalLiveViewersUnavailable = true
+    forgetViewerCount('total')
     ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: null })
     return
   }
   totalLiveViewersUnavailable = false
   const count = Number.isFinite(totalLiveViewers) && totalLiveViewers > 0 ? Math.floor(totalLiveViewers) : 0
+  if (!shouldEmitViewerCount('total', count, mode)) return
   ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: count })
 }
 
 export async function getTotalLiveViewers(): Promise<number | null> {
   try {
     const now = Date.now()
-    await redis.zremrangebyscore(VIEWER_ALL_KEY, 0, now)
+    if (shouldPruneViewerMembership()) await redis.zremrangebyscore(VIEWER_ALL_KEY, 0, now)
     const total = await redis.zcount(VIEWER_ALL_KEY, now, '+inf')
     const count = Number.isFinite(Number(total)) ? Math.max(0, Number(total)) : 0
     if (totalLiveViewersUnavailable) await emitLiveViewerCount(count)
@@ -125,7 +162,7 @@ async function removeViewerPresence(socketId: string, expected?: ViewerPresence)
   }
 }
 
-async function refreshViewerPresence(socketId: string, requestedPresence: ViewerPresence): Promise<number | null> {
+async function refreshViewerPresence(socketId: string, requestedPresence: ViewerPresence, mode: ViewerCountEmitMode = 'force'): Promise<number | null> {
   try {
     const existingRaw = await redis.get(viewerSocketKey(socketId))
     const existing = existingRaw ? JSON.parse(existingRaw) as ViewerPresence : null
@@ -140,7 +177,7 @@ async function refreshViewerPresence(socketId: string, requestedPresence: Viewer
       redis.set(viewerSocketKey(socketId), JSON.stringify(requestedPresence), 'EX', VIEWER_TTL_SECONDS),
     ])
     const total = await getTotalLiveViewers()
-    await emitLiveViewerCount(total)
+    await emitLiveViewerCount(total, mode)
     return total
   } catch (error) {
     logger.warn({ provider: 'primary', code: getRedisErrorCode(error) }, 'Unable to update live viewer presence')
@@ -152,7 +189,7 @@ export async function getLiveViewerCount(kind: ViewerPresence['kind'], streamId:
   try {
     const now = Date.now()
     const key = viewerResourceKey(kind, streamId)
-    await redis.zremrangebyscore(key, 0, now)
+    if (shouldPruneViewerMembership()) await redis.zremrangebyscore(key, 0, now)
     const count = await redis.zcount(key, now, '+inf')
     return Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
   } catch (error) {
@@ -206,24 +243,34 @@ export function emitAutomationLogEntry(logEntry: AutomationLog): void {
 }
 
 /** Emits a viewer count update to a specific channel room. */
-export function emitViewerCountUpdate(channelId: string, count: number | null): void {
+export function emitViewerCountUpdate(channelId: string, count: number | null, mode: ViewerCountEmitMode = 'force'): void {
   if (!ioInstance) {
     logger.warn('Socket.IO instance not available for emitViewerCountUpdate.')
     return
   }
   const unavailableKey = `channel:${channelId}`
-  if (count === null && unavailableViewerResources.has(unavailableKey)) return
-  if (count === null) unavailableViewerResources.add(unavailableKey)
-  else unavailableViewerResources.delete(unavailableKey)
+  if (count === null) {
+    if (unavailableViewerResources.has(unavailableKey)) return
+    unavailableViewerResources.add(unavailableKey)
+    forgetViewerCount(unavailableKey)
+  } else {
+    unavailableViewerResources.delete(unavailableKey)
+    if (!shouldEmitViewerCount(unavailableKey, count, mode)) return
+  }
   ioInstance.to(channelId).emit('viewerCountUpdate', { channelId, count })
 }
 
-export function emitResourceViewerCountUpdate(kind: ViewerPresence['kind'], resourceId: string, count: number | null): void {
+export function emitResourceViewerCountUpdate(kind: ViewerPresence['kind'], resourceId: string, count: number | null, mode: ViewerCountEmitMode = 'force'): void {
   if (!ioInstance) return
   const unavailableKey = `${kind}:${resourceId}`
-  if (count === null && unavailableViewerResources.has(unavailableKey)) return
-  if (count === null) unavailableViewerResources.add(unavailableKey)
-  else unavailableViewerResources.delete(unavailableKey)
+  if (count === null) {
+    if (unavailableViewerResources.has(unavailableKey)) return
+    unavailableViewerResources.add(unavailableKey)
+    forgetViewerCount(unavailableKey)
+  } else {
+    unavailableViewerResources.delete(unavailableKey)
+    if (!shouldEmitViewerCount(unavailableKey, count, mode)) return
+  }
   ioInstance.to(`${kind}:${resourceId}`).emit('resourceViewerCountUpdate', { kind, resourceId, count })
 }
 
@@ -326,6 +373,8 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
   adminNamespace.on('connection', (socket) => {
     socket.join(ADMIN_ROOM)
     logger.info({ socketId: socket.id, user: (socket as any).user?.id }, 'Admin connected to socket namespace.')
+    // A freshly connected admin missed earlier updates, so it always gets the current total once.
+    void getTotalLiveViewers().then((total) => emitLiveViewerCount(total, 'force'))
   })
 
   io.use((socket, next) => {
@@ -351,10 +400,10 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
 
     const userId = (socket as any).user?.sub
     if (typeof userId === 'string') void socket.join(`user:${userId}`)
-    const updateAndEmitViewerCount = async (kind: ViewerPresence['kind'], resourceId: string) => {
+    const updateAndEmitViewerCount = async (kind: ViewerPresence['kind'], resourceId: string, mode: ViewerCountEmitMode = 'force') => {
       const count = await getLiveViewerCount(kind, resourceId)
-      if (kind === 'channel') emitViewerCountUpdate(resourceId, count)
-      emitResourceViewerCountUpdate(kind, resourceId, count)
+      if (kind === 'channel') emitViewerCountUpdate(resourceId, count, mode)
+      emitResourceViewerCountUpdate(kind, resourceId, count, mode)
     }
 
     socket.on('joinChannel', async ({ channelId }) => {
@@ -399,8 +448,8 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
     socket.on('viewerHeartbeat', async ({ streamId, kind }) => {
       const presence = normalizeViewerPresence(streamId, kind)
       if (presence) {
-        await refreshViewerPresence(socket.id, presence)
-        await updateAndEmitViewerCount(presence.kind, presence.streamId)
+        await refreshViewerPresence(socket.id, presence, 'onChange')
+        await updateAndEmitViewerCount(presence.kind, presence.streamId, 'onChange')
       }
     })
 

@@ -5,6 +5,7 @@ import { authenticate } from '../../core/middleware/index.js'
 import { validateBody } from '../../core/validation.js'
 import asyncHandler from '../../utils/asyncHandler.js'
 import { upload } from '../../middleware/upload.js'
+import { beginGoogleOAuthState, getPendingOAuthState, requireGoogleOAuthState } from '../../core/oauthState.js'
 import {
   registerUser,
   loginUser,
@@ -87,11 +88,21 @@ authRouter.post('/refresh', asyncHandler(refreshAccessToken))
 // Google OAuth Routes
 authRouter.get(
   '/google',
-  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', session: false }),
+  beginGoogleOAuthState,
+  (req, res, next) => passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    prompt: 'select_account',
+    session: false,
+    // Signed, browser-bound state; Google echoes it back on the callback.
+    state: getPendingOAuthState(res),
+  })(req, res, next),
 )
 
 authRouter.get(
   '/google/callback',
+  // Rejects a missing, forged, expired, replayed, or foreign-browser state before passport
+  // exchanges the authorization code, so no user or session can be created by a bad state.
+  requireGoogleOAuthState(`${FRONTEND_URL}/login?error=google-auth-failed`),
   passport.authenticate('google', {
     failureRedirect: `${FRONTEND_URL}/login?error=google-auth-failed`,
     session: false,

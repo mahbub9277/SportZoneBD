@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../core/prisma.js'
+import { cacheRedis } from '../core/redis.js'
 import { invalidateTags } from '../core/cache.js'
 import { emitAdminResourceDeleted } from '../core/socketManager.js'
 import { cleanupAssetIfUnused } from './asset-cleanup.service.js'
@@ -63,6 +64,8 @@ export async function cleanupMatch(id: string, reason: MatchCleanupReason): Prom
   }))
 
   await invalidateTags(['matches', 'streams', 'FinishedMatch', 'AdminStats', 'events'])
+  // The prewarmed match detail entry is written without tags, so it is removed explicitly.
+  await cacheRedis.del(`/api/v1/matches/${id}`).catch(() => undefined)
   emitAdminResourceDeleted('Match', id)
 
   logger.info({

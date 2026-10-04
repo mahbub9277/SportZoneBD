@@ -1,5 +1,5 @@
 import React, { startTransition, useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
-import { Unlock, Tv, RotateCcw, AlertCircle } from 'lucide-react'
+import { Unlock, Tv, RotateCcw, AlertCircle, Loader2 } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { TooltipProvider } from '../ui/Tooltip'
@@ -155,6 +155,8 @@ export function CustomVideoPlayer({
   }, [])
   const [, setHasNativeMediaReady] = useState(false)
   const [qualityToast, setQualityToast] = useState<string | null>(null)
+  // Driven by real media/HLS buffering events so the indicator reflects actual playback state.
+  const [isBuffering, setIsBuffering] = useState(false)
   const { currentUrl, errorMessage, retry, setError } = useHlsPlayer(url, streamId)
   const draggingTrackRef = useRef<HTMLDivElement | null>(null)
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('root')
@@ -246,7 +248,7 @@ export function CustomVideoPlayer({
       if (presenceActiveRef.current && presenceIdentity && socket.connected) {
         socket.emit('viewerHeartbeat', { streamId: presenceIdentity, kind: presenceType })
       }
-    }, 30000)
+    }, 60000)
     return () => {
       socket.off('connect', handleConnect)
       window.clearInterval(heartbeat)
@@ -911,6 +913,7 @@ export function CustomVideoPlayer({
       const handleMediaPlaying = () => {
         if (!isCurrentMedia()) return
         setHasNativeMediaReady(true)
+        setIsBuffering(false)
         joinViewerPresence()
         trackTelemetry('playing')
         dispatch({ type: 'SET_PLAYING', payload: true })
@@ -918,18 +921,38 @@ export function CustomVideoPlayer({
       const handleMediaError = () => {
         if (!isCurrentMedia()) return
         setHasNativeMediaReady(false)
+        setIsBuffering(false)
       }
       const handlePause = () => {
         if (!isCurrentMedia()) return
+        setIsBuffering(false)
         dispatch({ type: 'SET_PLAYING', payload: false })
+      }
+      const handleBufferingStart = () => {
+        if (!isCurrentMedia()) return
+        setIsBuffering(true)
+      }
+      const handleBufferingEnd = () => {
+        if (!isCurrentMedia()) return
+        setIsBuffering(false)
       }
       media.addEventListener('playing', handleMediaPlaying)
       media.addEventListener('error', handleMediaError)
       media.addEventListener('pause', handlePause)
+      media.addEventListener('waiting', handleBufferingStart)
+      media.addEventListener('stalled', handleBufferingStart)
+      media.addEventListener('seeking', handleBufferingStart)
+      media.addEventListener('canplay', handleBufferingEnd)
+      media.addEventListener('seeked', handleBufferingEnd)
       mediaLifecycleCleanupRef.current = () => {
         media.removeEventListener('playing', handleMediaPlaying)
         media.removeEventListener('error', handleMediaError)
         media.removeEventListener('pause', handlePause)
+        media.removeEventListener('waiting', handleBufferingStart)
+        media.removeEventListener('stalled', handleBufferingStart)
+        media.removeEventListener('seeking', handleBufferingStart)
+        media.removeEventListener('canplay', handleBufferingEnd)
+        media.removeEventListener('seeked', handleBufferingEnd)
       }
       if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
         setHasNativeMediaReady(true)
@@ -964,6 +987,7 @@ export function CustomVideoPlayer({
           hlsPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
           hlsPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
           hlsPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
+          hlsPlayer.off('hlsBufferAppended', hlsLevelSwitchListenerRef.current)
         } catch {
           // ignore listener cleanup failures
         }
@@ -979,6 +1003,11 @@ export function CustomVideoPlayer({
           }
           if (event === 'hlsBufferStalled') {
             retryInProgressRef.current = false
+            setIsBuffering(true)
+            return
+          }
+          if (event === 'hlsBufferAppended') {
+            setIsBuffering(false)
             return
           }
 
@@ -999,6 +1028,7 @@ export function CustomVideoPlayer({
         hlsPlayer.on('hlsLevelSwitched', handleQualityEvent)
         hlsPlayer.on('hlsManifestParsed', handleQualityEvent)
         hlsPlayer.on('hlsBufferStalled', handleQualityEvent)
+        hlsPlayer.on('hlsBufferAppended', handleQualityEvent)
       } catch {
         // ignore listener attach failures
       }
@@ -1111,6 +1141,7 @@ export function CustomVideoPlayer({
     writeRef(qualityToastTimeoutRef, null)
     startTransition(() => setQualityToast(null))
     startTransition(() => setHasNativeMediaReady(false))
+    startTransition(() => setIsBuffering(false))
     const shouldAutoPlay = autoPlay && !suppressAutoplayOnSourceChangeRef.current
     suppressAutoplayOnSourceChangeRef.current = false
     dispatch({ type: 'RESET_FOR_NEW_URL', payload: shouldAutoPlay })
@@ -1367,7 +1398,7 @@ export function CustomVideoPlayer({
     <TooltipProvider delayDuration={200}>
       <div
         ref={playerContainerRef}
-        aria-busy={false}
+        aria-busy={isBuffering && !playerError}
         aria-label={title ? `${title} video player` : 'Video player'}
         className={getPlayerContainerClass({ compact: compactControls, fullscreen: isFullscreen })}
         onDoubleClick={handleContainerDoubleClick}
@@ -1401,6 +1432,8 @@ export function CustomVideoPlayer({
             }}
             onProgress={() => {
               updateTimelineDom()
+              // Any forward progress means playback resumed, so the indicator can never stick.
+              setIsBuffering((current) => (current ? false : current))
             }}
             onEnded={() => {
               if (terminatedRef.current || currentSourceKeyRef.current !== sourceKey) return
@@ -1480,6 +1513,15 @@ export function CustomVideoPlayer({
             }}
           />
         </React.Suspense>
+
+      {isBuffering && !playerError && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center" role="status" aria-live="polite" aria-label="Buffering video">
+          <span className="inline-flex items-center gap-2 rounded-full border border-[#5379AE]/40 bg-[#262B40]/85 px-3 py-2 text-xs font-semibold text-[#A8C4EC] shadow-lg backdrop-blur-md">
+            <Loader2 className="h-4 w-4 animate-spin text-[#0474C4]" aria-hidden="true" />
+            Buffering…
+          </span>
+        </div>
+      )}
 
       {qualityToast && <div className="pointer-events-none absolute bottom-24 left-1/2 z-35 -translate-x-1/2 rounded-full border border-[#A8C4EC]/20 bg-[#262B40]/90 px-3 py-1.5 text-xs font-semibold text-[#A8C4EC] shadow-lg backdrop-blur-md" role="status" aria-live="polite">{qualityToast}</div>}
 

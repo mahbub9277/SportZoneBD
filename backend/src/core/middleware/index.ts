@@ -10,3 +10,4 @@ export {
 } from '../middleware.js'
 export type { AuthenticatedRequest } from '../middleware.js'
 export { validateBody } from '../validation.js';
+export { verifyRequestOrigin } from './csrf.middleware.js'

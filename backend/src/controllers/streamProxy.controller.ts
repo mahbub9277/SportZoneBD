@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express'
 import { getStreamManifestProxy } from '../services/streamProxy.service.js'
 import { prisma } from '../core/prisma.js'
 import { verifyPremiumAccess } from '../core/premiumGuard.js'
+import { parseUuidParam } from '../core/validation.js'
 
 const proxyAllowedOrigins = new Set([
   ...(process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
@@ -33,8 +34,8 @@ export async function proxyStreamManifest(req: Request, res: Response, next: Nex
   res.once('close', abortRequest)
 
   try {
-    const streamId = typeof req.query.streamId === 'string' ? req.query.streamId : undefined
-    const channelId = typeof req.query.channelId === 'string' ? req.query.channelId : undefined
+    const streamId = typeof req.query.streamId === 'string' ? parseUuidParam(req.query.streamId, 'streamId') : undefined
+    const channelId = typeof req.query.channelId === 'string' ? parseUuidParam(req.query.channelId, 'channelId') : undefined
     const type = typeof req.query.type === 'string' && req.query.type === 'backup' ? 'backup' : 'primary'
     const directUrl = typeof req.query.url === 'string' ? req.query.url : undefined
 

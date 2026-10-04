@@ -20,6 +20,24 @@
     <meta name="format-detection" content="telephone=no" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Sport Zone BD</title>
+    <script>
+      // Apply the persisted theme before the first paint so light-theme users never see a dark flash.
+      // Mirrors syncTheme() in src/features/settings/theme.slice.ts (same storage key and attributes).
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('theme')
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          var root = document.documentElement
+          root.classList.toggle('dark', theme === 'dark')
+          root.style.colorScheme = theme
+          if (theme === 'light') root.dataset.theme = 'light'
+        } catch (error) {
+          // Storage can be unavailable in private or restricted browser contexts.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

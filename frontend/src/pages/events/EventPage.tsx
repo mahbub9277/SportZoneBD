@@ -126,14 +126,14 @@ function EventPageContent({
     }
     openMatch(`/matches/${match.id}`, match.premium === true, () => {
       setIsBannerVisible(false)
-      window.setTimeout(() => navigate(`/matches/${match.id}`), 420)
+      navigate(`/matches/${match.id}`)
     })
   }
 
   return (
-    <motion.main className="app-page w-full min-w-0 space-y-3 px-4 pb-8 md:px-5 lg:px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.main className="app-page w-full min-w-0 space-y-3 px-4 pb-8 md:px-5 lg:px-6" initial={false}>
       <AnimatePresence initial={false}>
-        {isBannerVisible && <motion.div key="event-hero" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }} className="w-full overflow-hidden">
+        {isBannerVisible && <motion.div key="event-hero" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="w-full overflow-hidden">
         <motion.section className="relative isolate origin-top min-h-48 w-full aspect-16/5 overflow-hidden rounded-xl bg-linear-to-br from-surface-soft via-surface to-accent/10 shadow-[0_18px_50px_rgba(2,6,23,0.14)] sm:min-h-64 md:min-h-0 lg:translate-y-2 lg:scale-[0.97]">
           {event.banner && <img src={buildCloudinaryUrl(event.banner, { width: 1600, height: 500, crop: 'fill', gravity: 'center' })} alt={`${event.name} banner`} className="absolute inset-0 z-0 h-full w-full object-contain object-center" />}
           <div className="absolute inset-0 z-1 bg-linear-to-t from-black/80 via-black/40 to-transparent" aria-hidden="true" />

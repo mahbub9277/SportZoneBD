@@ -94,43 +94,43 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
           simplifyMatchCard ? 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-150' : 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-200 hover:-translate-y-0.5',
         )}
       >
-        <div className="relative overflow-hidden bg-(--surface-strong) px-3 pb-4 pt-4 sm:px-4">
-          <div className="mb-3 flex items-center justify-between gap-3 border-b border-(--border) pb-2.5">
+        <div className="relative overflow-hidden bg-(--surface-strong) px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
+          <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-(--border) pb-2 sm:mb-3 sm:gap-3 sm:pb-2.5">
             <p className="min-w-0 truncate text-sm font-semibold text-(--text-primary) sm:text-base">{displayTitle}</p>
             <time dateTime={match.kickoffAt} className="shrink-0 text-[10px] font-medium text-(--text-muted) sm:text-xs">
               {matchStatus === 'LIVE' ? <span className="text-rose-500 dark:text-rose-300">{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
             </time>
           </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3 sm:gap-5">
-            <div className="flex min-w-0 flex-col items-center gap-2 text-center">
-              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 sm:gap-5">
+            <div className="flex min-w-0 flex-col items-center gap-1.5 text-center sm:gap-2">
+              <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {homeTeam.logo && !homeLogoFailed ? (
                   <img src={homeTeam.logo} alt={homeTeam.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-1.5" onError={() => setHomeLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{homeTeam.name.slice(0, 2)}</span>
                 )}
               </div>
-              <p className="w-full wrap-break-word text-xs font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{homeTeam.name}</p>
+              <p className="w-full wrap-break-word text-[11px] font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{homeTeam.name}</p>
             </div>
 
-            <div className="flex h-16 items-center justify-center sm:h-20"><VsIcon /></div>
+            <div className="flex h-14 items-center justify-center sm:h-20"><VsIcon /></div>
 
-            <div className="flex min-w-0 flex-col items-center gap-2 text-center">
-              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
+            <div className="flex min-w-0 flex-col items-center gap-1.5 text-center sm:gap-2">
+              <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden sm:h-20 sm:w-20">
                 {awayTeam.logo && !awayLogoFailed ? (
                   <img src={awayTeam.logo} alt={awayTeam.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-1.5" onError={() => setAwayLogoFailed(true)} />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-(--text-muted)">{awayTeam.name.slice(0, 2)}</span>
                 )}
               </div>
-              <p className="w-full wrap-break-word text-xs font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{awayTeam.name}</p>
+              <p className="w-full wrap-break-word text-[11px] font-semibold leading-4 text-(--text-primary) sm:text-sm sm:leading-5">{awayTeam.name}</p>
             </div>
           </div>
         </div>
 
         <CardContent className={cn('space-y-2', compact ? 'p-1.5' : 'p-2 sm:p-2.5')}>
           {(match.tournamentName?.trim() || match.competition?.name) && <p className="truncate text-[10px] font-medium text-(--text-muted) sm:text-xs">{match.tournamentName?.trim() || match.competition?.name}</p>}
-          <div className="flex min-w-0 items-center justify-between gap-2 border-t border-(--border) pt-2 text-[10px] font-semibold sm:text-xs" aria-live="polite">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-(--border) pt-2 text-[10px] font-semibold sm:text-xs" aria-live="polite">
             <span className="min-w-0 truncate text-(--text-muted)">{streamCount} stream{streamCount === 1 ? '' : 's'} available</span>
             <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1', matchStatus === 'LIVE' ? 'bg-rose-500/12 text-rose-600 dark:text-rose-300' : matchStatus === 'FINISHED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300')}>
               {matchStatus === 'LIVE' && <span className={cn('h-1.5 w-1.5 rounded-full bg-current', simplifyMatchCard ? '' : 'animate-pulse')} aria-hidden="true" />}

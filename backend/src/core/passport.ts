@@ -124,11 +124,10 @@ if (!hasGoogleCredentials) {
           const { user, isNewUser } = userResult
 
           if (isNewUser) {
-            try {
-              await sendWelcomeEmail(user)
-            } catch (error) {
+            // Best-effort: the welcome email must never delay or fail the Google login path.
+            void sendWelcomeEmail(user).catch((error) => {
               logger.warn({ error, userId: user.id }, 'Google welcome email failed; continuing login')
-            }
+            })
           }
 
           const userProfile = await getUserProfile(user.id);

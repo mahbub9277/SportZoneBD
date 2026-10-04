@@ -31,6 +31,16 @@ const allowedOrigins = Array.from(
   ])
 )
 
+/**
+ * Single source of truth for the origins this API trusts. Used by CORS and by the
+ * cross-site request guard so both always agree.
+ * Origins are compared after trimming, dropping trailing slashes, and lowercasing.
+ */
+export function isAllowedOrigin(origin: string | null | undefined): boolean {
+  if (!origin) return false
+  return allowedOrigins.includes(normalizeOrigin(origin))
+}
+
 export const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
     if (!origin) {
@@ -38,14 +48,7 @@ export const corsOptions: CorsOptions = {
       return
     }
 
-    const cleanOrigin = normalizeOrigin(origin)
-
-    if (allowedOrigins.includes(cleanOrigin)) {
-      callback(null, true)
-      return
-    }
-
-    callback(null, false)
+    callback(null, isAllowedOrigin(origin))
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

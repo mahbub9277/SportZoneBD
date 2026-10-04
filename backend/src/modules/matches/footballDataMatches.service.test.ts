@@ -28,14 +28,14 @@ before(async () => {
   acquireFootballDataRequestSlot = limiterModule.acquireFootballDataRequestSlot
 })
 
-test('uses the verified 12-competition catalog while retaining environment overrides', () => {
+test('polls only competitions with current-season data while retaining environment overrides', () => {
   const previousList = process.env.FOOTBALL_DISCOVERY_COMPETITIONS
   const previousSingle = process.env.FOOTBALL_DISCOVERY_COMPETITION
   delete process.env.FOOTBALL_DISCOVERY_COMPETITIONS
   delete process.env.FOOTBALL_DISCOVERY_COMPETITION
 
   try {
-    assert.equal(defaultCompetitionCodes.length, 12)
+    assert.deepEqual([...defaultCompetitionCodes], ['PL', 'PD', 'CL', 'SA', 'BL1', 'DED', 'BSA', 'FL1', 'ELC', 'PPL'])
     assert.deepEqual(getConfiguredCompetitionCodes(), [...defaultCompetitionCodes])
 
     process.env.FOOTBALL_DISCOVERY_COMPETITIONS = 'pl,PD,pl,WC'
@@ -54,7 +54,7 @@ test('rotates fixture requests across all configured competitions with at most s
   const nextWindowFirstCycle = getCompetitionCodesForCycle(defaultCompetitionCodes, 120_000)
 
   assert.equal(firstCycle.length, 6)
-  assert.equal(secondCycle.length, 6)
+  assert.equal(secondCycle.length, 4)
   assert.deepEqual([...firstCycle, ...secondCycle], [...defaultCompetitionCodes])
   assert.deepEqual(nextWindowFirstCycle, firstCycle)
 })
@@ -82,6 +82,51 @@ test('isolates one competition fixture failure from the other configured competi
 
     assert.deepEqual(requested, ['PL', 'PD', 'SA'])
     assert.deepEqual(fixtures.map(({ competitionCode }) => competitionCode), ['PL', 'SA'])
+  } finally {
+    if (previousList === undefined) delete process.env.FOOTBALL_DISCOVERY_COMPETITIONS
+    else process.env.FOOTBALL_DISCOVERY_COMPETITIONS = previousList
+  }
+})
+
+test('reports each failed competition to the caller so a partial run is not logged as success', async () => {
+  const previousList = process.env.FOOTBALL_DISCOVERY_COMPETITIONS
+  process.env.FOOTBALL_DISCOVERY_COMPETITIONS = 'PL,PD,SA'
+
+  try {
+    const failures: Array<{ code: string; message: string }> = []
+    await getConfiguredCompetitionFixtures('2026-10-03', '2026-10-05', async (code) => {
+      if (code !== 'PL') throw new Error(`${code} unavailable`)
+      return []
+    }, 0, (code, error) => {
+      failures.push({ code, message: error instanceof Error ? error.message : 'unknown' })
+    })
+
+    assert.deepEqual(failures, [
+      { code: 'PD', message: 'PD unavailable' },
+      { code: 'SA', message: 'SA unavailable' },
+    ])
+  } finally {
+    if (previousList === undefined) delete process.env.FOOTBALL_DISCOVERY_COMPETITIONS
+    else process.env.FOOTBALL_DISCOVERY_COMPETITIONS = previousList
+  }
+})
+
+test('treats an empty provider fixture list as success rather than a failure', async () => {
+  const previousList = process.env.FOOTBALL_DISCOVERY_COMPETITIONS
+  process.env.FOOTBALL_DISCOVERY_COMPETITIONS = 'PL,DED'
+
+  try {
+    const failures: string[] = []
+    const fixtures = await getConfiguredCompetitionFixtures(
+      '2026-10-03',
+      '2026-10-05',
+      async () => [],
+      0,
+      (code) => failures.push(code),
+    )
+
+    assert.deepEqual(fixtures, [])
+    assert.deepEqual(failures, [])
   } finally {
     if (previousList === undefined) delete process.env.FOOTBALL_DISCOVERY_COMPETITIONS
     else process.env.FOOTBALL_DISCOVERY_COMPETITIONS = previousList

@@ -333,7 +333,8 @@ export function startNotificationWorker(): void {
         connection: redis as any,
         concurrency: 5,
         limiter: { max: 100, duration: 60_000 },
-        drainDelay: 10,
+        // Long poll interval while the queue is empty (BullMQ default is 5s).
+        drainDelay: 30,
         removeOnComplete: NOTIFICATION_JOB_OPTIONS.removeOnComplete,
         removeOnFail: NOTIFICATION_JOB_OPTIONS.removeOnFail,
       },
