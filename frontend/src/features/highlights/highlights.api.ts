@@ -34,7 +34,16 @@ export const highlightsApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<Highlight>) => unwrapApiResponse(response),
       providesTags: (_result, _error, id) => [{ type: 'Highlight', id }],
     }),
+
+    /**
+     * Records one intentional highlight view and returns the authoritative count.
+     * Deliberately does not invalidate tags so opening a highlight never refetches the list.
+     */
+    incrementHighlightView: builder.mutation<{ id: string; viewCount: number }, string>({
+      query: (id) => ({ url: `highlights/${id}/view`, method: 'POST' }),
+      transformResponse: (response: ApiResponse<{ id: string; viewCount: number }>) => unwrapApiResponse(response),
+    }),
   }),
 })
 
-export const { useGetHighlightsQuery, useGetHighlightByIdQuery } = highlightsApi
+export const { useGetHighlightsQuery, useGetHighlightByIdQuery, useIncrementHighlightViewMutation } = highlightsApi

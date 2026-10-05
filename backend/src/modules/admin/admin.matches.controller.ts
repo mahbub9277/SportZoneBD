@@ -5,7 +5,7 @@ import { successResponse, errorResponse } from '../../core/api-response.js'
 import { getPaginatedData } from '../../services/pagination.service.js'
 import asyncHandler from '../../utils/asyncHandler.js'
 import { invalidateTags } from '../../core/cache.js'
-import { emitAdminResourceCreated, emitAdminResourceUpdated, emitMatchStatusUpdated } from '../../core/socketManager.js'
+import { emitAdminResourceCreated, emitAdminResourceDeleted, emitAdminResourceUpdated, emitMatchStatusUpdated } from '../../core/socketManager.js'
 import { notifyMatchStarted } from '../../services/notification.service.js'
 import { cleanupMatch } from '../../services/match-cleanup.service.js'
 import { writeAuditLog } from '../../core/audit.js'
@@ -347,6 +347,80 @@ export const getFinishedMatches = asyncHandler(async (req: Request, res: Respons
     searchableFields: ['title'],
   });
   res.status(200).json(successResponse({ items, meta }, 'Finished matches retrieved'));
+})
+
+export const getPendingMatches = asyncHandler(async (req: Request, res: Response) => {
+  const paginatedQuery = {
+    page: Number(req.query.page) || 1,
+    limit: Number(req.query.limit) || 10,
+    sortBy: (req.query.sortBy as string) || 'kickoffAt:asc',
+    search: req.query.search as string,
+  }
+
+  const { items, meta } = await getPaginatedData({
+    model: 'match',
+    query: { ...paginatedQuery, where: { status: 'PENDING', deletedAt: null } },
+    searchableFields: ['title', 'tournamentName', 'homeTeamName', 'awayTeamName'],
+  })
+  res.status(200).json(successResponse({ items, meta }, 'Pending matches retrieved'));
+})
+
+export const acceptPendingMatch = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const pendingMatch = await prisma.match.findFirst({
+    where: { id, status: 'PENDING', deletedAt: null },
+    select: { id: true, providerFixtureKey: true, kickoffAt: true },
+  })
+  if (!pendingMatch) {
+    return res.status(404).json(errorResponse('Pending match not found.'))
+  }
+
+  // The same row is published: provider identity, teams and the scheduled kickoff are kept as
+  // discovered, only the review state changes. Automatic LIVE/FINISHED transitions take it from here.
+  const acceptedMatch = await prisma.match.update({
+    where: { id },
+    data: { status: 'UPCOMING' },
+  })
+
+  await writeAuditLog('Pending match accepted', {
+    matchId: id,
+    providerFixtureKey: pendingMatch.providerFixtureKey,
+    kickoffAt: pendingMatch.kickoffAt,
+  })
+  await invalidateTags(['matches', 'AdminStats'])
+  emitAdminResourceUpdated('Match', id, { status: acceptedMatch.status })
+  emitMatchStatusUpdated({ id, status: acceptedMatch.status })
+  return res.json(successResponse(acceptedMatch, 'Match accepted'))
+})
+
+export const rejectPendingMatch = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const pendingMatch = await prisma.match.findFirst({
+    where: { id, status: 'PENDING', deletedAt: null },
+    select: { id: true, providerFixtureKey: true, kickoffAt: true },
+  })
+  if (!pendingMatch) {
+    return res.status(404).json(errorResponse('Pending match not found.'))
+  }
+
+  // Rejecting is a soft delete: the row keeps its unique providerFixtureKey, so automatic discovery
+  // recognises this fixture as already reviewed and can never recreate it, while every public query
+  // keeps excluding deletedAt rows. status stays PENDING so it also never enters a public list branch.
+  await prisma.match.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  })
+
+  await writeAuditLog('Pending match rejected', {
+    matchId: id,
+    providerFixtureKey: pendingMatch.providerFixtureKey,
+    kickoffAt: pendingMatch.kickoffAt,
+  })
+  await invalidateTags(['matches', 'AdminStats'])
+  emitAdminResourceDeleted('Match', id)
+  return res.json(successResponse({ id }, 'Match rejected'))
 })
 
 export const updateMatchStatus = asyncHandler(async (req: Request, res: Response) => {

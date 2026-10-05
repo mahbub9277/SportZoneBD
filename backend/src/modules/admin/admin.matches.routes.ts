@@ -10,6 +10,8 @@ const adminMatchesRouter = Router()
 adminMatchesRouter.get('/live', adminMatchesController.getLiveMatches)
 adminMatchesRouter.get('/upcoming', adminMatchesController.getUpcomingMatches)
 adminMatchesRouter.get('/finished', adminMatchesController.getFinishedMatches)
+// Registered before the parameterised PATCH routes for clarity; there is no GET '/:id' on this router.
+adminMatchesRouter.get('/pending', adminMatchesController.getPendingMatches)
 adminMatchesRouter.post(
   '/',
   transformMatchData,
@@ -23,6 +25,8 @@ adminMatchesRouter.patch(
   adminMatchesController.updateMatch,
 )
 adminMatchesRouter.patch('/:id/status', adminMatchesController.updateMatchStatus)
+adminMatchesRouter.patch('/:id/accept', adminMatchesController.acceptPendingMatch)
+adminMatchesRouter.patch('/:id/reject', adminMatchesController.rejectPendingMatch)
 adminMatchesRouter.patch('/:id/extend', adminMatchesController.extendMatch)
 adminMatchesRouter.delete('/:id', adminMatchesController.deleteMatch)
 

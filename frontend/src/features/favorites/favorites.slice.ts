@@ -3,33 +3,34 @@ import type { PayloadAction } from '@reduxjs/toolkit'
 import type { RootState } from '../../app/store'
 
 // Helper to load state from localStorage safely
-const loadFavoritesFromStorage = (): { favoriteMatchIds: string[]; favoriteChannelIds: string[] } => {
+const FAVORITES_STORAGE_KEY = 'sportzonebd-favorites'
+
+// Legacy payloads also stored favoriteMatchIds; match favourites no longer exist, so only channel ids are read.
+const loadFavoritesFromStorage = (): { favoriteChannelIds: string[] } => {
   try {
     if (typeof window === 'undefined') {
-      return { favoriteMatchIds: [], favoriteChannelIds: [] }
+      return { favoriteChannelIds: [] }
     }
-    const saved = window.localStorage.getItem('sportzonebd-favorites')
+    const saved = window.localStorage.getItem(FAVORITES_STORAGE_KEY)
     if (!saved) {
-      return { favoriteMatchIds: [], favoriteChannelIds: [] }
+      return { favoriteChannelIds: [] }
     }
     const parsed = JSON.parse(saved) as unknown
-    // Ensure parsed is an object with expected properties
-    if (typeof parsed === 'object' && parsed !== null && 'favoriteMatchIds' in parsed && 'favoriteChannelIds' in parsed) {
-      const { favoriteMatchIds, favoriteChannelIds } = parsed as { favoriteMatchIds: unknown; favoriteChannelIds: unknown }
+    // Ensure parsed is an object with the expected property
+    if (typeof parsed === 'object' && parsed !== null && 'favoriteChannelIds' in parsed) {
+      const { favoriteChannelIds } = parsed as { favoriteChannelIds: unknown }
       return {
-        favoriteMatchIds: Array.isArray(favoriteMatchIds) ? favoriteMatchIds.filter((item): item is string => typeof item === 'string') : [],
         favoriteChannelIds: Array.isArray(favoriteChannelIds) ? favoriteChannelIds.filter((item): item is string => typeof item === 'string') : [],
       }
     }
-    return { favoriteMatchIds: [], favoriteChannelIds: [] }
+    return { favoriteChannelIds: [] }
   } catch (error) {
     console.error('Failed to load favorites from localStorage:', error)
-    return { favoriteMatchIds: [], favoriteChannelIds: [] }
+    return { favoriteChannelIds: [] }
   }
 }
 
 export interface FavoritesState {
-  favoriteMatchIds: string[]
   favoriteChannelIds: string[]
 }
 
@@ -41,14 +42,6 @@ const favoritesSlice = createSlice({
   name: 'favorites',
   initialState,
   reducers: {
-    toggleFavoriteMatch: (state, action: PayloadAction<string>) => {
-      const matchId = action.payload
-      if (state.favoriteMatchIds.includes(matchId)) {
-        state.favoriteMatchIds = state.favoriteMatchIds.filter((id) => id !== matchId)
-      } else {
-        state.favoriteMatchIds.push(matchId)
-      }
-    },
     toggleFavoriteChannel: (state, action: PayloadAction<string>) => {
       const channelId = action.payload
       if (state.favoriteChannelIds.includes(channelId)) {
@@ -57,32 +50,22 @@ const favoritesSlice = createSlice({
         state.favoriteChannelIds.push(channelId)
       }
     },
-    clearAllFavorites: (state) => {
-      state.favoriteMatchIds = []
-      state.favoriteChannelIds = []
-    },
     clearFavoriteChannels: (state) => {
       state.favoriteChannelIds = []
-    },
-    clearFavoriteMatches: (state) => {
-      state.favoriteMatchIds = []
     },
   },
 })
 
-export const { toggleFavoriteMatch, toggleFavoriteChannel, clearAllFavorites, clearFavoriteChannels, clearFavoriteMatches } = favoritesSlice.actions
+export const { toggleFavoriteChannel, clearFavoriteChannels } = favoritesSlice.actions
 
-export const selectFavoriteMatchIds = (state: RootState) => state.favorites.favoriteMatchIds
 export const selectFavoriteChannelIds = (state: RootState) => state.favorites.favoriteChannelIds
 
 export const favoritesListenerMiddleware = createListenerMiddleware()
 favoritesListenerMiddleware.startListening({
-  matcher: (action) =>
-    toggleFavoriteMatch.match(action) || toggleFavoriteChannel.match(action) || clearAllFavorites.match(action) || clearFavoriteChannels.match(action) || clearFavoriteMatches.match(action),
+  matcher: (action) => toggleFavoriteChannel.match(action) || clearFavoriteChannels.match(action),
   effect: (_action, listenerApi) => {
     const state = listenerApi.getState() as RootState
-    window.localStorage.setItem('sportzonebd-favorites', JSON.stringify({
-      favoriteMatchIds: state.favorites.favoriteMatchIds,
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify({
       favoriteChannelIds: state.favorites.favoriteChannelIds,
     }))
   },

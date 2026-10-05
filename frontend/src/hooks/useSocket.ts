@@ -4,6 +4,7 @@ import { useAppSelector } from '../app/hooks'
 import { useAppDispatch } from '../app/hooks'
 import { selectIsAuthenticated } from '../features/auth/authSlice'
 import { notificationsApi } from '../features/notifications/notification.api'
+import { addNotification } from '../features/notifications/notifications.slice'
 import type { Notification } from '../features/notifications/notification.types'
 import { matchesApi } from '../features/matches/matches.api'
 
@@ -81,6 +82,7 @@ export interface ServerToClientEvents {
   automationLogEntry: (payload: SocketAutomationLog) => void
   matchStatusUpdated: (payload: { id: string; status: string; finishedAt?: string | null }) => void
   notificationCreated: (payload: { id: string; userId: string; title: string; body: string; type: string; channel: string; link?: string | null; createdAt: string }) => void
+  notificationTransient: (payload: { id: string; title: string; body: string; type: string; link?: string | null }) => void
 }
 
 export interface StreamHealthSummary {
@@ -170,6 +172,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     let hasConnectedOnce = false
     const seenNotificationIds = new Set<string>()
+    const seenTransientNotificationIds = new Set<string>()
     const handleConnect = () => {
       startTransition(() => {
         setIsConnected(true)
@@ -227,12 +230,32 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
+    const handleNotificationTransient = (payload: Parameters<ServerToClientEvents['notificationTransient']>[0]) => {
+      if (!payload.id || seenTransientNotificationIds.has(payload.id)) return
+      seenTransientNotificationIds.add(payload.id)
+      if (seenTransientNotificationIds.size > 500) {
+        const oldestId = seenTransientNotificationIds.values().next().value
+        if (oldestId) seenTransientNotificationIds.delete(oldestId)
+      }
+
+      // The service worker only suppresses the OS notification while a window is focused, so the
+      // toast is limited to visible tabs. Transient only: no store entry, no unread increment.
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+
+      const toastType = payload.type === 'success' || payload.type === 'warning' || payload.type === 'error' ? payload.type : 'info'
+      dispatch(addNotification({
+        message: [payload.title, payload.body].filter(Boolean).join(' — '),
+        type: toastType,
+      }))
+    }
+
     publicSocketInstance.on('connect', handleConnect)
     publicSocketInstance.on('disconnect', handleDisconnect)
     publicSocketInstance.on('connect_error', handleConnectError)
     publicSocketInstance.on('matchStatusUpdated', handleMatchStatusUpdated)
     publicSocketInstance.on('applicationSettingChanged', handleApplicationSettingChanged)
     publicSocketInstance.on('notificationCreated', handleNotificationCreated)
+    publicSocketInstance.on('notificationTransient', handleNotificationTransient)
 
     return () => {
       publicSocketInstance.off('connect', handleConnect)
@@ -241,6 +264,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       publicSocketInstance.off('matchStatusUpdated', handleMatchStatusUpdated)
       publicSocketInstance.off('applicationSettingChanged', handleApplicationSettingChanged)
       publicSocketInstance.off('notificationCreated', handleNotificationCreated)
+      publicSocketInstance.off('notificationTransient', handleNotificationTransient)
       publicSocketInstance.removeAllListeners()
       publicSocketInstance.disconnect()
       publicSocketRef.current = null

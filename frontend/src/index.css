@@ -6,6 +6,8 @@
   --surface: rgba(12, 18, 31, 0.9);
   --surface-soft: rgba(18, 28, 44, 0.92);
   --surface-strong: #0b1320;
+  /* Highlight swept across loading skeletons (see the skeleton section at the end of this file). */
+  --skeleton-shimmer: rgba(255, 255, 255, 0.07);
   --card: #0f1b2d;
   --border: rgba(148, 163, 184, 0.18);
   --accent: #f7c75d;
@@ -57,6 +59,7 @@
   --surface: rgba(255, 255, 255, 0.94);
   --surface-soft: #edf3fb;
   --surface-strong: #e4edf9;
+  --skeleton-shimmer: rgba(255, 255, 255, 0.7);
   --card: #ffffff;
   --border: rgba(100, 116, 139, 0.16);
   --accent: #d39f12;
@@ -327,6 +330,33 @@ html.theme-switching * {
   }
 }
 
+/* Subscription plans: restrained, GPU-friendly glow that drifts behind the active card. */
+@keyframes pricing-glow-drift {
+  0% {
+    transform: translate3d(-5%, -4%, 0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate3d(5%, 4%, 0) scale(1.06);
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate3d(-5%, -4%, 0) scale(1);
+    opacity: 0.5;
+  }
+}
+
+.pricing-card-glow {
+  animation: pricing-glow-drift 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pricing-card-glow {
+    animation: none;
+  }
+}
+
 .premium-card {
   position: relative;
   overflow: hidden;
@@ -347,5 +377,20 @@ html.theme-switching * {
 
 .premium-card:hover::before {
   transform: translateX(110%);
+}
+
+/* Loading skeletons sweep a soft, low-contrast light band across the placeholder from left to right.
+   The shared Skeleton component consumes this through Tailwind's `animate-shimmer` utility. */
+@theme {
+  --animate-shimmer: shimmer 1.9s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
 }
 

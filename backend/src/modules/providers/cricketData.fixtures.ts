@@ -1,6 +1,7 @@
 import { cache } from '../../core/cache.js'
 import logger from '../../core/logger.js'
 import { acquireProviderRequestSlot } from '../../core/providerRequestBudget.js'
+import { classifyCricketFixture, isCricketCategoryEligible } from './cricketCategory.js'
 import { fetchCricketMatches, getCricketDailyRequestLimit, getCricketEndpoint, getCricketProviderStatus, isCricketDataConfigured } from './cricketData.client.js'
 import { isRecord, nullableHttpUrl, providerIdentifier, requiredString } from './normalize.js'
 import type { CanonicalFixture, ProviderFetchResult } from './types.js'
@@ -89,15 +90,29 @@ export function normalizeCricketFixtures(value: unknown): CanonicalFixture[] {
 
   const fixtures: CanonicalFixture[] = []
   const seen = new Set<string>()
+  let categorySkipped = 0
 
   for (const entry of value.data) {
     if (!isRecord(entry)) continue
+    // Business rule (Step 6): only A/B fixtures, plus marquee C fixtures, reach the pending review
+    // queue. D fixtures (unknown or unsupported formats) are never imported automatically.
+    if (!isCricketCategoryEligible(classifyCricketFixture({ matchType: entry.matchType, series: entry.series }))) {
+      categorySkipped += 1
+      continue
+    }
     const fixture = normalizeCricketMatch(entry)
     if (!fixture) continue
     const key = fixture.providerMatchId ?? `${fixture.homeTeamName}|${fixture.awayTeamName}|${fixture.kickoffAt}`
     if (seen.has(key)) continue
     seen.add(key)
     fixtures.push(fixture)
+  }
+
+  if (categorySkipped > 0) {
+    logger.info(
+      { provider: PROVIDER, categorySkipped, imported: fixtures.length, window: 'cricket' },
+      'Cricket fixtures skipped by discovery category rules',
+    )
   }
 
   return fixtures

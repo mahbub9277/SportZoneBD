@@ -1,6 +1,7 @@
 import { prisma } from '../core/prisma.js'
 import type { Prisma } from '@prisma/client'
 import { enqueueUserNotifications, type NotificationQueuePayload } from '../core/notificationQueue.js'
+import { emitTransientNotification } from '../core/socketManager.js'
 
 const BROADCAST_USER_BATCH_SIZE = 500
 
@@ -32,6 +33,11 @@ interface NotificationEvent {
   type?: string
   link?: string
   preference: 'matchStartPush' | 'newHighlightPush'
+}
+
+/** Stable per-event id so the client can drop duplicate toasts after reconnects or re-emits. */
+function transientEventId(event: NotificationEvent): string {
+  return `transient:${event.type ?? 'info'}:${event.link ?? ''}:${event.title}`
 }
 
 async function broadcastNotificationChannel(
@@ -70,6 +76,19 @@ async function broadcastNotificationChannel(
     }))
     const results = await enqueueUserNotifications(payloads)
     queuedCount += results.filter(Boolean).length
+
+    if (channel === 'PUSH') {
+      // Push-only alerts are also surfaced to focused tabs as transient UI. Nothing is persisted,
+      // nothing reaches the In-App inbox and the unread badge is untouched.
+      const notifiedUserIds = payloads.filter((_, index) => Boolean(results[index])).map((payload) => payload.userId)
+      emitTransientNotification(notifiedUserIds, {
+        id: transientEventId(event),
+        title: event.title,
+        body: event.body,
+        type: event.type ?? 'info',
+        link: event.link ?? null,
+      })
+    }
   }
 
   return queuedCount
@@ -77,75 +96,49 @@ async function broadcastNotificationChannel(
 
 /**
  * Creates in-app notifications for opted-in active users without duplicating an event.
+ * Use this only for genuine persistent In-App notifications; automated sports alerts are push-only.
  */
 export async function broadcastInAppNotification(event: NotificationEvent): Promise<number> {
   return broadcastNotificationChannel(event, 'IN_APP')
 }
 
+/**
+ * Automated sports alerts are push-only: they are delivered to browsers/devices through the
+ * PUSH channel and must NOT create persistent In-App notification records, so the In-App inbox
+ * and its unread badge stay reserved for genuine product-level notifications.
+ */
+async function broadcastPushAlert(event: NotificationEvent): Promise<number> {
+  return broadcastNotificationChannel(event, 'PUSH')
+}
+
 export async function notifyMatchStarted(match: { id: string; title: string }): Promise<number> {
-  const inAppCount = await broadcastNotificationChannel(
-    {
-      title: 'Match Started',
-      body: `${match.title} has started! Tap to watch live.`,
-      type: 'match-started',
-      link: `/matches/${match.id}`,
-      preference: 'matchStartPush',
-    },
-    'IN_APP',
-  )
-
-  const pushCount = await broadcastNotificationChannel(
-    {
-      title: 'Match Started',
-      body: `${match.title} has started! Tap to watch live.`,
-      type: 'match-started',
-      link: `/matches/${match.id}`,
-      preference: 'matchStartPush',
-    },
-    'PUSH',
-  )
-
-  return inAppCount + pushCount
+  return broadcastPushAlert({
+    title: 'Match Started',
+    body: `${match.title} has started! Tap to watch live.`,
+    type: 'match-started',
+    link: `/matches/${match.id}`,
+    preference: 'matchStartPush',
+  })
 }
 
 export async function notifyMatchReminder(match: { id: string; title: string }): Promise<number> {
-  const eventData = {
+  return broadcastPushAlert({
     title: 'Match Starting Soon',
     body: `${match.title} starts soon! Tap to watch live.`,
     type: 'match-reminder',
     link: `/matches/${match.id}`,
     preference: 'matchStartPush',
-  } as const
-
-  const inAppCount = await broadcastNotificationChannel(eventData, 'IN_APP')
-  const pushCount = await broadcastNotificationChannel(eventData, 'PUSH')
-
-  return inAppCount + pushCount
+  })
 }
 
 export async function notifyHighlightAdded(highlight: { id: string; title: string; matchTitle?: string | null }): Promise<number> {
   const matchLabel = highlight.matchTitle ? ` from ${highlight.matchTitle}` : ''
-  const inAppCount = await broadcastNotificationChannel(
-    {
-      title: 'New Highlight Available',
-      body: `${highlight.title}${matchLabel} is now available to watch.`,
-      type: 'success',
-      preference: 'newHighlightPush',
-    },
-    'IN_APP',
-  )
-
-  const pushCount = await broadcastNotificationChannel(
-    {
-      title: 'New Highlight Available',
-      body: `${highlight.title}${matchLabel} is now available to watch.`,
-      type: 'success',
-      preference: 'newHighlightPush',
-    },
-    'PUSH',
-  )
-
-  return inAppCount + pushCount
+  return broadcastPushAlert({
+    title: 'New Highlight Available',
+    body: `${highlight.title}${matchLabel} is now available to watch.`,
+    type: 'success',
+    preference: 'newHighlightPush',
+  })
 }
 
 export async function createAdminBroadcastNotification(payload: {

@@ -1,3 +1,26 @@
 # SportZoneBD
 
-> Live sports, instant access with SportZoneBD.
+> SportZoneBD is a Bangladesh-focused sports website for live and upcoming match listings, streaming channels, video highlights and league standings.
+
+Canonical URL: https://sport-zone-bd.vercel.app/
+Primary language: English
+Region: Bangladesh
+
+## Public pages
+
+- [Home](https://sport-zone-bd.vercel.app/): live and upcoming match listings, featured channels and highlights.
+- [Matches](https://sport-zone-bd.vercel.app/matches): live, upcoming and finished match listings.
+- [Channels](https://sport-zone-bd.vercel.app/channels): streaming channel directory.
+- [Categories](https://sport-zone-bd.vercel.app/categories): channel categories.
+- [Highlights](https://sport-zone-bd.vercel.app/highlights): video highlights.
+- [Standings](https://sport-zone-bd.vercel.app/standings): league tables.
+- [Subscriptions](https://sport-zone-bd.vercel.app/subscriptions): premium plan details.
+- [About](https://sport-zone-bd.vercel.app/about): app information, version and release notes.
+- [Terms of Service](https://sport-zone-bd.vercel.app/terms-of-service)
+- [Privacy Policy](https://sport-zone-bd.vercel.app/privacy-policy)
+
+## Notes
+
+- Pages are rendered client-side; match, channel, highlight and standings data is fetched at runtime.
+- Match, channel, category and event detail pages use ids or slugs in the URL and are not listed here.
+- Machine-readable discovery files: https://sport-zone-bd.vercel.app/sitemap.xml, https://sport-zone-bd.vercel.app/robots.txt, https://sport-zone-bd.vercel.app/ai-catalog.json

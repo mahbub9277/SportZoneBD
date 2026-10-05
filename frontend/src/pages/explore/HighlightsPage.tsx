@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
-import { ArrowRight, PlayCircle, X } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { ArrowRight, Eye, PlayCircle, X } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Card } from '../../components/ui/Card'
 import { PageHero } from '../../components/shared/PageHero'
 import { CustomVideoPlayer } from '../../components/player/CustomVideoPlayer'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
-import { useGetHighlightsQuery } from '../../features/highlights/highlights.api'
+import { useGetHighlightsQuery, useIncrementHighlightViewMutation } from '../../features/highlights/highlights.api'
+import { claimHighlightView } from '../../features/highlights/highlightViews'
+import type { Highlight } from '../../features/highlights/highlights.types'
 
 const resolvePosterUrl = (thumbnail?: string | null, thumbnailUrl?: string | null) => {
   const source = thumbnail ?? thumbnailUrl
@@ -21,6 +23,8 @@ const resolvePosterUrl = (thumbnail?: string | null, thumbnailUrl?: string | nul
   })
 }
 
+const formatViewCount = (count: number): string => `${count.toLocaleString()} ${count === 1 ? 'view' : 'views'}`
+
 export function HighlightsPage() {
   const shouldReduceMotion = useReducedMotion()
   const { data, isLoading, isError } = useGetHighlightsQuery({ page: 1, limit: 50 })
@@ -31,6 +35,23 @@ export function HighlightsPage() {
     () => resolvePosterUrl(selectedHighlight?.thumbnail, selectedHighlight?.thumbnailUrl),
     [selectedHighlight],
   )
+
+  const [incrementHighlightView] = useIncrementHighlightViewMutation()
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({})
+
+  // One intentional open = one view, no matter how many times React re-renders or remounts the card.
+  const openHighlight = useCallback((highlight: Highlight) => {
+    setSelectedHighlight(highlight)
+    if (!claimHighlightView(highlight.id)) return
+
+    const previousCount = highlight.viewCount ?? 0
+    setViewCounts((counts) => ({ ...counts, [highlight.id]: (counts[highlight.id] ?? previousCount) + 1 }))
+
+    void incrementHighlightView(highlight.id)
+      .unwrap()
+      .then((result) => setViewCounts((counts) => ({ ...counts, [highlight.id]: result.viewCount })))
+      .catch(() => setViewCounts((counts) => ({ ...counts, [highlight.id]: previousCount })))
+  }, [incrementHighlightView])
 
   return (
     <div className="app-page space-y-3">
@@ -111,7 +132,7 @@ export function HighlightsPage() {
                       type="button"
                       onClick={() => {
                         if (hasVideoUrl) {
-                          setSelectedHighlight(highlight)
+                          openHighlight(highlight)
                         }
                       }}
                       className={`group block w-full text-left transition-all duration-200 ${hasVideoUrl ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'}`}
@@ -138,6 +159,11 @@ export function HighlightsPage() {
                         <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/85 backdrop-blur-sm">
                           <PlayCircle className="h-3.5 w-3.5" />
                           {hasVideoUrl ? 'Watch' : 'Unavailable'}
+                        </div>
+
+                        <div className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/85 backdrop-blur-sm">
+                          <Eye className="h-3.5 w-3.5" />
+                          {formatViewCount(viewCounts[highlight.id] ?? highlight.viewCount ?? 0)}
                         </div>
                       </div>
 

@@ -3,14 +3,18 @@
  *
  * A fixture may only become a SportZoneBD match once kickoff is close enough. The upper bound is
  * the important one: without it a provider that publishes a whole season would create matches
- * weeks early (RULE 1 / RULE 2). The band is the configured lead time before kickoff (two days by
- * default), and a fixture that first appears inside 24 hours is still created as a safety fallback.
+ * weeks early (RULE 1 / RULE 2). The band is the configured lead time before kickoff (seven days
+ * by default), and a fixture that first appears inside 24 hours is still created as a safety fallback.
  *
  * The guard is evaluated per fixture (not per provider query) so scheduler jitter can never leak
  * an out-of-window match.
+ *
+ * Since automatic discovery now creates PENDING matches, this horizon is also the review window an
+ * admin sees in Admin -> Match Management -> Pending. It stays intentionally bounded (max 14 days)
+ * so a provider that returns a whole season cannot flood the review queue.
  */
 
-export const DEFAULT_MATCH_DISCOVERY_DAYS = 2
+export const DEFAULT_MATCH_DISCOVERY_DAYS = 7
 const MAX_MATCH_DISCOVERY_DAYS = 14
 
 /** Max lead time before kickoff at which an automatic match may be created. */

@@ -181,19 +181,44 @@ export function SubscriptionsPage() {
               </CardContent>
             </Card>
           ))}
-        {!isLoadingPlans && primaryPlans.map((plan, index) => (
+        {!isLoadingPlans && primaryPlans.map((plan, index) => {
+          const isCurrentPlan = activeSubscription?.plan.id === plan.id
+          const isSelectedPlan = selectedPlan?.id === plan.id
+          const hasStateCard = Boolean(activeSubscription || selectedPlan)
+          // With no current/selected plan, the middle card is the visual focal point only; it carries no
+          // badge and no recommendation claim, it just produces the center-focused composition.
+          const isFocalDefault = !hasStateCard && primaryPlans.length > 1 && index === Math.floor(primaryPlans.length / 2)
+          const isProminent = isCurrentPlan || isSelectedPlan || isFocalDefault
+          const siblingRecedes = !isProminent
+
+          return (
           <motion.div
             key={plan.id}
             initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: shouldReduceMotion ? 0 : 0.28, delay: shouldReduceMotion ? 0 : index * 0.06, ease: 'easeOut' }}
+            className={cn('relative h-full', isProminent ? 'z-10' : 'z-0')}
           >
           <Card
             className={cn(
-              'relative flex h-full flex-col overflow-hidden rounded-2xl border border-(--border) bg-linear-to-br from-(--surface-soft) to-(--surface) shadow-[0_20px_60px_var(--shadow)]',
-              plan.id === recommendedPlanId && 'border-accent/50 ring-2 ring-accent',
+              'relative flex h-full flex-col overflow-hidden rounded-2xl border bg-linear-to-br from-(--surface-soft) to-(--surface) shadow-[0_20px_60px_var(--shadow)] transition-[transform,box-shadow,opacity,border-color] duration-300 ease-out will-change-transform',
+              'md:motion-safe:hover:-translate-y-1.5 md:motion-safe:hover:scale-[1.02] motion-safe:focus-within:-translate-y-1 md:motion-safe:focus-within:scale-[1.02]',
+              isProminent
+                ? 'border-accent/50 ring-2 ring-accent shadow-[0_30px_90px_-30px_rgba(247,199,93,0.55)] md:motion-safe:scale-[1.04]'
+                : siblingRecedes
+                  ? 'border-(--border) md:motion-safe:scale-[0.97] md:opacity-90'
+                  : cn('border-(--border)', plan.id === recommendedPlanId && 'border-accent/50 ring-2 ring-accent'),
             )}
           >
+            <div aria-hidden="true" className={cn('pointer-events-none absolute inset-0 transition-opacity duration-700', isProminent ? 'opacity-100' : 'opacity-0')}>
+              <div className="pricing-card-glow absolute -inset-1/3 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(247,199,93,0.30),rgba(4,116,196,0.18)_45%,transparent_72%)]" />
+            </div>
+            {(isCurrentPlan || isSelectedPlan) && (
+              <div className="absolute right-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-accent backdrop-blur-sm">
+                <Crown className="h-3.5 w-3.5" aria-hidden="true" />
+                {isCurrentPlan ? 'Current plan' : 'Selected'}
+              </div>
+            )}
             <Smartphone className="pointer-events-none absolute -right-5 -top-5 h-28 w-28 text-(--accent)/5" aria-hidden="true" />
             <CardHeader className="min-h-44 p-6">
               {plan.id === recommendedPlanId && (
@@ -255,7 +280,8 @@ export function SubscriptionsPage() {
             </CardContent>
           </Card>
           </motion.div>
-        ))}
+          )
+        })}
       </motion.div>
       <Dialog open={!!selectedPlan} onOpenChange={(open) => { if (!open) { setSelectedPlan(null); setIsPaymentStepOpen(false) } }}>
         <DialogContent className="max-w-md">

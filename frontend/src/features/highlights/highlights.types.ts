@@ -7,7 +7,8 @@ export interface Highlight {
   duration?: string | null;
   category?: string | null;
   url: string;
-  createdAt?: string;
+  viewCount?: number
+  createdAt?: string
   updatedAt?: string;
   // You might want to add relation to Match here if needed in the UI
   // match?: Match;

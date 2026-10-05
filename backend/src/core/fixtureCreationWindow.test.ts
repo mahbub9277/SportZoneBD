@@ -17,13 +17,16 @@ function decide(leadHours: number, providerStatus: 'UPCOMING' | 'LIVE' | 'FINISH
 }
 
 test('refuses to create a match before the window opens', () => {
-  assert.equal(decide(24 * 7), 'too-early')
-  assert.equal(decide(24 * 4), 'too-early')
-  assert.equal(decide(72), 'too-early')
-  assert.equal(decide(49), 'too-early')
+  assert.equal(decide(24 * 14), 'too-early')
+  assert.equal(decide(24 * 8), 'too-early')
+  assert.equal(decide(24 * 7 + 1), 'too-early')
 })
 
 test('creates inside the configured lead time', () => {
+  assert.equal(decide(24 * 7), 'create')
+  assert.equal(decide(24 * 4), 'create')
+  assert.equal(decide(72), 'create')
+  assert.equal(decide(49), 'create')
   assert.equal(decide(48), 'create')
   assert.equal(decide(36), 'create')
   assert.equal(decide(24), 'create')
@@ -43,10 +46,10 @@ test('still ingests fixtures that have genuinely started', () => {
 })
 
 test('configured lead time is used, invalid values fall back, and the cap is enforced', () => {
-  assert.equal(getMatchDiscoveryDays({} as NodeJS.ProcessEnv), 2)
+  assert.equal(getMatchDiscoveryDays({} as NodeJS.ProcessEnv), 7)
   assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: '5' } as NodeJS.ProcessEnv), 5)
-  assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: '0' } as NodeJS.ProcessEnv), 2)
-  assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: 'not-a-number' } as NodeJS.ProcessEnv), 2)
+  assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: '0' } as NodeJS.ProcessEnv), 7)
+  assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: 'not-a-number' } as NodeJS.ProcessEnv), 7)
   assert.equal(getMatchDiscoveryDays({ MATCH_DISCOVERY_DAYS: '999' } as NodeJS.ProcessEnv), 14)
   assert.equal(getMatchDiscoveryWindowMs({ MATCH_DISCOVERY_DAYS: '2' } as NodeJS.ProcessEnv), 2 * DAY_MS)
 })

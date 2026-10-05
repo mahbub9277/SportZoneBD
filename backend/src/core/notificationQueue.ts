@@ -205,6 +205,11 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
     })
 
     if (notificationPayload.channel === 'PUSH') {
+      // The stored row is the delivery ledger for push-only notifications: it is what makes the
+      // broadcast idempotent (the per-user `notifications: { none: ... }` filter stops the
+      // per-minute match-reminder tick from re-sending) and what lets failed subscriptions be
+      // retried. In-app queries always filter `channel: 'IN_APP'`, so this row is never shown in
+      // the In-App inbox, never counted in the unread badge and never emitted over Socket.IO.
       const failedPushSubscriptionIds = await sendPushNotification(createdNotification)
       return { created: true, id: createdNotification.id, failedPushSubscriptionIds }
     }

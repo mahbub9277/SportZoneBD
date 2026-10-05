@@ -18,6 +18,7 @@ import { MatchRow } from './components/MatchRow'
 import { Button } from '../../components/ui/Button'
 import { CreateMatchForm, type CreateMatchFormValues } from './components/CreateMatchForm' // Changed import
 import { MatchFilters } from './components/MatchFilters'
+import { PendingMatchesSection } from './components/PendingMatchesSection'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../../components/ui/Table'
 import { PaginationControls } from '../../components/ui/PaginationControls'
 import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../features/admin/uploads.api'
@@ -314,6 +315,8 @@ export function MatchManagementPage() {
           </Button>
         </div>
       </motion.div>
+
+      <PendingMatchesSection />
 
       <MatchFilters
         searchTerm={filters.searchTerm}

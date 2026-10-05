@@ -91,7 +91,6 @@ export function PlayerControls({
   const displayDuration = Number.isFinite(duration) && duration > 0 && duration !== Infinity ? duration : 0
   const timeLabel = liveWindow.isLive ? 'LIVE' : `${formatTime(displayCurrentTime)} / ${formatTime(displayDuration)}`
   const showSideControls = controlsVisible || isSettingsOpen
-  const showCenterSeekControls = showSeekControls && controlsVisible && !compactControls && !hasError
 
   return (
     <div className={`absolute inset-0 ${hasError ? 'z-40' : 'z-20'}`} onClick={onSurfaceClick} onDoubleClick={onSurfaceDoubleClick} onMouseMove={onMouseMove} onMouseEnter={onMouseEnter}>
@@ -113,46 +112,22 @@ export function PlayerControls({
         <RailButton label={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} icon={<PictureInPicture2 className="h-4 w-4" />} onClick={onPiPToggle} disabled={!isPiPSupported} />
       </div>}
 
-      <AnimatePresence>
-        {showCenterSeekControls && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
-          >
-            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/20 bg-black/45 px-2.5 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.45)] backdrop-blur-sm sm:gap-3 sm:px-3">
-              <button type="button" className={`${buttonClass} h-9 w-9 sm:h-10 sm:w-10`} onClick={onSeekBackward} aria-label="Rewind 5 seconds" title="Rewind 5 seconds">
-                <StepBack className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </button>
-              <button type="button" className={`${buttonClass} h-10 w-10 sm:h-12 sm:w-12`} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>
-                {isPlaying ? <Pause className="h-4 w-4 sm:h-5 sm:w-5" /> : <CirclePlay className="h-4 w-4 sm:h-5 sm:w-5" />}
-              </button>
-              <button type="button" className={`${buttonClass} h-9 w-9 sm:h-10 sm:w-10`} onClick={onSeekForward} aria-label="Skip 10 seconds" title="Skip 10 seconds">
-                <StepForward className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div className={`absolute inset-x-0 bottom-0 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={(event) => event.stopPropagation()}>
         <div className="h-8 bg-linear-to-t from-[#080B15]/95 to-transparent px-4 pt-4 sm:px-5"><div className="relative h-1.5 rounded-full bg-white/15"><div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${Math.min(100, progressRatio * 100 + 10)}%` }} /><div className="absolute inset-y-0 left-0 rounded-full bg-[#0474C4]" style={{ width: `${progressRatio * 100}%` }} /><input aria-label="Seek video" type="range" min="0" max="1" step="0.001" value={progressRatio} onMouseDown={onSeekMouseDown} onChange={onSeekChange} onMouseUp={onSeekMouseUp} className="absolute inset-x-0 -top-2 h-5 w-full cursor-pointer opacity-0" /></div></div>
-        <div className={`${glassClass} flex min-h-14 items-center gap-2 border-x-0 border-b-0 px-3 py-2 sm:gap-3 sm:px-5`}>
+        <div className={`${glassClass} flex min-h-14 flex-wrap items-center gap-1.5 border-x-0 border-b-0 px-3 py-2 sm:gap-3 sm:px-5`}>
           <button type="button" className={`${buttonClass} h-10 w-10`} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="h-4 w-4" /> : <CirclePlay className="h-5 w-5" />}</button>
+          {showSeekControls && (
+            <div className="flex items-center gap-1">
+              <SeekButton seconds={5} direction="backward" onClick={onSeekBackward} />
+              <SeekButton seconds={10} direction="forward" onClick={onSeekForward} />
+            </div>
+          )}
           <div className="group/volume flex min-w-0 items-center gap-2" ref={volumeContainerRef}>
             <button type="button" className={buttonClass} onClick={onVolumeButtonClick} aria-label={isMuted ? 'Unmute' : 'Mute'}>{isMuted ? <VolumeX className="h-4 w-4" /> : volume < 0.5 ? <Volume1 className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
             <div className="hidden w-24 items-center group-hover/volume:flex group-focus-within/volume:flex sm:w-28">
               <input aria-label="Volume" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="w-full accent-[#0474C4]" />
             </div>
           </div>
-          {showSeekControls && (
-            <div className="flex items-center gap-1">
-              <button type="button" className={`${buttonClass} h-8 w-8`} onClick={onSeekBackward} aria-label="Rewind 5 seconds" title="Rewind 5 seconds"><StepBack className="h-3.5 w-3.5" /></button>
-              <button type="button" className={`${buttonClass} h-8 w-8`} onClick={onSeekForward} aria-label="Skip 10 seconds" title="Skip 10 seconds"><StepForward className="h-3.5 w-3.5" /></button>
-            </div>
-          )}
           <span className="min-w-16 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
           <div className="ml-auto flex items-center gap-1">
             <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>
@@ -176,12 +151,28 @@ function TeamLogo({ src, alt }: { src?: string | null; alt: string }) {
   return src ? <img src={src} alt={`${alt} logo`} className="h-5 w-5 rounded-full object-contain" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-[8px] text-white/50">{alt.slice(0, 1)}</span>
 }
 
+function SeekButton({ seconds, direction, onClick }: { seconds: number; direction: 'backward' | 'forward'; onClick: () => void }) {
+  const label = direction === 'backward' ? `Rewind ${seconds} seconds` : `Skip ${seconds} seconds forward`
+  const Icon = direction === 'backward' ? StepBack : StepForward
+  return (
+    <button type="button" className={`${buttonClass} h-9 min-w-11 gap-0.5 px-2`} onClick={onClick} aria-label={label} title={label}>
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      <span className="text-[10px] font-black leading-none" aria-hidden="true">{seconds}</span>
+    </button>
+  )
+}
+
 function RailButton({ label, icon, onClick, disabled }: { label: string; icon: React.ReactNode; onClick: (event: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean }) {
   return <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 shadow-sm transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-35" onClick={onClick} aria-label={label} title={label} disabled={disabled}>{icon}</button>
 }
 
 function formatTime(value: number) {
-  if (!Number.isFinite(value) || value < 0) return '00:00'
-  const seconds = Math.floor(value)
-  return `${Math.floor(seconds / 3600) ? `${Math.floor(seconds / 3600)}:` : ''}${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+  if (!Number.isFinite(value) || value < 0) return '0:00'
+  const totalSeconds = Math.floor(value)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`
 }

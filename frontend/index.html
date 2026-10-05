@@ -11,7 +11,51 @@
     <link rel="dns-prefetch" href="//sportzonebd-1.onrender.com">
     <link rel="dns-prefetch" href="//res.cloudinary.com">
     <meta name="theme-color" content="#07111d" />
-    <meta name="description" content="Live sports, instant access with SportZoneBD." />
+    <meta name="description" content="Bangladesh-focused sports site for live and upcoming match listings, streaming channels, video highlights and league standings." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SportZoneBD" />
+    <meta property="og:title" content="SportZoneBD — Live Sports Matches, Channels &amp; Highlights" />
+    <meta property="og:description" content="Bangladesh-focused sports site for live and upcoming match listings, streaming channels, video highlights and league standings." />
+    <meta property="og:image" content="https://sport-zone-bd.vercel.app/android-chrome-512x512.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="SportZoneBD logo" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SportZoneBD — Live Sports Matches, Channels &amp; Highlights" />
+    <meta name="twitter:description" content="Bangladesh-focused sports site for live and upcoming match listings, streaming channels, video highlights and league standings." />
+    <meta name="twitter:image" content="https://sport-zone-bd.vercel.app/android-chrome-512x512.png" />
+    <meta name="twitter:image:alt" content="SportZoneBD logo" />
+    <!-- Canonical and og:url are intentionally omitted: this shell is served for every client-side route, so a
+         hard-coded homepage URL would canonicalise deep public pages (such as /highlights) to the homepage. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://sport-zone-bd.vercel.app/#organization",
+            "name": "SportZoneBD",
+            "url": "https://sport-zone-bd.vercel.app/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://sport-zone-bd.vercel.app/android-chrome-512x512.png",
+              "width": 512,
+              "height": 512
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://sport-zone-bd.vercel.app/#website",
+            "name": "SportZoneBD",
+            "url": "https://sport-zone-bd.vercel.app/",
+            "description": "Bangladesh-focused sports site for live and upcoming match listings, streaming channels, video highlights and league standings.",
+            "inLanguage": "en",
+            "publisher": { "@id": "https://sport-zone-bd.vercel.app/#organization" }
+          }
+        ]
+      }
+    </script>
     <meta name="msapplication-TileColor" content="#07111d" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -19,7 +63,7 @@
     <meta name="apple-mobile-web-app-title" content="SportZoneBD" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Sport Zone BD</title>
+    <title>SportZoneBD — Live Sports Matches, Channels &amp; Highlights</title>
     <script>
       // Apply the persisted theme before the first paint so light-theme users never see a dark flash.
       // Mirrors syncTheme() in src/features/settings/theme.slice.ts (same storage key and attributes).

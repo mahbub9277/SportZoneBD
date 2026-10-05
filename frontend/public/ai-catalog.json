@@ -1,5 +1,26 @@
 {
   "name": "SportZoneBD",
   "url": "https://sport-zone-bd.vercel.app/",
-  "description": "Live sports, instant access with SportZoneBD."
+  "description": "Bangladesh-focused sports website for live and upcoming match listings, streaming channels, video highlights and league standings.",
+  "language": "en",
+  "region": "BD",
+  "category": "Sports",
+  "type": "WebSite",
+  "contentTypes": [
+    "match listings",
+    "streaming channel directory",
+    "video highlights",
+    "league standings"
+  ],
+  "pages": [
+    { "title": "Home", "url": "https://sport-zone-bd.vercel.app/" },
+    { "title": "Matches", "url": "https://sport-zone-bd.vercel.app/matches" },
+    { "title": "Channels", "url": "https://sport-zone-bd.vercel.app/channels" },
+    { "title": "Categories", "url": "https://sport-zone-bd.vercel.app/categories" },
+    { "title": "Highlights", "url": "https://sport-zone-bd.vercel.app/highlights" },
+    { "title": "Standings", "url": "https://sport-zone-bd.vercel.app/standings" },
+    { "title": "Subscriptions", "url": "https://sport-zone-bd.vercel.app/subscriptions" },
+    { "title": "About", "url": "https://sport-zone-bd.vercel.app/about" }
+  ],
+  "sitemap": "https://sport-zone-bd.vercel.app/sitemap.xml"
 }

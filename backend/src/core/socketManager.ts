@@ -43,6 +43,7 @@ export interface ServerToClientEvents {
   adminResourceDeleted: (payload: { type: string; id: string }) => void
   matchStatusUpdated: (payload: { id: string; status: string; finishedAt?: Date | null }) => void
   notificationCreated: (payload: { id: string; userId: string; title: string; body: string; type: string; channel: string; link?: string | null; createdAt: Date }) => void
+  notificationTransient: (payload: { id: string; title: string; body: string; type: string; link?: string | null }) => void
 }
 
 /**
@@ -312,6 +313,17 @@ export function emitMatchStatusUpdated(payload: { id: string; status: string; fi
 
 export function emitUserNotification(userId: string, payload: Parameters<ServerToClientEvents['notificationCreated']>[0]): void {
   ioInstance?.to(`user:${userId}`).emit('notificationCreated', payload)
+}
+
+/**
+ * Emits a UI-only alert to the open tabs of the given users. It is never persisted, never counted
+ * as unread and never listed in the In-App inbox; it exists only so a focused tab still surfaces an
+ * alert that the service worker intentionally suppresses while a SportZoneBD window is focused.
+ * All recipients are targeted with a single room-set broadcast to avoid per-user adapter traffic.
+ */
+export function emitTransientNotification(userIds: string[], payload: Parameters<ServerToClientEvents['notificationTransient']>[0]): void {
+  if (userIds.length === 0) return
+  ioInstance?.to(userIds.map((userId) => `user:${userId}`)).emit('notificationTransient', payload)
 }
 
 /**

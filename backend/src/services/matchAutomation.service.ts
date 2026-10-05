@@ -11,7 +11,7 @@ import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
 import { renewLockWithRedis, startLockRenewal, type LockRenewalHandle } from '../core/redisLock.js'
-import { evaluateFixtureCreationWindow, getMatchDiscoveryDays, getMatchDiscoveryWindowMs } from '../core/fixtureCreationWindow.js'
+import { evaluateFixtureCreationWindow, getMatchDiscoveryDays } from '../core/fixtureCreationWindow.js'
 import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
 import { getFootballDataFixtures } from '../modules/providers/footballData.adapter.js'
 import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixtures.js'
@@ -504,7 +504,10 @@ export class MatchAutomationService {
       const fixtureWindowEndExclusive = new Date(to)
       fixtureWindowEndExclusive.setUTCDate(fixtureWindowEndExclusive.getUTCDate() + 1)
       const cycleNow = Date.now()
-      const maxLeadMs = getMatchDiscoveryWindowMs()
+      // The creation guard follows the requested provider window (the product's review horizon) instead
+      // of a separate lead time, so a fixture that was actually fetched is never silently trimmed at the
+      // far edge of the window. Fixtures a provider returns beyond the requested range are still refused.
+      const maxLeadMs = fixtureWindowEndExclusive.getTime() - cycleNow
 
       const attemptedSources: string[] = []
       const failedSources: string[] = []
@@ -587,6 +590,26 @@ export class MatchAutomationService {
         },
       })
 
+      // Rejected fixtures stay in the table as soft-deleted matches so their unique providerFixtureKey can
+      // never be re-created. Reading them once per cycle lets the loop skip them before any create attempt,
+      // while the unique index still blocks a re-creation if the fixture moves outside this window.
+      const rejectedMatches = await prisma.match.findMany({
+        where: {
+          deletedAt: { not: null },
+          providerFixtureKey: { not: null },
+          kickoffAt: {
+            gte: fixtureWindowStart,
+            lt: fixtureWindowEndExclusive,
+          },
+        },
+        select: { providerFixtureKey: true },
+      })
+      const rejectedFixtureKeys = new Set(
+        rejectedMatches
+          .map((match) => match.providerFixtureKey)
+          .filter((key): key is string => Boolean(key)),
+      )
+
       const existingMatchLookup = new Map<string, (typeof existingMatches)[number]>()
       for (const match of existingMatches) {
         const lookupKey = getMatchIdentityKey(match)
@@ -612,6 +635,16 @@ export class MatchAutomationService {
         const normalizedHome = normalizeTeamName(homeName)
         const normalizedAway = normalizeTeamName(awayName)
         const desiredTitle = normalizeApprovedMatchTitle(homeName, awayName)
+        const providerFixtureKey = buildProviderFixtureKey(fixture)
+
+        if (rejectedFixtureKeys.has(providerFixtureKey)) {
+          skippedCount++
+          logger.info(
+            { provider: fixture.provider, title: desiredTitle, providerFixtureKey },
+            'Fixture skipped because an admin rejected it previously',
+          )
+          continue
+        }
         const matchWindow = 4 * 60 * 60 * 1000
         const existingMatch = existingMatchLookup.get(getFixtureIdentityKey(fixture)) ?? [...existingMatches, ...matchesCreatedThisCycle]
           .filter((match) => {
@@ -650,9 +683,12 @@ export class MatchAutomationService {
           const awayTeamLogo = awayTeam?.logoUrl?.trim() || existingMatch.awayTeamLogo?.trim() || fixture.awayTeamCrest || null
             const status = existingMatch.status === 'FINISHED'
               ? 'FINISHED'
-              : existingMatch.status === 'LIVE' && providerStatus === 'UPCOMING'
-                ? 'LIVE'
-                : providerStatus
+              : existingMatch.status === 'PENDING'
+                // A pending match stays pending until an admin accepts it; provider sync never publishes it.
+                ? 'PENDING'
+                : existingMatch.status === 'LIVE' && providerStatus === 'UPCOMING'
+                  ? 'LIVE'
+                  : providerStatus
             const finishedAt = status === 'FINISHED' ? existingMatch.finishedAt ?? new Date() : null
           const needsUpdate =
             existingMatch.title !== `${homeName} vs ${awayName}` ||
@@ -712,9 +748,9 @@ export class MatchAutomationService {
           continue
         }
 
-        const providerFixtureKey = buildProviderFixtureKey(fixture)
-
         try {
+          // Discovered fixtures are never published directly: they wait in PENDING until an admin
+          // accepts them, so a provider problem can never surface on the public match lists.
           const createdMatch = await prisma.match.create({
             data: {
               providerFixtureKey,
@@ -728,8 +764,8 @@ export class MatchAutomationService {
               awayTeamLogo: awayTeam?.logoUrl?.trim() || fixture.awayTeamCrest || null,
               sport: fixture.sport,
               tournamentName: fixture.competitionName,
-              status: providerStatus,
-              finishedAt: providerStatus === 'FINISHED' ? new Date() : null,
+              status: 'PENDING',
+              finishedAt: null,
               premium: false,
               autoFinish: false,
               startTime: new Date(kickoffAt.getTime() - PRE_MATCH_HEALTH_WINDOW_MINUTES * 60 * 1000),

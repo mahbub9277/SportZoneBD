@@ -113,3 +113,17 @@ export const deleteHighlight = asyncHandler(async (req: Request, res: Response) 
 
   res.status(200).json(successResponse({ id: deletedHighlight.id }, 'Highlight deleted'))
 })
+
+export const incrementHighlightView = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params
+  // Single atomic increment: one UPDATE statement, no read-before-write and no Redis.
+  const [updated] = await prisma.highlight.updateManyAndReturn({
+    where: { id, deletedAt: null },
+    data: { viewCount: { increment: 1 } },
+    select: { id: true, viewCount: true },
+  })
+
+  if (!updated) throw new NotFoundError('Highlight not found')
+
+  res.status(200).json(successResponse(updated, 'Highlight view counted'))
+})

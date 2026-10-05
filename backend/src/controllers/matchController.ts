@@ -52,6 +52,10 @@ export const getAllMatches = asyncHandler(async (req, res) => {
   sortBy ??= 'createdAt:desc'
   const where: Prisma.MatchWhereInput = {
     deletedAt: null,
+    // Automatic discovery stores matches as PENDING; they stay invisible to public callers until an
+    // admin accepts them. Expressing it as AND makes the exclusion impossible to override by the
+    // status/recent/active branches below, so ?status=PENDING cannot leak them either.
+    AND: [{ status: { not: 'PENDING' } }],
     ...(recentOnly
       ? {
           sport: 'FOOTBALL',
@@ -130,8 +134,9 @@ export const getMatchById = asyncHandler(async (req, res) => {
     },
   });
 
-  if (!match) {
+  if (!match || match.deletedAt || match.status === 'PENDING') {
     // This error will be caught by your central errorHandler
+    // Pending matches (awaiting admin review) and rejected/soft-deleted ones are never public.
     throw new NotFoundError(`Match not found with id of ${id}`);
   }
 

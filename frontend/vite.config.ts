@@ -118,7 +118,10 @@ export default defineConfig(({ mode }) => {
           if (id.includes('hls.js') || id.includes('hls')) return 'vendor-hls'
 
           // Heavy UI libraries
-          if (id.includes('lucide-react') || id.includes('lucide')) return 'vendor-icons'
+          // lucide-react is deliberately NOT force-grouped: DynamicIcon (admin sidebar only) imports the
+          // full `icons` dictionary, which references every icon module. Grouping lucide into one chunk
+          // therefore pushed that entire dictionary onto the entry preload list. Letting Rollup chunk it
+          // by graph keeps the dictionary with its lazily loaded admin consumer.
           if (id.includes('framer-motion') || id.includes('framer')) return 'vendor-animation'
           if (id.includes('@radix-ui') || id.includes('radix-ui')) return 'vendor-radix'
 

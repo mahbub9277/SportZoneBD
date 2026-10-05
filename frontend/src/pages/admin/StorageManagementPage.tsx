@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
+import { Skeleton } from '../../components/ui/Skeleton'
 import { Database, HardDrive, RefreshCw, Wifi, Calendar, Filter, Zap, Cloud } from 'lucide-react'
 import { useGetCloudinaryStorageUsageQuery } from '../../features/admin/system.api'
 
@@ -136,8 +137,8 @@ export default function StorageManagementPage() {
                     </div>
                     {isLoading ? (
                       <div className="space-y-3">
-                        <div className="h-4 animate-pulse rounded-full bg-(--surface-soft)" />
-                        <div className="h-3 animate-pulse rounded-full bg-(--surface-soft)" />
+                        <Skeleton className="h-4 rounded-full" />
+                        <Skeleton className="h-3 rounded-full" />
                       </div>
                     ) : (
                       renderAnimatedProgress(item.used, item.total, 0.2 + idx * 0.1)
@@ -164,8 +165,8 @@ export default function StorageManagementPage() {
               <CardContent className="space-y-4">
                 {isLoading ? (
                   <div className="space-y-2">
-                    <div className="h-4 animate-pulse rounded bg-(--surface-soft)" />
-                    <div className="h-3 animate-pulse rounded bg-(--surface-soft)" />
+                    <Skeleton className="h-4 rounded" />
+                    <Skeleton className="h-3 rounded" />
                   </div>
                 ) : (
                   <>
@@ -209,7 +210,7 @@ export default function StorageManagementPage() {
                 {isLoading ? (
                   <div className="space-y-2">
                     {[...Array(3)].map((_, i) => (
-                      <div key={i} className="h-3 animate-pulse rounded bg-(--surface-soft)" />
+                      <Skeleton key={i} className="h-3 rounded" />
                     ))}
                   </div>
                 ) : (

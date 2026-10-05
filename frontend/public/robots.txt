@@ -1,2 +1,6 @@
+# Crawler directives only. Private areas are protected by authentication and RBAC, not by this file.
 User-agent: *
 Allow: /
+Disallow: /admin
+
+Sitemap: https://sport-zone-bd.vercel.app/sitemap.xml
