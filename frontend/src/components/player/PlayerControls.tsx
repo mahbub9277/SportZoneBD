@@ -1,5 +1,5 @@
 import React from 'react'
-import { CirclePlay, Expand, Maximize, Minimize, Pause, PictureInPicture2, RefreshCw, Settings, StepBack, StepForward, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { CirclePlay, Expand, Maximize, Minimize, Pause, PictureInPicture2, Play, RefreshCw, RotateCcw, RotateCw, Settings, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SettingsMenu, type PlayerQualityLevel, type PlayerSubtitleChoice } from './SettingsMenu'
 
@@ -75,6 +75,12 @@ export interface MatchPlayerMetadata {
 
 const buttonClass = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 shadow-sm transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-40'
 const glassClass = 'border border-white/12 bg-black/35 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur-xl'
+const transportButtonBase = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/45 text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-white/25 hover:bg-black/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
+const transportPrimaryBase = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
+// The overlay itself never captures pointer events; only the transport buttons opt in, and only
+// while the overlay is actually visible (so it can neither block the video nor leave ghost targets).
+const transportPointerClass = (visible: boolean) => (visible ? 'pointer-events-auto' : 'pointer-events-none')
+const transportOverlayClass = (visible: boolean) => `pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-3 px-4 pb-6 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 sm:pb-0 ${visible ? 'opacity-100' : 'opacity-0'}`
 
 export function PlayerControls({
   isPlaying, isMuted, volume, played, duration, progressRatio, isFullscreen, hasError, controlsVisible, isSettingsOpen,
@@ -88,9 +94,17 @@ export function PlayerControls({
   matchMetadata,
 }: PlayerControlsProps) {
   const displayCurrentTime = Number.isFinite(played) ? Math.max(0, played) : Number.isFinite(liveWindow.currentTime) ? Math.max(0, liveWindow.currentTime) : 0
-  const displayDuration = Number.isFinite(duration) && duration > 0 && duration !== Infinity ? duration : 0
-  const timeLabel = liveWindow.isLive ? 'LIVE' : `${formatTime(displayCurrentTime)} / ${formatTime(displayDuration)}`
+  const hasKnownDuration = Number.isFinite(duration) && duration > 0 && duration !== Infinity
+  const timeLabel = liveWindow.isLive ? 'LIVE' : `${formatTime(displayCurrentTime)} / ${formatDuration(hasKnownDuration ? duration : 0)}`
   const showSideControls = controlsVisible || isSettingsOpen
+  // The transport controls live over the video; they follow the same visibility rules as the bar so
+  // the overlay never becomes permanent UI while the player is running.
+  const showTransportControls = controlsVisible && !hasError && !compactControls
+  const volumeLabel = isMuted ? 'Unmute' : 'Mute'
+
+  const stopControlPropagation = (event: React.SyntheticEvent) => {
+    event.stopPropagation()
+  }
 
   return (
     <div className={`absolute inset-0 ${hasError ? 'z-40' : 'z-20'}`} onClick={onSurfaceClick} onDoubleClick={onSurfaceDoubleClick} onMouseMove={onMouseMove} onMouseEnter={onMouseEnter}>
@@ -102,36 +116,53 @@ export function PlayerControls({
         )}
       </AnimatePresence>
 
-      {!compactControls && <div className={`${glassClass} absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 flex-col items-center gap-1 rounded-2xl p-1 transition-opacity duration-200 lg:right-3 lg:flex lg:p-1.5 ${showSideControls ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={(event) => event.stopPropagation()}>
+      {!compactControls && <div className={`${glassClass} absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 flex-col items-center gap-1 rounded-2xl p-1 transition-opacity duration-200 lg:right-3 lg:flex lg:p-1.5 ${showSideControls ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={stopControlPropagation}>
         <div className="my-1 h-px w-5 bg-white/10" />
-        <RailButton label={isMuted ? 'Unmute' : 'Mute'} icon={isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />} onClick={(event) => onVolumeButtonClick(event)} />
-        <div ref={volumeContainerRef} className="flex h-24 items-center justify-center py-1">
+        <RailButton label={volumeLabel} icon={isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />} onClick={(event) => onVolumeButtonClick(event)} />
+        <div className="flex h-24 items-center justify-center py-1">
           <input aria-label="Volume" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="h-1 w-16 -rotate-90 accent-[#0474C4]" />
         </div>
         <RailButton label="Settings" icon={<Settings className="h-4 w-4" />} onClick={onSettingsToggle} />
         <RailButton label={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} icon={<PictureInPicture2 className="h-4 w-4" />} onClick={onPiPToggle} disabled={!isPiPSupported} />
       </div>}
 
-      <div className={`absolute inset-x-0 bottom-0 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={(event) => event.stopPropagation()}>
+      <div
+        className={transportOverlayClass(showTransportControls)}
+        aria-hidden={!showTransportControls}
+        onClick={stopControlPropagation}
+        onDoubleClick={stopControlPropagation}
+      >
+        {showSeekControls && (
+          <button type="button" className={`${transportButtonBase} ${transportPointerClass(showTransportControls)}`} onClick={onSeekBackward} tabIndex={showTransportControls ? 0 : -1} aria-label="Rewind 5 seconds" title="Rewind 5 seconds">
+            <TransportGlyph icon={<RotateCcw className="h-6 w-6" aria-hidden="true" />} badge="5" />
+          </button>
+        )}
+        <button type="button" className={`${transportPrimaryBase} ${transportPointerClass(showTransportControls)}`} onClick={onPlayPause} tabIndex={showTransportControls ? 0 : -1} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>
+          {isPlaying ? <Pause className="h-6 w-6" aria-hidden="true" /> : <Play className="h-6 w-6 translate-x-0.5" aria-hidden="true" />}
+        </button>
+        {showSeekControls && (
+          <button type="button" className={`${transportButtonBase} ${transportPointerClass(showTransportControls)}`} onClick={onSeekForward} tabIndex={showTransportControls ? 0 : -1} aria-label="Skip forward 10 seconds" title="Skip forward 10 seconds">
+            <TransportGlyph icon={<RotateCw className="h-6 w-6" aria-hidden="true" />} badge="10" />
+          </button>
+        )}
+      </div>
+
+      <div className={`absolute inset-x-0 bottom-0 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={stopControlPropagation}>
         <div className="h-8 bg-linear-to-t from-[#080B15]/95 to-transparent px-4 pt-4 sm:px-5"><div className="relative h-1.5 rounded-full bg-white/15"><div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${Math.min(100, progressRatio * 100 + 10)}%` }} /><div className="absolute inset-y-0 left-0 rounded-full bg-[#0474C4]" style={{ width: `${progressRatio * 100}%` }} /><input aria-label="Seek video" type="range" min="0" max="1" step="0.001" value={progressRatio} onMouseDown={onSeekMouseDown} onChange={onSeekChange} onMouseUp={onSeekMouseUp} className="absolute inset-x-0 -top-2 h-5 w-full cursor-pointer opacity-0" /></div></div>
         <div className={`${glassClass} flex min-h-14 flex-wrap items-center gap-1.5 border-x-0 border-b-0 px-3 py-2 sm:gap-3 sm:px-5`}>
-          <button type="button" className={`${buttonClass} h-10 w-10`} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="h-4 w-4" /> : <CirclePlay className="h-5 w-5" />}</button>
-          {showSeekControls && (
-            <div className="flex items-center gap-1">
-              <SeekButton seconds={5} direction="backward" onClick={onSeekBackward} />
-              <SeekButton seconds={10} direction="forward" onClick={onSeekForward} />
-            </div>
+          {compactControls && (
+            <button type="button" className={`${buttonClass} h-10 w-10`} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="h-4 w-4" /> : <CirclePlay className="h-5 w-5" />}</button>
           )}
-          <div className="group/volume flex min-w-0 items-center gap-2" ref={volumeContainerRef}>
-            <button type="button" className={buttonClass} onClick={onVolumeButtonClick} aria-label={isMuted ? 'Unmute' : 'Mute'}>{isMuted ? <VolumeX className="h-4 w-4" /> : volume < 0.5 ? <Volume1 className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
-            <div className="hidden w-24 items-center group-hover/volume:flex group-focus-within/volume:flex sm:w-28">
-              <input aria-label="Volume" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="w-full accent-[#0474C4]" />
+          <div className="group/volume relative flex shrink-0 items-center" ref={volumeContainerRef}>
+            <button type="button" className={buttonClass} onClick={onVolumeButtonClick} aria-label={volumeLabel} title={volumeLabel}>{isMuted ? <VolumeX className="h-4 w-4" /> : volume < 0.5 ? <Volume1 className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-36 -translate-x-1/2 rounded-2xl border border-white/12 bg-black/70 p-2.5 opacity-0 shadow-[0_14px_36px_rgba(0,0,0,0.4)] backdrop-blur-xl transition-opacity duration-150 group-hover/volume:pointer-events-auto group-hover/volume:opacity-100 group-focus-within/volume:pointer-events-auto group-focus-within/volume:opacity-100 motion-reduce:transition-none">
+              <input aria-label="Volume level" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="h-1.5 w-full cursor-pointer accent-[#0474C4]" />
             </div>
           </div>
-          <span className="min-w-16 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
-          <div className="ml-auto flex items-center gap-1">
+          <span className="min-w-18 shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>
-            <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} aria-label="Retry playback" title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} aria-label={hasError ? 'Retry playback' : 'Refresh playback'} title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className="h-4 w-4" /></button>
             <SettingsMenu buttonRef={settingsButtonRef} menuRef={settingsMenuRef} isOpen={isSettingsOpen} activeSection={activeSettingsSection} qualityLevels={qualityLevels} currentLevel={currentLevel} playbackRate={playbackRate} playbackRates={playbackRates} subtitleChoices={subtitleChoices} selectedSubtitleLanguage={selectedSubtitleLanguage} onToggle={onSettingsToggle} onSectionChange={onSettingsSectionChange} onQualityChange={onQualityChange} onPlaybackRateChange={onPlaybackRateChange} onSubtitleChange={onSubtitleChange} onLock={onLock} />
             <button type="button" className={buttonClass} onClick={onPiPToggle} disabled={!isPiPSupported} aria-label="Picture-in-picture" title={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'}><PictureInPicture2 className="h-4 w-4" /></button>
             <button type="button" className={buttonClass} onClick={onFullscreenToggle} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>{isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}</button>
@@ -151,14 +182,13 @@ function TeamLogo({ src, alt }: { src?: string | null; alt: string }) {
   return src ? <img src={src} alt={`${alt} logo`} className="h-5 w-5 rounded-full object-contain" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-[8px] text-white/50">{alt.slice(0, 1)}</span>
 }
 
-function SeekButton({ seconds, direction, onClick }: { seconds: number; direction: 'backward' | 'forward'; onClick: () => void }) {
-  const label = direction === 'backward' ? `Rewind ${seconds} seconds` : `Skip ${seconds} seconds forward`
-  const Icon = direction === 'backward' ? StepBack : StepForward
+// The seconds indicator sits inside the rotate glyph so the control stays compact and readable.
+function TransportGlyph({ icon, badge }: { icon: React.ReactNode; badge: string }) {
   return (
-    <button type="button" className={`${buttonClass} h-9 min-w-11 gap-0.5 px-2`} onClick={onClick} aria-label={label} title={label}>
-      <Icon className="h-4 w-4" aria-hidden="true" />
-      <span className="text-[10px] font-black leading-none" aria-hidden="true">{seconds}</span>
-    </button>
+    <span className="relative inline-flex items-center justify-center">
+      {icon}
+      <span className="absolute text-[9px] font-black leading-none tracking-tight" aria-hidden="true">{badge}</span>
+    </span>
   )
 }
 
@@ -175,4 +205,9 @@ function formatTime(value: number) {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
     : `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+// Total duration stays unknown until real metadata arrives, so it must never fall back to "0:00".
+function formatDuration(value: number) {
+  return Number.isFinite(value) && value > 0 ? formatTime(value) : '--:--'
 }

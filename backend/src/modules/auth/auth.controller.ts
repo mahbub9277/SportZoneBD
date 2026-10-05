@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import type { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import prisma from '../../core/prisma.js'
-import { comparePassword, hashPassword, signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken } from '../../core/auth.js';
+import { comparePassword, hashPassword, hashOneTimeCode, verifyOneTimeCode, isOneTimeCodeUsable, signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken } from '../../core/auth.js';
 import { successResponse, errorResponse } from '../../core/api-response.js'
 import { publicUserSelect } from '../users/user.utils.js';
 import { getUserProfile } from '../users/user.service.js';
@@ -100,7 +100,8 @@ export async function registerUser(req: Request, res: Response) {
         data: {
           fullName,
           passwordHash,
-          verificationOtp: otp,
+          // Only the hash is stored: a leaked row must not reveal the emailed code.
+          verificationOtp: await hashOneTimeCode(otp),
           verificationOtpExpires: otpExpires,
         },
       })
@@ -123,7 +124,7 @@ export async function registerUser(req: Request, res: Response) {
         passwordHash,
         guestMode: false,
         isActive: false, // User is not active until verified
-        verificationOtp: otp,
+        verificationOtp: await hashOneTimeCode(otp),
         verificationOtpExpires: otpExpires,
       },
       select: { id: true, email: true },
@@ -212,11 +213,13 @@ export async function loginAdmin(req: Request, res: Response) {
 export async function verifyEmail(req: Request, res: Response) {
   const { email, otp } = req.body as z.infer<typeof verifyEmailSchema>
 
-  const user = await prisma.user.findFirst({
-    where: { email, verificationOtp: otp, verificationOtpExpires: { gt: new Date() } },
-  })
+  const user = await prisma.user.findUnique({ where: { email } })
 
-  if (!user) {
+  // The comparison always runs (against a fixed digest when there is no stored hash) so the response
+  // time does not disclose whether a verification code was issued for this address.
+  const codeMatches = await verifyOneTimeCode(otp, user?.verificationOtp)
+
+  if (!user || !codeMatches || !isOneTimeCodeUsable(user.verificationOtpExpires)) {
     return res.status(400).json(errorResponse('Invalid or expired OTP.'))
   }
 
@@ -251,9 +254,10 @@ export async function resendOtp(req: Request, res: Response) {
   const otp = crypto.randomInt(100000, 999999).toString()
   const otpExpires = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
 
+  // A new code replaces the previous one, so the old code stops working immediately.
   await prisma.user.update({
     where: { email },
-    data: { verificationOtp: otp, verificationOtpExpires: otpExpires },
+    data: { verificationOtp: await hashOneTimeCode(otp), verificationOtpExpires: otpExpires },
   })
 
   try {
@@ -280,7 +284,9 @@ export async function forgotPassword(req: Request, res: Response) {
   }
 
   const resetOtp = crypto.randomInt(100000, 1000000).toString()
-  const passwordResetToken = crypto.createHash('sha256').update(resetOtp).digest('hex')
+  // Bcrypt, not a fast digest: a 6-digit code has too little entropy for sha256 to hide it from
+  // anyone who reads the stored value.
+  const passwordResetToken = await hashOneTimeCode(resetOtp)
   const passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000)
 
   await prisma.user.update({
@@ -300,21 +306,11 @@ export async function resetPassword(req: Request, res: Response) {
   const { email, otp, password } = req.body as z.infer<typeof resetPasswordSchema>
   const user = await prisma.user.findUnique({ where: { email } })
 
-  if (!user?.passwordResetToken || !user.passwordResetExpires || user.passwordResetExpires <= new Date()) {
-    throw new BadRequestError('Invalid or expired password reset code.')
-  }
+  // Same reasoning as email verification: always compare, so a timing difference cannot reveal
+  // whether this address has a reset code pending.
+  const codeMatches = await verifyOneTimeCode(otp, user?.passwordResetToken)
 
-  const submittedHash = crypto.createHash('sha256').update(otp).digest('hex')
-  if (submittedHash.length !== user.passwordResetToken.length) {
-    throw new BadRequestError('Invalid or expired password reset code.')
-  }
-
-  const isCodeValid = crypto.timingSafeEqual(
-    Buffer.from(submittedHash),
-    Buffer.from(user.passwordResetToken),
-  )
-
-  if (!isCodeValid) {
+  if (!user || !codeMatches || !isOneTimeCodeUsable(user.passwordResetExpires)) {
     throw new BadRequestError('Invalid or expired password reset code.')
   }
 

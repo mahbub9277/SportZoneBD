@@ -64,7 +64,7 @@ export function PaymentHistoryPage() {
         icon={CreditCard}
       >
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => refetch()} disabled={isFetching} className="inline-flex items-center gap-2 text-sm font-semibold text-text-primary transition hover:text-accent disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh payment history">
+          <button type="button" onClick={() => refetch()} disabled={isFetching} className="inline-flex items-center gap-2 text-sm font-semibold text-(--text-primary) transition hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh payment history">
             <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
             {isFetching ? 'Refreshing' : 'Refresh'}
           </button>
@@ -76,11 +76,11 @@ export function PaymentHistoryPage() {
       </PageHero>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-border/20 bg-surface-soft/80 shadow-soft">
+        <Card className="border-(--border)/20 bg-(--surface-soft)/80 shadow-soft">
           <CardContent className="flex items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-text-muted">Transactions</p>
-              <p className="mt-2 text-2xl font-bold text-text-primary">{payments?.length ?? 0}</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-(--text-muted)">Transactions</p>
+              <p className="mt-2 text-2xl font-bold text-(--text-primary)">{payments?.length ?? 0}</p>
             </div>
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400">
               <CheckCircle2 className="h-5 w-5" />
@@ -88,11 +88,11 @@ export function PaymentHistoryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/20 bg-surface-soft/80 shadow-soft">
+        <Card className="border-(--border)/20 bg-(--surface-soft)/80 shadow-soft">
           <CardContent className="flex items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-text-muted">Total spent</p>
-              <p className="mt-2 text-2xl font-bold text-text-primary">{formatAmount(totalSpent, 'BDT')}</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-(--text-muted)">Total spent</p>
+              <p className="mt-2 text-2xl font-bold text-(--text-primary)">{formatAmount(totalSpent, 'BDT')}</p>
             </div>
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400">
               <Wallet className="h-5 w-5" />
@@ -100,11 +100,11 @@ export function PaymentHistoryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/20 bg-surface-soft/80 shadow-soft">
+        <Card className="border-(--border)/20 bg-(--surface-soft)/80 shadow-soft">
           <CardContent className="flex items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-text-muted">Completed</p>
-              <p className="mt-2 text-2xl font-bold text-text-primary">{successfulPayments}</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-(--text-muted)">Completed</p>
+              <p className="mt-2 text-2xl font-bold text-(--text-primary)">{successfulPayments}</p>
             </div>
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-400">
               <Clock3 className="h-5 w-5" />
@@ -113,17 +113,17 @@ export function PaymentHistoryPage() {
         </Card>
       </div>
 
-      <Card className="overflow-hidden border-border/20 bg-surface/80 shadow-soft">
+      <Card className="overflow-hidden border-(--border)/20 bg-(--surface)/80 shadow-soft">
         <div className="overflow-x-auto">
           <div className="min-w-0 sm:min-w-160">
-            <div className="hidden grid-cols-[minmax(220px,1.6fr)_minmax(100px,0.8fr)_minmax(120px,0.9fr)_minmax(180px,1.2fr)] gap-4 border-b border-border bg-surface-soft/60 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted sm:grid">
+            <div className="hidden grid-cols-[minmax(220px,1.6fr)_minmax(100px,0.8fr)_minmax(120px,0.9fr)_minmax(180px,1.2fr)] gap-4 border-b border-(--border) bg-(--surface-soft)/60 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-(--text-muted) sm:grid">
               <span>Description</span>
               <span className="text-right">Amount</span>
               <span className="text-center">Status</span>
               <span className="text-right">Date</span>
             </div>
 
-            <div className="divide-y divide-border">
+            <div className="divide-y divide-(--border)">
               {isLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(220px,1.6fr)_minmax(100px,0.8fr)_minmax(120px,0.9fr)_minmax(180px,1.2fr)] sm:items-center">
@@ -146,18 +146,18 @@ export function PaymentHistoryPage() {
                 payments.map((payment) => (
                   <div
                     key={payment.id}
-                    className="grid gap-3 px-5 py-4 transition-all duration-200 hover:bg-surface-soft/60 sm:grid-cols-[minmax(220px,1.6fr)_minmax(100px,0.8fr)_minmax(120px,0.9fr)_minmax(180px,1.2fr)] sm:items-center"
+                    className="grid gap-3 px-5 py-4 transition-all duration-200 hover:bg-(--surface-soft)/60 sm:grid-cols-[minmax(220px,1.6fr)_minmax(100px,0.8fr)_minmax(120px,0.9fr)_minmax(180px,1.2fr)] sm:items-center"
                   >
                     <div className="space-y-1">
-                      <p className="font-semibold text-text-primary">
+                      <p className="font-semibold text-(--text-primary)">
                         {payment.subscriptionPlan?.name ?? 'General Payment'}
                       </p>
-                      {payment.transactionId && <p className="break-all text-xs text-text-muted">Transaction: {payment.transactionId}</p>}
-                      <p className="text-xs uppercase tracking-[0.18em] text-text-muted sm:hidden">Payment</p>
+                      {payment.transactionId && <p className="break-all text-xs text-(--text-muted)">Transaction: {payment.transactionId}</p>}
+                      <p className="text-xs uppercase tracking-[0.18em] text-(--text-muted) sm:hidden">Payment</p>
                     </div>
 
                     <div className="text-left sm:text-right">
-                      <span className="font-mono text-sm text-text-primary">
+                      <span className="font-mono text-sm text-(--text-primary)">
                         {formatAmount(Number(payment.amount || 0), payment.currency || 'BDT')}
                       </span>
                     </div>
@@ -168,15 +168,15 @@ export function PaymentHistoryPage() {
                       </span>
                     </div>
 
-                    <div className="text-left text-sm text-text-muted sm:text-right">
+                    <div className="text-left text-sm text-(--text-muted) sm:text-right">
                       {new Date(payment.createdAt).toLocaleString()}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="flex flex-col items-center gap-4 px-5 py-12 text-center text-text-muted">
+                <div className="flex flex-col items-center gap-4 px-5 py-12 text-center text-(--text-muted)">
                   <History className="h-10 w-10" />
-                  <p className="font-semibold text-text-primary">No payment history found.</p>
+                  <p className="font-semibold text-(--text-primary)">No payment history found.</p>
                   <p className="text-sm">Your transactions will appear here.</p>
                 </div>
               )}

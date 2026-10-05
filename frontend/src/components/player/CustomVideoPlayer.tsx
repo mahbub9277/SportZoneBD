@@ -56,7 +56,6 @@ interface PlayerState {
 type SettingsSection = 'root' | 'quality' | 'playback' | 'captions'
 interface LiveWindowState { hasTimeshift: boolean; liveStart: number; liveEdge: number; currentTime: number; isLive: boolean }
 type PlayerAction =
-  | { type: 'TOGGLE_PLAY' }
   | { type: 'SET_PLAYING'; payload: boolean }
   | { type: 'SET_VOLUME'; payload: number }
   | { type: 'SET_PLAYED'; payload: number }
@@ -85,8 +84,6 @@ const initialPlayerState: PlayerState = {
 
 const playerReducer = (state: PlayerState, action: PlayerAction): PlayerState => {
   switch (action.type) {
-    case 'TOGGLE_PLAY':
-      return { ...state, isPlaying: !state.isPlaying };
     case 'SET_PLAYING':
       return { ...state, isPlaying: action.payload };
     case 'SET_VOLUME':
@@ -244,14 +241,8 @@ export function CustomVideoPlayer({
       }
     }
     socket.on('connect', handleConnect)
-    const heartbeat = window.setInterval(() => {
-      if (presenceActiveRef.current && presenceIdentity && socket.connected) {
-        socket.emit('viewerHeartbeat', { streamId: presenceIdentity, kind: presenceType })
-      }
-    }, 60000)
     return () => {
       socket.off('connect', handleConnect)
-      window.clearInterval(heartbeat)
     }
   }, [presenceIdentity, presenceType, socket])
 
@@ -491,14 +482,23 @@ export function CustomVideoPlayer({
     }
     lastMediaTimeRef.current = Number.isFinite(video.currentTime) ? video.currentTime : previousMediaTime
 
+    const rawCurrentTime = Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0
+    // Recorded playback only ever renders whole seconds, so quantising the timeline state keeps the
+    // timestamp exact while dropping the sub-second re-renders. Live windows keep raw precision
+    // because the timeshift bar is derived from these values.
+    const isLiveMedia = !Number.isFinite(video.duration) || video.duration === Infinity
+    const displayCurrentTime = isLiveMedia ? rawCurrentTime : Math.floor(rawCurrentTime)
+    const displayLiveEdge = isLiveMedia ? liveEdge : Math.floor(liveEdge)
+    const displayLiveStart = isLiveMedia ? (seekable?.start ?? 0) : Math.floor(seekable?.start ?? 0)
+
     setLiveWindow((previous) => {
-      if (previous.hasTimeshift === hasTimeshift && previous.liveEdge === liveEdge && previous.currentTime === video.currentTime && previous.isLive === isLive) {
+      if (previous.hasTimeshift === hasTimeshift && previous.liveEdge === displayLiveEdge && previous.liveStart === displayLiveStart && previous.currentTime === displayCurrentTime && previous.isLive === isLive) {
         return previous
       }
 
-      return { hasTimeshift, liveStart: seekable?.start ?? 0, liveEdge, currentTime: video.currentTime, isLive }
+      return { hasTimeshift, liveStart: displayLiveStart, liveEdge: displayLiveEdge, currentTime: displayCurrentTime, isLive }
     })
-    dispatch({ type: 'SET_PLAYED', payload: Number.isFinite(video.currentTime) ? video.currentTime : 0 })
+    dispatch({ type: 'SET_PLAYED', payload: displayCurrentTime })
     updateTimelineDom()
   }, [dispatch, getLastTimeRange, getVideoElement, updateTimelineDom])
 
@@ -577,10 +577,9 @@ export function CustomVideoPlayer({
 
   const handlePlayPause = useCallback(() => {
     const video = getVideoElement()
-    if (!video) {
-      dispatch({ type: 'TOGGLE_PLAY' })
-      return
-    }
+    // Without a media element there is nothing to toggle; playback state is only ever derived from
+    // the native play/pause events, never optimistically guessed.
+    if (!video) return
 
     if (video.paused || video.ended) {
       void video.play().catch(() => dispatch({ type: 'SET_PLAYING', payload: false }))
@@ -936,6 +935,13 @@ export function CustomVideoPlayer({
         if (!isCurrentMedia()) return
         setIsBuffering(false)
       }
+      // The media element itself is authoritative for duration: metadata can arrive before the
+      // player wrapper reports it, and live sources report Infinity which must never be displayed.
+      const syncDurationFromMedia = () => {
+        const mediaDuration = media.duration
+        if (!Number.isFinite(mediaDuration) || mediaDuration <= 0) return
+        dispatch({ type: 'SET_DURATION', payload: mediaDuration })
+      }
       media.addEventListener('playing', handleMediaPlaying)
       media.addEventListener('error', handleMediaError)
       media.addEventListener('pause', handlePause)
@@ -944,6 +950,8 @@ export function CustomVideoPlayer({
       media.addEventListener('seeking', handleBufferingStart)
       media.addEventListener('canplay', handleBufferingEnd)
       media.addEventListener('seeked', handleBufferingEnd)
+      media.addEventListener('loadedmetadata', syncDurationFromMedia)
+      media.addEventListener('durationchange', syncDurationFromMedia)
       mediaLifecycleCleanupRef.current = () => {
         media.removeEventListener('playing', handleMediaPlaying)
         media.removeEventListener('error', handleMediaError)
@@ -953,6 +961,8 @@ export function CustomVideoPlayer({
         media.removeEventListener('seeking', handleBufferingStart)
         media.removeEventListener('canplay', handleBufferingEnd)
         media.removeEventListener('seeked', handleBufferingEnd)
+        media.removeEventListener('loadedmetadata', syncDurationFromMedia)
+        media.removeEventListener('durationchange', syncDurationFromMedia)
       }
       if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
         setHasNativeMediaReady(true)
@@ -1228,6 +1238,13 @@ export function CustomVideoPlayer({
   useEffect(() => { // Changed to use useEffect
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isLocked) return
+
+      // The player's own controls keep their native key behaviour: Space/Enter on a focused button
+      // must activate that button instead of the shortcuts below.
+      const eventTarget = e.target as HTMLElement | null
+      if (eventTarget?.closest('button, input, textarea, select, [role="button"], [role="slider"], [role="menu"]')) {
+        return
+      }
 
       // Don't trigger shortcuts if the user is focused on an input element
       if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
@@ -1585,7 +1602,7 @@ export function CustomVideoPlayer({
           volume={volume}
           played={played}
           duration={duration}
-          progressRatio={liveWindow.hasTimeshift
+          progressRatio={liveWindow.hasTimeshift && isHlsSource
             ? Math.min(1, Math.max(0, (liveWindow.currentTime - liveWindow.liveStart) / Math.max(liveWindow.liveEdge - liveWindow.liveStart, 0.001)))
             : duration > 0 ? Math.min(1, Math.max(0, played / duration)) : 0}
           isFullscreen={isFullscreen}

@@ -74,7 +74,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
 
   return (
     <header className={cn(
-      'relative top-0 z-40 border-b border-border/70 bg-surface/90',
+      'relative top-0 z-40 border-b border-(--border)/70 bg-(--surface)/90',
       supportsBackdropFilter && !simplifyHeader ? 'backdrop-blur-2xl' : 'backdrop-blur-none',
       simplifyHeader ? 'shadow-[0_10px_32px_rgba(0,0,0,0.12)]' : 'shadow-[0_18px_70px_rgba(0,0,0,0.24)]',
     )}>
@@ -163,7 +163,7 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
               aria-expanded={isNotificationsOpen}
               aria-controls="notifications-panel"
             >
-              <Bell className={cn('h-[1.8rem] w-[1.8rem] transition-all sm:h-7 sm:w-7', notificationData && notificationData.count > 0 && 'fill-accent text-accent')} />
+              <Bell className={cn('h-[1.8rem] w-[1.8rem] transition-all sm:h-7 sm:w-7', notificationData && notificationData.count > 0 && 'fill-(--accent) text-(--accent)')} />
             </Button>
             {notificationData && notificationData.count > 0 && (
               <span className="pointer-events-none absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
@@ -182,8 +182,8 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
                       <AvatarFallback name={user.fullName ?? user.email ?? ''} />
                     </Avatar>
                     {hasActiveSubscription && <Crown className="h-4 w-4 text-amber-500 drop-shadow-[0_0_6px_rgba(245,158,11,0.45)] dark:text-amber-400" aria-label="Premium membership active" />}
-                    <span className="hidden text-sm font-medium text-text-primary sm:inline">{user.fullName}</span>
-                    <ChevronDown className="h-4 w-4 text-text-muted" />
+                    <span className="hidden text-sm font-medium text-(--text-primary) sm:inline">{user.fullName}</span>
+                    <ChevronDown className="h-4 w-4 text-(--text-muted)" />
                   </span>
                 </Button>
               </DropdownMenuTrigger>
@@ -191,8 +191,8 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
               <DropdownMenuContent className="w-60" align="end">
                 <DropdownMenuLabel className="font-normal">
                   <div className="space-y-0.5">
-                    <p className="text-sm font-semibold text-text-primary">{user.fullName}</p>
-                    <p className="text-xs text-text-muted">{user.email}</p>
+                    <p className="text-sm font-semibold text-(--text-primary)">{user.fullName}</p>
+                    <p className="text-xs text-(--text-muted)">{user.email}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -251,9 +251,9 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
             className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]"
             onClick={() => setIsNotificationsOpen(false)}
           />
-          <aside id="notifications-panel" aria-label="Notifications panel" className="absolute right-3 top-full z-50 mt-3 h-[min(72dvh,42rem)] max-h-[calc(100dvh-6rem-env(safe-area-inset-bottom))] w-[calc(100vw-1.5rem)] max-w-152 overflow-hidden rounded-3xl border border-border bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] md:right-4 md:w-[min(38rem,calc(100vw-2rem))]">
+          <aside id="notifications-panel" aria-label="Notifications panel" className="absolute right-3 top-full z-50 mt-3 h-[min(72dvh,42rem)] max-h-[calc(100dvh-6rem-env(safe-area-inset-bottom))] w-[calc(100vw-1.5rem)] max-w-152 overflow-hidden rounded-3xl border border-(--border) bg-(--surface-strong) shadow-[0_24px_90px_rgba(0,0,0,0.45)] md:right-4 md:w-[min(38rem,calc(100vw-2rem))]">
             {isAuthenticated && user ? (
-              <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-text-muted">Loading notifications...</div>}>
+              <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-sm text-(--text-muted)">Loading notifications...</div>}>
                 <NotificationsPage
                   embedded
                   onClose={() => setIsNotificationsOpen(false)}
@@ -265,9 +265,9 @@ export function Header({ onMenuClick, isMenuOpen = false }: HeaderProps) {
               </Suspense>
             ) : (
               <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent"><BellRing className="h-7 w-7" /></span>
-                <h2 className="mt-4 text-lg font-semibold text-text-primary">Sign in to view notifications</h2>
-                <p className="mt-2 max-w-xs text-sm leading-6 text-text-muted">Create an account or sign in to receive match, highlight, and account updates.</p>
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-(--accent)/10 text-(--accent)"><BellRing className="h-7 w-7" /></span>
+                <h2 className="mt-4 text-lg font-semibold text-(--text-primary)">Sign in to view notifications</h2>
+                <p className="mt-2 max-w-xs text-sm leading-6 text-(--text-muted)">Create an account or sign in to receive match, highlight, and account updates.</p>
                 <Button asChild className="mt-5 w-full rounded-full px-5" onClick={() => setIsNotificationsOpen(false)}><Link to="/login">Sign in</Link></Button>
               </div>
             )}

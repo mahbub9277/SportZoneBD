@@ -8,6 +8,27 @@ import type { Channel } from '../../../shared/types'
 import { Switch } from '../../../components/ui/Switch'
 import type { Match } from '../../../features/matches/matches.types'
 import { ImagePlus, Loader2, X } from 'lucide-react'
+import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { QualityPresetSelect } from './QualityPresetSelect'
+
+/** Same team-logo source and transform the match management rows use. */
+const teamLogoTransform = { width: 64, height: 64, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const }
+
+const matchOptionSummary = (match: Match) =>
+  `${match.title} (${match.status === 'LIVE' ? 'Live' : new Date(match.kickoffAt).toLocaleString()})`
+
+/** Team crest with the same initials fallback the match management rows use. */
+function TeamBadge({ name, logo }: { name?: string | null; logo?: string | null }) {
+  if (logo) {
+    return <img src={buildCloudinaryUrl(logo, teamLogoTransform)} alt="" loading="lazy" decoding="async" className="h-7 w-7 shrink-0 rounded-full border border-(--border) bg-(--surface) object-cover" />
+  }
+
+  return (
+    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-(--border) bg-(--surface-soft) text-[10px] font-bold text-(--text-muted)">
+      {(name?.trim() || 'T').slice(0, 2).toUpperCase()}
+    </span>
+  )
+}
 
 export type StreamFormValues = {
   sourceType: 'DIRECT_URL' | 'CHANNEL'
@@ -38,6 +59,7 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
     .filter((match) => match.status !== 'FINISHED')
     .sort((first, second) => new Date(first.kickoffAt).getTime() - new Date(second.kickoffAt).getTime())
   const sourceType = form.watch('sourceType')
+  const selectedMatch = matches.find((match) => match.id === form.watch('matchId'))
   const selectedChannel = channels.find((channel) => channel.id === form.watch('channelId'))
   const [channelSearch, setChannelSearch] = useState('')
   const selectableChannels = channels.filter((channel) => channel.name.toLowerCase().includes(channelSearch.trim().toLowerCase()))
@@ -75,9 +97,30 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
         )} />
         <FormField control={form.control} name="matchId" render={({ field }) => (
           <FormItem><FormLabel>Associated Match</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an upcoming or live match" /></SelectTrigger></FormControl>
+            <Select onValueChange={field.onChange} value={field.value} disabled={isLoading}><FormControl><SelectTrigger className="overflow-hidden"><SelectValue placeholder="Select an upcoming or live match"><span className="block truncate">{selectedMatch ? matchOptionSummary(selectedMatch) : 'Selected match'}</span></SelectValue></SelectTrigger></FormControl>
               <SelectPortal>
-                <SelectContent>{selectableMatches.map(match => <SelectItem key={match.id} value={match.id}>{match.title} ({match.status === 'LIVE' ? 'Live' : new Date(match.kickoffAt).toLocaleString()})</SelectItem>)}</SelectContent>
+                <SelectContent className="w-[min(92vw,32rem)] max-w-(--radix-select-content-available-width)">{selectableMatches.map(match => (
+                  <SelectItem key={match.id} value={match.id} className="py-3 pl-8">
+                    <span className="flex min-w-0 flex-col gap-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                          <span className="truncate text-sm font-semibold text-(--text-primary)">{match.homeTeamName || 'Team 1'}</span>
+                          <TeamBadge name={match.homeTeamName} logo={match.homeTeamLogo} />
+                        </span>
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-(--text-muted)">vs</span>
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          <TeamBadge name={match.awayTeamName} logo={match.awayTeamLogo} />
+                          <span className="truncate text-sm font-semibold text-(--text-primary)">{match.awayTeamName || 'Team 2'}</span>
+                        </span>
+                      </span>
+                      <span className="flex min-w-0 items-center gap-2 text-[11px] text-(--text-muted)">
+                        <span className="truncate">{match.tournamentName || match.sport || 'Match'}</span>
+                        <span className="shrink-0">·</span>
+                        <span className="shrink-0">{match.status === 'LIVE' ? 'Live' : new Date(match.kickoffAt).toLocaleString()}</span>
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}</SelectContent>
               </SelectPortal>
             </Select><FormMessage />
           </FormItem>
@@ -89,7 +132,13 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
           <FormItem><FormLabel>Existing channel</FormLabel><Input value={channelSearch} onChange={(event) => setChannelSearch(event.target.value)} placeholder="Search channels..." className="mb-2" /><Select onValueChange={field.onChange} value={field.value ?? ''} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an existing channel" /></SelectTrigger></FormControl><SelectPortal><SelectContent>{selectableChannels.map((channel) => <SelectItem key={channel.id} value={channel.id}>{channel.name}{channel.category?.name ? ` · ${channel.category.name}` : ''}</SelectItem>)}</SelectContent></SelectPortal></Select>{selectedChannel && <p className="mt-2 text-xs text-text-muted">Using existing {selectedChannel.name} channel record{selectedChannel.category?.name ? ` in ${selectedChannel.category.name}` : ''}.</p>}<FormMessage /></FormItem>
         )} />}
         <FormField control={form.control} name="quality" render={({ field }) => (
-          <FormItem><FormLabel>Quality</FormLabel><FormControl><Input {...field} placeholder="e.g., 1080p" /></FormControl><FormMessage /></FormItem>
+          <FormItem><FormLabel>Quality</FormLabel>
+            <div className="flex min-w-0 items-center gap-2">
+              <FormControl><Input {...field} placeholder="e.g., 1080p" /></FormControl>
+              <QualityPresetSelect value={field.value} onSelect={field.onChange} disabled={isLoading} />
+            </div>
+            <FormMessage />
+          </FormItem>
         )} />
         <FormField control={form.control} name="status" render={({ field }) => (
           <FormItem><FormLabel>Status</FormLabel>

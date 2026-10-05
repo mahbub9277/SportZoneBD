@@ -6,6 +6,7 @@ import {
   DEFAULT_API_FOOTBALL_LEAGUES,
   FOOTBALL_DATA_COVERED_API_FOOTBALL_LEAGUES,
   getApiFootballLeagues,
+  isApiFootballLeagueConfigDisabled,
   isFootballDataCoveredLeague,
   parseApiFootballLeagueConfig,
   resolveApiFootballSeason,
@@ -61,6 +62,22 @@ test('a configuration that only names football-data competitions leaves nothing 
 
   assert.deepEqual(selection.leagues, [])
   assert.deepEqual(selection.ignoredCoveredLeagueIds, [39, 140, 2])
+})
+
+test('an explicit disable value switches the provider off without touching provider code', () => {
+  for (const raw of ['disabled', 'DISABLED', ' off ', 'none']) {
+    const selection = getApiFootballLeagues({ ...ENV, API_FOOTBALL_LEAGUES: raw })
+
+    assert.equal(selection.source, 'disabled')
+    assert.deepEqual(selection.leagues, [])
+    assert.deepEqual(selection.ignoredCoveredLeagueIds, [])
+  }
+
+  // An empty value keeps its meaning: the built-in additional-coverage mapping.
+  assert.equal(isApiFootballLeagueConfigDisabled(undefined), false)
+  assert.equal(isApiFootballLeagueConfigDisabled(''), false)
+  assert.equal(isApiFootballLeagueConfigDisabled('15,5'), false)
+  assert.equal(getApiFootballLeagues({ ...ENV, API_FOOTBALL_LEAGUES: '' }).source, 'default-mapping')
 })
 
 test('every football-data.org discovery competition is mapped so it can never be double-sourced', () => {

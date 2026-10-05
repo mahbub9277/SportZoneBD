@@ -19,7 +19,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-11 w-full items-center justify-between rounded-2xl border border-border/70 bg-surface-soft/90 px-4 py-2 text-sm font-medium text-text-primary shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition-all duration-200 ease-out placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:ring-offset-2 hover:border-accent hover:bg-surface focus:bg-surface',
+      'flex h-11 w-full items-center justify-between rounded-2xl border border-(--border)/70 bg-(--surface-soft)/90 px-4 py-2 text-sm font-medium text-(--text-primary) shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition-all duration-200 ease-out placeholder:text-(--text-muted) focus:outline-none focus:ring-2 focus:ring-(--accent)/40 focus:ring-offset-2 hover:border-(--accent) hover:bg-(--surface) focus:bg-(--surface)',
       className,
     )}
     {...props}
@@ -40,8 +40,9 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'relative z-50 min-w-40 overflow-hidden rounded-2xl border border-border/70 bg-surface/95 text-text-primary shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)] backdrop-blur-xl animate-in fade-in-80',
-        // Add scrolling behavior for long lists
+        'relative z-50 min-w-40 overflow-hidden rounded-2xl border border-(--border)/70 bg-(--surface)/95 text-(--text-primary) shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)] backdrop-blur-xl animate-in fade-in-80',
+        // Scrolling behavior for long lists: the viewport stays content sized, the list grows only up
+        // to the space Radix measured, then scrolls.
         'overflow-y-auto max-h-(--radix-select-content-available-height)',
         position === 'popper' && 'translate-y-1',
         className,
@@ -50,7 +51,7 @@ const SelectContent = React.forwardRef<
       {...props}
     >
       <SelectPrimitive.Viewport
-        className={cn('p-1 w-full', position === 'popper' && 'h-(--radix-select-trigger-height) min-w-(--radix-select-trigger-width)')}
+        className={cn('p-1 w-full', position === 'popper' && 'min-w-(--radix-select-trigger-width)')}
       >
         {children}
       </SelectPrimitive.Viewport>
@@ -66,7 +67,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center rounded-2xl px-4 py-2 text-sm outline-none transition-colors duration-200 hover:bg-surface-soft focus:bg-surface-soft focus:text-text-primary data-[state=checked]:bg-accent data-[state=checked]:text-black data-disabled:pointer-events-none data-disabled:opacity-50',
+      'relative flex w-full cursor-default select-none items-center rounded-2xl px-4 py-2 text-sm outline-none transition-colors duration-200 hover:bg-(--surface-soft) focus:bg-(--surface-soft) focus:text-(--text-primary) data-[state=checked]:bg-(--accent) data-[state=checked]:text-black data-disabled:pointer-events-none data-disabled:opacity-50',
       className,
     )}
     {...props}

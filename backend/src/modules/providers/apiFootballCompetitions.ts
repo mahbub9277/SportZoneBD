@@ -80,10 +80,22 @@ export interface ApiFootballLeagueSelection {
   /** Football-data.org-owned ids that were configured and therefore ignored. */
   ignoredCoveredLeagueIds: number[]
   /** Where the selection came from, useful for logs and diagnostics. */
-  source: 'configured' | 'default-mapping'
+  source: 'configured' | 'default-mapping' | 'disabled'
 }
 
 const coveredLeagueWarning = { logged: false }
+
+/**
+ * Explicit values for `API_FOOTBALL_LEAGUES` that switch API-Football off without touching provider
+ * code. This is an operational state (for example while the account's plan does not cover the
+ * current season), so the provider stays fully functional and starts polling again as soon as the
+ * variable is changed back.
+ */
+const DISABLED_LEAGUE_CONFIG_VALUES = new Set(['disabled', 'off', 'none'])
+
+export function isApiFootballLeagueConfigDisabled(raw: string | undefined): boolean {
+  return DISABLED_LEAGUE_CONFIG_VALUES.has((raw ?? '').trim().toLowerCase())
+}
 
 function parseLeagueEntry(entry: string): { id: number; season?: number } | null {
   const [rawId, rawSeason] = entry.split(':')
@@ -135,13 +147,19 @@ function toDefinition(
  * Resolves the API-Football leagues to poll.
  *
  * `API_FOOTBALL_LEAGUES` wins when set; otherwise the built-in additional-coverage mapping is used.
- * `API_FOOTBALL_DEFAULT_LEAGUE_ID` is retained for compatibility but never drives discovery — it
- * points at football-data.org-owned competitions (Premier League) and would duplicate them.
+ * Setting it to `disabled` (also `off` or `none`) polls nothing at all, which is the supported way
+ * to pause the provider without removing it. `API_FOOTBALL_DEFAULT_LEAGUE_ID` is retained for
+ * compatibility but never drives discovery — it points at football-data.org-owned competitions
+ * (Premier League) and would duplicate them.
  */
 export function getApiFootballLeagues(
   env: NodeJS.ProcessEnv = process.env,
   known: readonly ApiFootballLeagueDefinition[] = DEFAULT_API_FOOTBALL_LEAGUES,
 ): ApiFootballLeagueSelection {
+  if (isApiFootballLeagueConfigDisabled(env.API_FOOTBALL_LEAGUES)) {
+    return { leagues: [], ignoredCoveredLeagueIds: [], source: 'disabled' }
+  }
+
   const configured = parseApiFootballLeagueConfig(env.API_FOOTBALL_LEAGUES)
   const candidates = configured.length > 0
     ? configured.map((league) => toDefinition(league, known))

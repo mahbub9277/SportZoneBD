@@ -84,6 +84,63 @@ export async function compareRefreshToken(token: string, hash: string): Promise<
 }
 
 /**
+ * Bcrypt digest of a fixed, non-secret placeholder. It is used when no usable stored hash exists, so
+ * verifying a one-time code always costs the same whether or not a code was ever issued.
+ */
+const UNUSED_ONE_TIME_CODE_HASH = '$2b$12$70q97GMm0zdFomdaeZsP5uA/euoVfH6PiU/Eq2ekXbiod7WNMyb.i'
+
+/**
+ * Hashes a short numeric one-time code (email verification, password reset).
+ *
+ * Existing bcrypt is reused with the project's password cost factor because a 6-digit code has too
+ * little entropy for a fast hash: anyone who obtains such a digest could brute-force the code itself.
+ * Only the digest is persisted; the code is only ever sent to the account's email address.
+ * @param code - The plaintext one-time code that was emailed to the user.
+ * @returns Promise resolving to the bcrypt hash to store.
+ */
+export async function hashOneTimeCode(code: string): Promise<string> {
+  if (!code || typeof code !== 'string') {
+    throw new Error('One-time code must be a non-empty string')
+  }
+  return bcrypt.hash(code, BCRYPT_SALT_ROUNDS)
+}
+
+/**
+ * Verifies a submitted one-time code against the stored hash.
+ *
+ * A missing or non-bcrypt stored value (a legacy sha256 digest, or a value written before hashing was
+ * introduced) can never match, and the comparison is still performed against a fixed digest so the
+ * response time does not reveal whether a code was issued for the account.
+ * @param code - The code submitted by the user.
+ * @param hash - The stored hash, if any.
+ * @returns Promise resolving to true only when the code matches the stored hash.
+ */
+export async function verifyOneTimeCode(code: string, hash?: string | null): Promise<boolean> {
+  if (!code || typeof code !== 'string') {
+    return false
+  }
+
+  const storedHash = typeof hash === 'string' && hash.startsWith('$2') ? hash : UNUSED_ONE_TIME_CODE_HASH
+
+  try {
+    const matches = await bcrypt.compare(code, storedHash)
+    return matches && storedHash !== UNUSED_ONE_TIME_CODE_HASH
+  } catch (error) {
+    logger.error({ error }, 'One-time code comparison failed')
+    return false
+  }
+}
+
+/**
+ * Reports whether a stored one-time code expiry still allows the code to be used.
+ * @param expiresAt - The stored expiry timestamp, if any.
+ * @param now - Comparison instant, injectable for tests.
+ */
+export function isOneTimeCodeUsable(expiresAt: Date | null | undefined, now: Date = new Date()): boolean {
+  return expiresAt instanceof Date && expiresAt.getTime() > now.getTime()
+}
+
+/**
  * Signs an access token with a unique JTI (JWT ID) for session tracking.
  * @param payload - The JWT payload (typically { sub: userId }).
  * @returns The signed JWT access token.

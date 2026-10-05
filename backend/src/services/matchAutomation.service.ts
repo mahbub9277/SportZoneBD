@@ -18,6 +18,16 @@ import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixture
 import { getCricketFixtures } from '../modules/providers/cricketData.fixtures.js'
 import { PROVIDER_KEY_PREFIX, PROVIDER_LABEL, providerFixtureKey, type CanonicalFixture, type ProviderFetchResult, type ProviderId } from '../modules/providers/types.js'
 import { resolveDiscoveryStatus, summarizeDiscoveryResult } from './automationResult.js'
+import {
+  StreamHealthFailureMirror,
+  STREAM_HEALTH_FAILURE_TTL_SECONDS,
+  classifyStreamHealthFailure,
+  groupStreamHealthChanges,
+  resolveStreamHealthPersistPlan,
+  shouldClearFailureCounter,
+  shouldResetFailureCounterBeforeIncrement,
+  type StreamHealthStatus,
+} from './streamHealthState.js'
 import { isFinishedMatchExpired, resolveFinishedMatchCleanupCutoff, resolveFinishedMatchRetentionMinutes, FINISHED_MATCH_MIN_RETENTION_MINUTES } from './finishedMatchRetention.js'
 
 const PRE_MATCH_HEALTH_WINDOW_MINUTES = Number(process.env.PRE_MATCH_HEALTH_WINDOW_MINUTES ?? 90)
@@ -184,6 +194,8 @@ export class MatchAutomationService {
   private isRunning = false
   private hasLoggedRedisLockUnavailable = false
   private hasLoggedFootballDataKeyUnavailable = false
+  /** Streams this process has recorded a Redis failure counter for, so healthy streams cost no DEL. */
+  private readonly streamHealthFailureMirror = new StreamHealthFailureMirror()
 
   constructor(options: MatchAutomationJobOptions = {}) {
     this.cronExpression = options.cronExpression ?? '* * * * *'
@@ -826,6 +838,11 @@ export class MatchAutomationService {
     let offlineCount = 0
     let errorCount = 0
     let responsePrefixBytes = 0
+    // Streams whose persisted state actually changed; they are written with one updateMany per target
+    // state instead of one UPDATE per stream.
+    const pendingStreamChanges: Array<{ streamId: string; status: StreamHealthStatus; enabled: boolean }> = []
+    const failureMirror = this.streamHealthFailureMirror
+    failureMirror.pruneExpired(Date.now(), STREAM_HEALTH_FAILURE_TTL_SECONDS)
 
     try {
       const matches = await prisma.match.findMany({
@@ -898,9 +915,16 @@ export class MatchAutomationService {
 
           if (!isHealthy) {
             if (!alreadyInErrorState) {
+              if (shouldResetFailureCounterBeforeIncrement(isHealthy, failureMirror.has(stream.id))) {
+                // The mirror is cold (first cycle after a restart, or this stream is failing for the
+                // first time in this process), so a counter left behind by a previous process is
+                // cleared instead of trusted: a stale count must not skip the failure threshold.
+                await redis.del(failureKey)
+              }
               const failures = Number(await redis.incr(failureKey))
-              await redis.expire(failureKey, 15 * 60)
-              if (failures < STREAM_HEALTH_FAILURE_THRESHOLD) {
+              failureMirror.record(stream.id, Date.now())
+              await redis.expire(failureKey, STREAM_HEALTH_FAILURE_TTL_SECONDS)
+              if (classifyStreamHealthFailure(failures, false, STREAM_HEALTH_FAILURE_THRESHOLD) === 'transient') {
                 logger.warn({ streamId: stream.id, failures }, 'Transient stream health failure retained')
                 continue
               }
@@ -911,7 +935,9 @@ export class MatchAutomationService {
             }
           } else if (nextStatus === 'OFFLINE') {
             offlineCount++
-          } else {
+          } else if (shouldClearFailureCounter(isHealthy, failureMirror.clear(stream.id))) {
+            // Only pay for the DEL when a counter is known to exist; the 15 minute TTL still covers
+            // anything a restarted process no longer remembers.
             await redis.del(failureKey)
           }
 
@@ -919,14 +945,24 @@ export class MatchAutomationService {
             continue
           }
 
-          await prisma.stream.update({
-            where: { id: stream.id },
-            data: {
-              status: nextStatus,
-              enabled: isHealthy ? true : false,
-            },
+          const persistPlan = resolveStreamHealthPersistPlan({
+            currentStatus: stream.status,
+            currentEnabled: stream.enabled,
+            nextStatus,
+            nextEnabled: isHealthy,
           })
+          if (!persistPlan) continue
+          pendingStreamChanges.push({ streamId: stream.id, status: persistPlan.status, enabled: persistPlan.enabled })
         }
+      }
+
+      let persistedStreamCount = 0
+      for (const group of groupStreamHealthChanges(pendingStreamChanges)) {
+        await prisma.stream.updateMany({
+          where: { id: { in: group.streamIds } },
+          data: { status: group.status, enabled: group.enabled },
+        })
+        persistedStreamCount += group.streamIds.length
       }
 
       const newLog = await prisma.automationLog.create({
@@ -934,8 +970,8 @@ export class MatchAutomationService {
           jobId: this.jobId,
           action: 'VALIDATE_STREAMS',
           status: 'SUCCESS',
-          summary: `Checked streams: ${healthyCount} healthy, ${offlineCount} offline, ${errorCount} errors; read ${responsePrefixBytes} upstream response bytes`,
-          details: { healthyCount, offlineCount, errorCount, responsePrefixBytes },
+          summary: `Checked streams: ${healthyCount} healthy, ${offlineCount} offline, ${errorCount} errors; persisted ${persistedStreamCount} stream changes; read ${responsePrefixBytes} upstream response bytes`,
+          details: { healthyCount, offlineCount, errorCount, persistedStreamCount, responsePrefixBytes },
         },
       })
       emitAutomationLogEntry(newLog)

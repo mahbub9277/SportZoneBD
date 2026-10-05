@@ -9,6 +9,8 @@ import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useGetHighlightsQuery, useIncrementHighlightViewMutation } from '../../features/highlights/highlights.api'
 import { claimHighlightView } from '../../features/highlights/highlightViews'
 import type { Highlight } from '../../features/highlights/highlights.types'
+import { useAppSelector } from '../../app/hooks'
+import { selectIsAuthenticated } from '../../features/auth/authSlice'
 
 const resolvePosterUrl = (thumbnail?: string | null, thumbnailUrl?: string | null) => {
   const source = thumbnail ?? thumbnailUrl
@@ -38,10 +40,15 @@ export function HighlightsPage() {
 
   const [incrementHighlightView] = useIncrementHighlightViewMutation()
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({})
+  const isAuthenticated = useAppSelector(selectIsAuthenticated)
 
   // One intentional open = one view, no matter how many times React re-renders or remounts the card.
   const openHighlight = useCallback((highlight: Highlight) => {
     setSelectedHighlight(highlight)
+
+    // Guests watch public highlights without being counted. The view endpoint is authenticated-only,
+    // so asking for a count anonymously would only produce an authentication error toast.
+    if (!isAuthenticated) return
     if (!claimHighlightView(highlight.id)) return
 
     const previousCount = highlight.viewCount ?? 0
@@ -51,7 +58,7 @@ export function HighlightsPage() {
       .unwrap()
       .then((result) => setViewCounts((counts) => ({ ...counts, [highlight.id]: result.viewCount })))
       .catch(() => setViewCounts((counts) => ({ ...counts, [highlight.id]: previousCount })))
-  }, [incrementHighlightView])
+  }, [incrementHighlightView, isAuthenticated])
 
   return (
     <div className="app-page space-y-3">

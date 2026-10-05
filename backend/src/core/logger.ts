@@ -3,6 +3,23 @@ import pino from 'pino'
 const isProduction = process.env.NODE_ENV === 'production'
 
 // Configure pino logger
+/**
+ * Fields that must never reach a log line, whatever logs them. Pino matches one path segment per
+ * `*`, so each field is covered at the three shapes it is realistically logged in: on its own, one
+ * level deep (a request body or job payload), and two levels deep (`req.body`).
+ */
+const LOG_SECRET_FIELDS = [
+  'password',
+  'otp',
+  'verificationCode',
+  'verificationOtp',
+  'passwordResetCode',
+  'passwordResetToken',
+  'resetToken',
+  'refreshToken',
+  'accessToken',
+] as const
+
 const logger = pino({
   level: isProduction ? 'info' : 'debug',
   base: {
@@ -21,7 +38,7 @@ const logger = pino({
     paths: [
       'req.headers.authorization',
       'req.headers.cookie',
-      '*.password', // Redact any field named 'password' at any nesting level
+      ...LOG_SECRET_FIELDS.flatMap((field) => [field, `*.${field}`, `*.*.${field}`]),
     ],
     censor: '[REDACTED]',
   },

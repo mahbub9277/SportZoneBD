@@ -1,168 +1,131 @@
-﻿import { startTransition, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '../ui/Button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/Dialog';
 import { useGetActivePopupsQuery } from '../../features/popups/popups.api';
 import { useTrackEventMutation } from '../../features/analytics/analytics.api';
 import { useAuth } from '../../hooks/common/layouts/useAuth';
 import { buildCloudinaryUrl } from '../../utils/cloudinary';
 import type { Popup } from '../../features/admin/popups.api';
+import {
+  getNextPopupExpiry,
+  isPopupSnoozed,
+  readPopupDismissals,
+  withPopupDismissed,
+  writePopupDismissals,
+} from '../../features/popups/popupDismissals';
 
-const POPUP_TTL_MS = 6 * 60 * 60 * 1000;
-const POPUP_STORAGE_KEY = 'sportzone_popup_dismissals';
+const POPUP_IMAGE_TRANSFORM = { width: 1280, height: 720, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const };
 
-function readPopupDismissals(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(POPUP_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-
-    const dismissals: Record<string, number> = {};
-
-    for (const [popupId, timestamp] of Object.entries(parsed)) {
-      if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
-        dismissals[popupId] = timestamp;
-      }
-    }
-
-    return dismissals;
-  } catch {
-    return {};
-  }
-}
-
-function isPopupAllowedAgain(popupId: string): boolean {
-  const dismissals = readPopupDismissals();
-  const dismissedAt = dismissals[popupId];
-  if (!dismissedAt) return true;
-
-  return Date.now() - dismissedAt >= POPUP_TTL_MS;
-}
-
+/**
+ * Shows the first active popup the visitor has not dismissed in the last six hours.
+ *
+ * The dismissal record is the only popup state — the popup on screen is derived from it, so
+ * dismissing advances to the next popup in a single render — and a single timer re-checks
+ * eligibility when the earliest dismissal expires, which is what makes a popup eligible again after
+ * six hours without a reload.
+ */
 export function PopupDisplay() {
   const location = useLocation();
   const { isAdmin } = useAuth();
-  const isAdminRoute = location.pathname.startsWith('/admin');
-  const shouldSkipPopups = isAdminRoute || isAdmin;
+  const shouldSkipPopups = isAdmin || location.pathname.startsWith('/admin');
+
   const { data: popups, isSuccess } = useGetActivePopupsQuery(undefined, {
     skip: shouldSkipPopups,
   });
   const [trackEvent] = useTrackEventMutation();
-  const [currentPopup, setCurrentPopup] = useState<Popup | null>(null);
-  const [shownPopupIds, setShownPopupIds] = useState<Set<string>>(new Set());
 
-  const validPopups = useMemo(() => {
-    if (!isSuccess || !Array.isArray(popups)) {
-      return [];
-    }
+  // One storage read per page load; the record is state so eligibility and the timer stay in step.
+  const [dismissals, setDismissals] = useState(readPopupDismissals);
+  const [now, setNow] = useState(() => Date.now());
 
-    const filtered = popups.filter((popup: Popup) => {
-      const popupId = String(popup.id ?? '');
-      if (!popupId) return false;
-      if (shownPopupIds.has(popupId)) return false;
-      return isPopupAllowedAgain(popupId);
-    });
+  const currentPopup = useMemo<Popup | null>(() => {
+    if (shouldSkipPopups || !isSuccess || !Array.isArray(popups)) return null;
 
-    return filtered;
-  }, [isSuccess, popups, shownPopupIds]);
+    return (
+      popups.find((popup) => {
+        const popupId = String(popup?.id ?? '');
+        return popupId !== '' && !isPopupSnoozed(dismissals, popupId, now);
+      }) ?? null
+    );
+  }, [dismissals, isSuccess, now, popups, shouldSkipPopups]);
 
+  // Exactly one timer, set for the earliest dismissal to expire. While nothing is snoozed there is no
+  // timer at all, and the cleanup guarantees the previous timer is always cleared.
   useEffect(() => {
-    if (shouldSkipPopups) {
-      return;
-    }
+    if (shouldSkipPopups) return;
 
-    const dismissals = readPopupDismissals();
-    const activeIds = new Set<string>();
+    const nextExpiry = getNextPopupExpiry(dismissals, now);
+    if (nextExpiry === null) return;
 
-    Object.keys(dismissals).forEach((popupId) => {
-      const dismissedAt = dismissals[popupId];
-      if (Date.now() - dismissedAt < POPUP_TTL_MS) {
-        activeIds.add(popupId);
-      }
-    });
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.max(1, nextExpiry - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [dismissals, now, shouldSkipPopups]);
 
-    startTransition(() => setShownPopupIds(activeIds));
-  }, [shouldSkipPopups]);
+  const dismissPopup = useCallback(() => {
+    const popupId = String(currentPopup?.id ?? '');
+    if (!popupId) return;
 
-  useEffect(() => {
-    if (!currentPopup && validPopups.length > 0) {
-      startTransition(() => setCurrentPopup(validPopups[0]));
-    }
-  }, [currentPopup, validPopups]);
-
-  const dismissPopup = () => {
-    if (!currentPopup) {
-      return;
-    }
-
-    const popupId = String(currentPopup.id ?? '');
-    const nextIds = new Set(shownPopupIds);
-
-    if (popupId) {
-      nextIds.add(popupId);
-      const dismissals = readPopupDismissals();
-      dismissals[popupId] = Date.now();
-      localStorage.setItem(POPUP_STORAGE_KEY, JSON.stringify(dismissals));
-    }
-
-    setShownPopupIds(nextIds);
-    setCurrentPopup(null);
-  };
+    const dismissedAt = Date.now();
+    // A single pruned write, so the state and localStorage can never disagree about the six hours.
+    setDismissals(writePopupDismissals(withPopupDismissed(dismissals, popupId, dismissedAt), dismissedAt));
+    setNow(dismissedAt);
+  }, [currentPopup, dismissals]);
 
   const handleLinkClick = () => {
-    if (!currentPopup) {
-      return;
-    }
+    if (!currentPopup) return;
 
     trackEvent({ type: 'POPUP_CLICK', entityId: currentPopup.id });
     dismissPopup();
   };
 
-  if (shouldSkipPopups || !currentPopup) {
-    return null;
-  }
+  const popupImage = currentPopup?.imageUrl ? buildCloudinaryUrl(currentPopup.imageUrl, POPUP_IMAGE_TRANSFORM) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={dismissPopup} />
+    <Dialog open={currentPopup !== null} onOpenChange={(isOpen) => { if (!isOpen) dismissPopup(); }}>
+      <DialogContent className="max-w-3xl gap-0 border-(--border) bg-(--surface)/95 p-0 shadow-[0_40px_100px_rgba(2,6,23,0.35)] backdrop-blur-xl">
+        {/* Keyed so each popup animates in, and animated on the inner wrapper so it cannot override
+            the dialog's own centering transform. */}
+        <div key={currentPopup?.id ?? 'popup'} className="app-page-card">
+          {popupImage && (
+            <div className="relative">
+              <img
+                src={popupImage}
+                alt={currentPopup?.title ?? ''}
+                loading="eager"
+                fetchPriority="high"
+                decoding="async"
+                className="aspect-video max-h-56 w-full object-cover object-center sm:max-h-80"
+              />
+              <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-linear-to-t from-(--surface) to-transparent" />
+            </div>
+          )}
 
-      <div className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto rounded-4xl border border-(--border) bg-(--surface)/95 p-4 shadow-[0_40px_100px_rgba(2,6,23,0.3)] sm:p-7">
-        {currentPopup.imageUrl && (
-          <img
-            src={buildCloudinaryUrl(currentPopup.imageUrl, { width: 1280, height: 720, crop: 'fill', gravity: 'auto', quality: 'auto', format: 'auto' })}
-            alt={currentPopup.title}
-            loading="eager"
-            fetchPriority="high"
-            decoding="async"
-            className="mb-5 aspect-video max-h-56 w-full rounded-3xl object-cover object-center sm:h-72 sm:max-h-none"
-          />
-        )}
+          <div className="space-y-5 p-5 sm:p-7">
+            <div className="space-y-2 text-center sm:text-left">
+              <DialogTitle className="text-xl font-semibold tracking-tight text-(--text-primary) sm:text-2xl">
+                {currentPopup?.title}
+              </DialogTitle>
+              <DialogDescription className="mx-auto max-w-2xl text-sm leading-6 text-(--text-muted) sm:mx-0 sm:text-base">
+                {currentPopup?.message}
+              </DialogDescription>
+            </div>
 
-        <div className="space-y-4 text-center sm:text-left">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-(--text-primary)">{currentPopup.title}</h2>
-            <p className="mx-auto max-w-2xl text-sm leading-6 text-(--text-muted) sm:mx-0 sm:text-base">
-              {currentPopup.message}
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-[auto_auto] sm:justify-center lg:justify-start">
-            <Button variant="secondary" onClick={dismissPopup} className="min-w-30">
-              Dismiss
-            </Button>
-            {currentPopup.link && (
-              <Button asChild className="min-w-30">
-                <a href={currentPopup.link} target="_blank" rel="noreferrer" onClick={handleLinkClick}>
-                  Learn more
-                </a>
+            <div className="grid gap-3 sm:grid-cols-[auto_auto] sm:justify-center lg:justify-start">
+              <Button variant="secondary" onClick={dismissPopup} className="min-w-30">
+                Dismiss
               </Button>
-            )}
+              {currentPopup?.link && (
+                <Button asChild className="min-w-30">
+                  <a href={currentPopup.link} target="_blank" rel="noreferrer" onClick={handleLinkClick}>
+                    Learn more
+                  </a>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

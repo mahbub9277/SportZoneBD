@@ -16,7 +16,7 @@ import { apiRouter } from './routes/index.js'
 import './core/passport.js'
 import { corsOptions } from './config/cors.js'
 import { matchAutomationService } from './services/matchAutomation.service.js'
-import { setIoInstance, initializeSocketHandlers, getIoInstance } from './core/socketManager.js'
+import { setIoInstance, initializeSocketHandlers, getIoInstance, setSocketClusterAdapterEnabled } from './core/socketManager.js'
 import { createAdapter } from '@socket.io/redis-adapter'
 import { closeRedisFailoverClients, getPrimaryRedisStatus, isRedisConfigured, redis } from './core/redis.js'
 import { getRedisErrorCode } from './core/redisFailover.js'
@@ -230,6 +230,9 @@ async function bootstrap(): Promise<void> {
 
     // Register the io instance globally for use in services
     setIoInstance(io)
+    // Viewer counts are read from room membership, which only spans instances while the Redis
+    // adapter is installed; without it the process-local membership map is the complete answer.
+    setSocketClusterAdapterEnabled(redisAdapterEnabled)
 
     // Centralize all socket event handling
     initializeSocketHandlers(io)
@@ -279,6 +282,16 @@ async function bootstrap(): Promise<void> {
       logger.info('Match automation service stopped.')
     } catch (error) {
       logger.error(error, 'Error stopping match automation service.')
+    }
+
+    try {
+      // Flush buffered telemetry aggregations before Redis closes, so a graceful restart does not
+      // drop the increments accumulated since the last minute boundary.
+      const { flushTelemetryAggregations } = await import('./modules/analytics/telemetry.service.js')
+      await flushTelemetryAggregations(true)
+      logger.info('Telemetry aggregations flushed.')
+    } catch (error) {
+      logger.error(error, 'Error flushing telemetry aggregations.')
     }
 
     try {

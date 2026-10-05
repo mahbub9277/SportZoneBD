@@ -80,22 +80,22 @@ export default function ReportsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="rounded-4xl border border-border bg-surface/70 p-6 shadow-[0_30px_80px_rgba(2,6,23,0.18)] backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="rounded-4xl border border-(--border) bg-(--surface)/70 p-6 shadow-[0_30px_80px_rgba(2,6,23,0.18)] backdrop-blur-md">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold text-text-primary">Report a problem</h1>
-            <p className="mt-2 max-w-2xl text-sm text-text-muted">
+            <h1 className="text-3xl font-semibold text-(--text-primary)">Report a problem</h1>
+            <p className="mt-2 max-w-2xl text-sm text-(--text-muted)">
               Tell us about bugs, buffering issues, payments, or account problems. Your report helps us fix production issues faster.
             </p>
           </div>
-          <div className="rounded-full border border-accent/30 bg-accent/10 px-3 py-2 text-sm font-medium text-accent shadow-glow">
+          <div className="rounded-full border border-(--accent)/30 bg-(--accent)/10 px-3 py-2 text-sm font-medium text-(--accent) shadow-glow">
             {isLoading ? 'Loading…' : `${reports.length} report${reports.length === 1 ? '' : 's'} saved`}
           </div>
         </div>
       </motion.div>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.5 }} className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="border-border/60 bg-surface/75 p-6">
+        <Card className="border-(--border)/60 bg-(--surface)/75 p-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <motion.div className="p-1.5 bg-linear-to-br from-cyan-400 to-cyan-600 rounded-lg flex items-center justify-center" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>
@@ -106,7 +106,7 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent>
             <fieldset>
-              <legend className="mb-2 block text-sm font-medium text-text-primary">1. What problem are you having?</legend>
+              <legend className="mb-2 block text-sm font-medium text-(--text-primary)">1. What problem are you having?</legend>
               <div className="flex flex-wrap gap-2">
               {categoryOptions.map(({ value, label, icon: Icon }) => {
                 const isActive = category === value
@@ -116,10 +116,12 @@ export default function ReportsPage() {
                     type="button"
                     onClick={() => setCategory(value)}
                     aria-pressed={isActive}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    // Selected state relies on contrast (accent tint + accent border + accent text) rather
+                    // than a full accent fill, so the option stays readable and never shifts its neighbours.
+                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-sm transition-all duration-200 motion-safe:hover:scale-[1.01] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface) ${
                       isActive ?
-                        'border-accent bg-accent text-white shadow-[0_8px_24px_rgba(4,116,196,0.28)]' :
-                        'border-border bg-surface-soft/70 text-text-muted hover:border-accent/50 hover:bg-accent/10 hover:text-accent'
+                        'border-(--accent)/60 bg-(--accent-soft) text-(--accent)' :
+                        'border-(--border) bg-(--surface-soft)/70 text-(--text-muted) hover:border-(--accent)/50 hover:bg-(--accent)/10 hover:text-(--accent)'
                     }`}
                   >
                     <motion.div whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}>
@@ -130,7 +132,7 @@ export default function ReportsPage() {
                 )
               })}
               </div>
-              <p className="mt-2 text-xs text-text-muted">Selected: <span className="font-semibold text-accent">{categoryOptions.find((option) => option.value === category)?.label}</span></p>
+              <p className="mt-2 text-xs text-(--text-muted)">Selected: <span className="font-semibold text-(--accent)">{categoryOptions.find((option) => option.value === category)?.label}</span></p>
             </fieldset>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
@@ -156,7 +158,7 @@ export default function ReportsPage() {
                 />
               </div>
 
-              <div className="rounded-2xl border border-border bg-surface-soft/70 p-4 text-sm text-text-muted">
+              <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/70 p-4 text-sm text-(--text-muted)">
                 Report will be saved for your account and can be reviewed by the support team.
               </div>
 
@@ -168,29 +170,29 @@ export default function ReportsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/60 bg-surface/75 p-6">
+        <Card className="border-(--border)/60 bg-(--surface)/75 p-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-accent" />
+              <FileText className="h-5 w-5 text-(--accent)" />
               Your recent reports
             </CardTitle>
           </CardHeader>
           <CardContent>
             {latestReports.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-surface-soft/60 p-6 text-sm text-text-muted">
+              <div className="rounded-2xl border border-dashed border-(--border) bg-(--surface-soft)/60 p-6 text-sm text-(--text-muted)">
                 No reports yet. Submit your first issue to help us improve the platform.
               </div>
             ) : (
               <div className="space-y-3">
                 {latestReports.map((report) => (
-                  <div key={report.id} className="rounded-2xl border border-border bg-surface-soft/80 p-4">
+                  <div key={report.id} className="rounded-2xl border border-(--border) bg-(--surface-soft)/80 p-4">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">{report.category}</span>
-                      <span className="text-xs text-text-muted">{report.createdAt}</span>
+                      <span className="rounded-full bg-(--accent)/10 px-3 py-1 text-xs font-medium text-(--accent)">{report.category}</span>
+                      <span className="text-xs text-(--text-muted)">{report.createdAt}</span>
                     </div>
-                    <p className="mt-3 font-semibold text-text-primary">{report.summary}</p>
-                    <p className="mt-2 text-sm text-text-muted">{report.details}</p>
-                    <p className="mt-3 text-xs text-text-muted">{report.userName} • {report.userEmail}</p>
+                    <p className="mt-3 font-semibold text-(--text-primary)">{report.summary}</p>
+                    <p className="mt-2 text-sm text-(--text-muted)">{report.details}</p>
+                    <p className="mt-3 text-xs text-(--text-muted)">{report.userName} • {report.userEmail}</p>
                   </div>
                 ))}
               </div>

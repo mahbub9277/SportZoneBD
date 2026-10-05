@@ -132,7 +132,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className={cn('w-full min-w-0', embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'app-page px-4 pb-8 sm:px-6 lg:p-8')}>
       {embedded ? (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 px-3 pb-3 pt-3 sm:px-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-(--border)/70 px-3 pb-3 pt-3 sm:px-4">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--text-muted)">Inbox</p>
             <h2 className="mt-1 text-xl font-semibold text-(--text-primary)">Notifications</h2>
@@ -153,18 +153,18 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
 
       {!embedded && (
         <>
-          <Card className="mt-3 flex flex-col gap-3 border-border bg-surface-soft/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="mt-3 flex flex-col gap-3 border-(--border) bg-(--surface-soft)/70 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="font-semibold text-(--text-primary)">Browser push notifications</p>
               <p className="mt-1 text-sm text-(--text-muted)">{pushStatus === 'enabled' ? 'Push alerts are enabled for this device. In-app alerts work independently.' : 'Optional alerts for matches and highlights. In-app notifications do not require permission.'}</p>
             </div>
             {pushStatus === 'available' && <Button type="button" className="shrink-0" onClick={() => void handleEnablePush()} disabled={isEnablingPush} isLoading={isEnablingPush}>Turn on</Button>}
             {pushStatus === 'enabled' && <Button type="button" variant="outline" className="shrink-0" onClick={() => void handleDisablePush()} disabled={isDisablingPush} isLoading={isDisablingPush}>Turn off</Button>}
-            {pushStatus === 'unsupported' && <span className="shrink-0 text-xs text-text-muted">Unavailable in this browser</span>}
+            {pushStatus === 'unsupported' && <span className="shrink-0 text-xs text-(--text-muted)">Unavailable in this browser</span>}
           </Card>
           {pushStatus === 'denied' && <p className="mt-3 text-xs text-(--text-muted)">Notifications are blocked in this browser. Enable them in your site permissions to receive alerts.</p>}
 
-          <div className="mt-3 flex items-center justify-between border-b border-border/60 pb-2">
+          <div className="mt-3 flex items-center justify-between border-b border-(--border)/60 pb-2">
             <h2 className="text-base font-semibold text-(--text-primary)">In-app notifications</h2>
             <span className="text-xs text-(--text-muted)">Unread</span>
           </div>
@@ -221,7 +221,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: 'easeOut' }}
                 >
-                  <Card className={cn('flex min-w-0 items-start gap-2.5 p-3 sm:gap-3 sm:p-4', !notification.isRead && 'bg-(--surface-strong)', embedded ? 'rounded-2xl border-border' : '')}>
+                  <Card className={cn('flex min-w-0 items-start gap-2.5 p-3 sm:gap-3 sm:p-4', !notification.isRead && 'bg-(--surface-strong)', embedded ? 'rounded-2xl border-(--border)' : '')}>
                     <div className="shrink-0">
                       {notificationIcons[notification.type as NotificationType] ?? notificationIcons.default}
                     </div>
@@ -229,12 +229,12 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
                       {notification.match && <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-(--text-muted) sm:gap-2">
                         {notification.match.homeTeamLogo ? <img src={buildCloudinaryUrl(notification.match.homeTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold">{notification.match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
                         <span className="max-w-32 wrap-break-word">{notification.match.homeTeamName || 'Team 1'}</span>
-                        <span className="shrink-0 text-accent">vs</span>
+                        <span className="shrink-0 text-(--accent)">vs</span>
                         {notification.match.awayTeamLogo ? <img src={buildCloudinaryUrl(notification.match.awayTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold">{notification.match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
                         <span className="max-w-32 wrap-break-word">{notification.match.awayTeamName || 'Team 2'}</span>
                       </div>}
-                      {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="group/link inline-flex max-w-full items-center gap-1 wrap-break-word text-base font-semibold text-(--text-primary) transition-colors hover:text-accent hover:underline"><span className="wrap-break-word">{notification.title}</span><ArrowUpRight className="h-4 w-4 shrink-0 opacity-70 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" /></a> : <p className="wrap-break-word text-base font-semibold text-(--text-primary)">{notification.title}</p>}
-                      {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="mt-1 block wrap-break-word text-base text-(--text-muted) transition-colors hover:text-text-primary">{notification.body}</a> : <p className="wrap-break-word text-base text-(--text-muted)">{notification.body}</p>}
+                      {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="group/link inline-flex max-w-full items-center gap-1 wrap-break-word text-base font-semibold text-(--text-primary) transition-colors hover:text-(--accent) hover:underline"><span className="wrap-break-word">{notification.title}</span><ArrowUpRight className="h-4 w-4 shrink-0 opacity-70 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" /></a> : <p className="wrap-break-word text-base font-semibold text-(--text-primary)">{notification.title}</p>}
+                      {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="mt-1 block wrap-break-word text-base text-(--text-muted) transition-colors hover:text-(--text-primary)">{notification.body}</a> : <p className="wrap-break-word text-base text-(--text-muted)">{notification.body}</p>}
                       <p className="mt-1 text-xs text-(--text-muted)">{new Date(notification.createdAt).toLocaleString()}</p>
                       {!notification.isRead && (
                         <Button
@@ -251,7 +251,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
                       )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {!notification.isRead && <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />}
+                      {!notification.isRead && <span className="h-2.5 w-2.5 rounded-full bg-(--accent)" />}
                       <Button type="button" variant="ghost" size="icon" onClick={() => deleteNotification(notification.id)} disabled={isDeletingNotification && deletingNotificationId === notification.id} aria-label={`Delete notification "${notification.title}"`} title="Delete notification"><Trash2 className={cn('h-4 w-4 text-(--text-muted) hover:text-red-400', isDeletingNotification && deletingNotificationId === notification.id && 'animate-pulse')} /></Button>
                     </div>
                   </Card>
@@ -261,7 +261,7 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
           </motion.div>
 
           {embedded && onViewAll && (
-            <div className="shrink-0 border-t border-border/70 bg-(--surface-strong) p-3 sm:px-4">
+            <div className="shrink-0 border-t border-(--border)/70 bg-(--surface-strong) p-3 sm:px-4">
               <Button type="button" variant="outline" className="w-full justify-center rounded-xl" onClick={onViewAll}>
                 View All
               </Button>

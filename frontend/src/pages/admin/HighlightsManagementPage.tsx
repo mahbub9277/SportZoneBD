@@ -147,9 +147,9 @@ export function HighlightsManagementPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-brand-border bg-brand-surface/50 p-6 shadow-xl">
+      <Card className="border-(--brand-border) bg-(--brand-surface)/50 p-6 shadow-xl">
         <CardHeader>
-          <CardTitle className="text-2xl text-brand-text-primary">{editingHighlightId ? 'Edit Highlight' : 'Create Highlight'}</CardTitle>
+          <CardTitle className="text-2xl text-(--brand-text-primary)">{editingHighlightId ? 'Edit Highlight' : 'Create Highlight'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -197,11 +197,11 @@ export function HighlightsManagementPage() {
                     </Button>
                   )}
                 </div>
-                <p className="mt-2 text-xs text-text-muted">Choose a video file first, then click Upload video.</p>
-                {selectedVideoFile && <p className="mt-1 truncate text-xs text-accent">Selected: {selectedVideoFile.name}</p>}
+                <p className="mt-2 text-xs text-(--text-muted)">Choose a video file first, then click Upload video.</p>
+                {selectedVideoFile && <p className="mt-1 truncate text-xs text-(--accent)">Selected: {selectedVideoFile.name}</p>}
               </div>
               <Input id="url" name="url" type="url" value={form.url} onChange={handleInputChange} placeholder="https://youtube.com/watch?v=..." required={!isUploadingVideo} />
-              {form.url && <p className="truncate text-xs text-success">Video source ready.</p>}
+              {form.url && <p className="truncate text-xs text-(--success)">Video source ready.</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="thumbnail-upload">Highlight thumbnail</Label>
@@ -263,36 +263,36 @@ export function HighlightsManagementPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-brand-border bg-brand-surface/50 p-6 shadow-xl">
+      <Card className="border-(--brand-border) bg-(--brand-surface)/50 p-6 shadow-xl">
         <CardHeader>
-          <CardTitle className="text-xl text-brand-text-primary">Existing Highlights</CardTitle>
+          <CardTitle className="text-xl text-(--brand-text-primary)">Existing Highlights</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           {isLoadingHighlights ? <Skeleton className="h-20 w-full" /> : isHighlightsError ? (
             <p className="text-sm text-red-400">Unable to load highlights. Please refresh and try again.</p>
           ) : highlights.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No highlights created yet.</p>
+            <p className="text-sm text-(--text-muted)">No highlights created yet.</p>
           ) : (
             highlights.map((highlight) => (
-              <div key={highlight.id} className="flex min-w-0 flex-col items-stretch justify-between gap-3 rounded-2xl border border-brand-border bg-brand-surface-soft/70 p-4 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 items-center gap-3">
+              <div key={highlight.id} className="flex min-w-0 flex-col items-stretch justify-between gap-4 rounded-2xl border border-(--brand-border) bg-(--brand-surface-soft)/70 p-4 sm:flex-row sm:items-center sm:p-5">
+                <div className="flex min-w-0 items-center gap-4">
                   {highlight.thumbnail ? (
                     <img
-                      src={buildCloudinaryUrl(highlight.thumbnail, { width: 96, height: 64, crop: 'fill', quality: 'auto', format: 'auto' })}
+                      src={buildCloudinaryUrl(highlight.thumbnail, { width: 384, height: 216, crop: 'fill', quality: 'auto', format: 'auto' })}
                       alt={highlight.title}
-                      className="h-16 w-24 rounded-xl object-cover border border-border bg-surface-soft"
+                      className="aspect-video w-32 shrink-0 rounded-xl border border-(--border) bg-(--surface-soft) object-cover sm:w-48"
                     />
                   ) : (
-                    <div className="flex h-16 w-24 items-center justify-center rounded-xl border border-dashed border-border bg-surface-soft text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+                    <div className="flex aspect-video w-32 shrink-0 items-center justify-center rounded-xl border border-dashed border-(--border) bg-(--surface-soft) text-[10px] font-semibold uppercase tracking-[0.12em] text-(--text-muted) sm:w-48">
                       Clip
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="min-w-0 wrap-break-word font-semibold text-brand-text-primary">{highlight.title}</p>
-                    <p className="text-xs text-text-muted">{highlight.category || 'General highlight'}</p>
+                    <p className="min-w-0 wrap-break-word text-base font-semibold text-(--brand-text-primary)">{highlight.title}</p>
+                    <p className="mt-0.5 text-xs text-(--text-muted)">{highlight.category || 'General highlight'}</p>
                   </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleEdit(highlight)} disabled={isDeleting || isUpdating}>Edit</Button>
                   <Button variant="destructive" size="sm" onClick={() => handleDelete(highlight.id, highlight.title)} disabled={isDeleting || isUpdating}>Delete</Button>
                 </div>

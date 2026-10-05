@@ -1,10 +1,10 @@
 import prisma from '../../core/prisma.js'
 import { redis } from '../../core/redis.js'
+import { getLiveViewerCount as getSocketLiveViewerCount } from '../../core/socketManager.js'
 import type { Channel, ChannelCategory } from '@prisma/client'
 
 const LIVE_VIEWERS_WINDOW_MS = 30_000
 const getLiveViewerKey = (channelId: string) => `channel:${channelId}:live-viewers`
-const getSocketLiveViewerKey = (channelId: string) => `sportzone:live-viewers:channel:${channelId}`
 
 export const normalizeChannelStatus = (value: unknown): 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' => {
   if (typeof value === 'string') {
@@ -127,17 +127,9 @@ export const getWatchData = async (id: string) => {
   }
 
   const relatedChannels = await getRelatedChannels(id, channel.categoryId)
-  const liveViewers = await (async () => {
-    try {
-      const key = getSocketLiveViewerKey(id)
-      const now = Date.now()
-      await redis.zremrangebyscore(key, 0, now)
-      const count = await redis.zcount(key, now, '+inf')
-      return Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
-    } catch {
-      return null
-    }
-  })()
+  // The live count is socket room membership, so the page can render a real number before the
+  // client subscribes instead of reading a separate presence store.
+  const liveViewers = await getSocketLiveViewerCount('channel', id)
 
   return {
     channel,

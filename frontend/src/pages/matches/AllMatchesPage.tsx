@@ -123,14 +123,14 @@ export function AllMatchesPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="space-y-6">
-      <motion.section initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }} className="premium-border relative overflow-hidden rounded-3xl bg-surface-soft/70 p-5 sm:p-6">
+      <motion.section initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }} className="premium-border relative overflow-hidden rounded-3xl bg-(--surface-soft)/70 p-5 sm:p-6">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="max-w-2xl">
-            <h1 className="text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">All Matches</h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-(--text-primary) sm:text-4xl">All Matches</h1>
           </div>
           <div className="relative w-full md:w-72">
             <div className="absolute left-3 top-1/2 flex -translate-y-1/2 items-center justify-center">
-              <Search className="text-text-muted" size={18} />
+              <Search className="text-(--text-muted)" size={18} />
             </div>
             <Input
               placeholder="Search matches..."
@@ -143,7 +143,7 @@ export function AllMatchesPage() {
       </motion.section>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
-      <Card className="premium-border flex flex-col items-center justify-between gap-4 bg-surface-soft/70 p-4 md:flex-row md:flex-wrap">
+      <Card className="premium-border flex flex-col items-center justify-between gap-4 bg-(--surface-soft)/70 p-4 md:flex-row md:flex-wrap">
         <div className="flex flex-wrap items-center gap-2">
           {statusFilters.map((option) => {
             const isActive = status === option.value
@@ -153,10 +153,10 @@ export function AllMatchesPage() {
                 type="button"
                 onClick={() => setFilters(prev => ({ ...prev, status: option.value }))}
                 className={cn(
-                  'rounded-full border px-3.5 py-2 text-sm font-medium transition duration-200',
+                  'rounded-full border px-3.5 py-2 text-sm font-medium transition-colors duration-200',
                   isActive ?
-                    'border-[#0474C4]/40 bg-linear-to-r from-[#0474C4] to-[#06457F] text-white shadow-[0_0_18px_rgba(4,116,196,0.24)]' :
-                    'border-[#A8C4EC]/15 bg-[#262B40]/55 text-[#A8C4EC] hover:border-[#0474C4]/40 hover:bg-[#2C444C]/60 hover:text-white',
+                    'border-(--accent)/60 bg-(--accent-soft) text-(--accent)' :
+                    'border-(--border) bg-(--surface-soft)/55 text-(--text-muted) hover:border-(--accent)/40 hover:text-(--text-primary)',
                 )}
               >
                 {option.label}
@@ -167,7 +167,7 @@ export function AllMatchesPage() {
         <div className="flex w-full flex-col items-center gap-4 sm:w-auto sm:flex-row">
           <div className="flex w-full items-center space-x-2 sm:w-auto">
             <Checkbox id="premium" checked={premium === true} onCheckedChange={(checked) => setFilters(prev => ({ ...prev, premium: checked === true, page: 1 }))} />
-            <Label htmlFor="premium" className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-text-primary">
+            <Label htmlFor="premium" className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-(--text-primary)">
               <span className="flex items-center justify-center rounded-md bg-yellow-500/15 p-1 text-yellow-500">
                 <Star size={14} className="text-white" />
               </span>
@@ -178,7 +178,7 @@ export function AllMatchesPage() {
       </Card>
       </motion.div>
 
-      <div className="flex items-center justify-between text-xs text-text-muted" aria-live="polite">
+      <div className="flex items-center justify-between text-xs text-(--text-muted)" aria-live="polite">
         <span>{isFetching ? 'Refreshing matches...' : `${visibleMatches.length} matches`}</span>
         {status !== 'All' && <span>{status}</span>}
       </div>
@@ -186,13 +186,13 @@ export function AllMatchesPage() {
       <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="grid min-h-[50vh] grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading && Array.from({ length: 9 }).map((_, index) => <MatchCardSkeleton key={index} />)}
         {hasNoMatches && (
-          <Card className="col-span-full flex min-h-[clamp(22rem,50vh,34rem)] w-full flex-col items-center justify-center gap-5 border-dashed border-border/80 bg-surface-soft/55 p-6 text-center shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-10">
+          <Card className="col-span-full flex min-h-[clamp(22rem,50vh,34rem)] w-full flex-col items-center justify-center gap-5 border-(--border) bg-(--surface-soft)/55 p-6 text-center shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-10">
             <CardContent className="flex flex-col items-center justify-center gap-4">
-              <div className="flex items-center justify-center rounded-full border border-dashed border-accent/40 bg-accent/10 p-4 text-accent">
-                <Search className="h-12 w-12 text-text-muted" />
+              <div className="flex items-center justify-center rounded-full border border-(--accent)/30 bg-(--accent)/10 p-4 text-(--accent)">
+                <Search className="h-12 w-12 text-(--text-muted)" />
               </div>
-              <h3 className="text-xl font-semibold text-text-primary sm:text-2xl">No Matches Found</h3>
-              <p className="max-w-xl text-sm leading-6 text-text-muted sm:text-base">
+              <h3 className="text-xl font-semibold text-(--text-primary) sm:text-2xl">No Matches Found</h3>
+              <p className="max-w-xl text-sm leading-6 text-(--text-muted) sm:text-base">
                 {isError ? 'There was an error fetching matches.' : isRecent ? 'No recently completed matches from the last 7 days.' : 'Try adjusting your filters to find what you\'re looking for.'}
               </p>
             </CardContent>

@@ -42,8 +42,10 @@ model User {
   avatar                 String?
   passwordHash           String?
   googleId               String?   @unique
+  // Holds the bcrypt hash of the emailed 6-digit code, never the code itself.
   verificationOtp        String?
   verificationOtpExpires DateTime?
+  // Holds the bcrypt hash of the emailed 6-digit reset code, never the code itself.
   passwordResetToken     String?
   passwordResetExpires   DateTime?
   guestMode              Boolean   @default(true)

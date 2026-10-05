@@ -37,6 +37,9 @@ class NoopRedisClient {
   async zcount(..._args: unknown[]): Promise<number> { return 0 }
   async zadd(..._args: unknown[]): Promise<number> { return 0 }
   async zrem(..._args: unknown[]): Promise<number> { return 0 }
+  async zrange(..._args: unknown[]): Promise<string[]> { return [] }
+  async zrevrange(..._args: unknown[]): Promise<string[]> { return [] }
+  async zcard(..._args: unknown[]): Promise<number> { return 0 }
   async expire(..._args: unknown[]): Promise<number> { return 0 }
   duplicate(): this { return this }
 }

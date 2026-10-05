@@ -48,7 +48,7 @@ export function ProfilePage() {
   if (isUserLoading || !user) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-semibold text-text-primary">My Profile</h1>
+        <h1 className="text-3xl font-semibold text-(--text-primary)">My Profile</h1>
         <Card>
           <CardHeader><Skeleton className="h-8 w-48" /></CardHeader>
           <CardContent><Skeleton className="h-24 w-full" /></CardContent>
@@ -80,13 +80,13 @@ export function ProfilePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-4 overflow-x-hidden sm:space-y-5">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section relative overflow-hidden rounded-3xl border border-border bg-linear-to-br from-surface via-surface/90 to-accent/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-accent/8 blur-3xl" />
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section relative overflow-hidden rounded-3xl border border-(--border) bg-linear-to-br from-(--surface) via-(--surface)/90 to-(--accent)/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-(--accent)/8 blur-3xl" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Account center</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl">My Profile</h1>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-text-muted">Your home for favorites, account details, and quick access to the best live content.</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-(--accent)">Account center</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">My Profile</h1>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-(--text-muted)">Your home for favorites, account details, and quick access to the best live content.</p>
         </div>
         <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
           <DialogTrigger asChild>
@@ -107,20 +107,20 @@ export function ProfilePage() {
         </div>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="app-page-card overflow-hidden border-border bg-surface/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="app-page-card overflow-hidden border-(--border) bg-(--surface)/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
         <div className="flex flex-col gap-6 p-5 sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
           <div className="flex min-w-0 items-center gap-4 sm:gap-5">
-            <Avatar className="h-16 w-16 shrink-0 border-2 border-accent shadow-[0_10px_30px_rgba(4,116,196,0.2)] sm:h-20 sm:w-20" isLoading={isUpdating}>
+            <Avatar className="h-16 w-16 shrink-0 border-2 border-(--accent) shadow-[0_10px_30px_var(--shadow)] sm:h-20 sm:w-20" isLoading={isUpdating}>
               <AvatarImage src={user.avatar ? buildCloudinaryUrl(user.avatar, { width: 160, height: 160, crop: 'fill', gravity: 'face' }) : undefined} alt={user.fullName ?? 'User Profile'} />
               <AvatarFallback name={user.fullName ?? user.email ?? ''} className="text-2xl" />
             </Avatar>
             <div className="min-w-0">
               <CardTitle className="truncate text-xl sm:text-2xl">{user.fullName}</CardTitle>
-              <p className="truncate text-sm text-text-muted sm:text-base">{user.email}</p>
+              <p className="truncate text-sm text-(--text-muted) sm:text-base">{user.email}</p>
               {isPremium && (
-                <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-accent/30 bg-surface-soft/80 px-3 py-1 text-xs text-text-primary sm:text-sm">
-                  <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex shrink-0 items-center justify-center rounded-full bg-accent/12 p-1">
-                    <ShieldCheck className="h-4 w-4 text-accent" />
+                <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-(--accent)/30 bg-(--surface-soft)/80 px-3 py-1 text-xs text-(--text-primary) sm:text-sm">
+                  <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex shrink-0 items-center justify-center rounded-full bg-(--accent)/12 p-1">
+                    <ShieldCheck className="h-4 w-4 text-(--accent)" />
                   </motion.div>
                   Premium member
                 </div>
@@ -128,65 +128,65 @@ export function ProfilePage() {
             </div>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-2 md:max-w-md md:shrink-0">
-            <div className="rounded-2xl border border-border bg-surface-soft/80 p-4">
-              <div className="flex items-center gap-2 text-sm text-text-primary">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/12">
-                  <CalendarClock className="h-4 w-4 text-accent" />
+            <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/80 p-4">
+              <div className="flex items-center gap-2 text-sm text-(--text-primary)">
+                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+                  <CalendarClock className="h-4 w-4 text-(--accent)" />
                 </motion.div>
                 Member since
               </div>
-              <p className="mt-2 text-sm text-text-muted">{new Date(user.createdAt).toLocaleDateString()}</p>
+              <p className="mt-2 text-sm text-(--text-muted)">{new Date(user.createdAt).toLocaleDateString()}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-surface-soft/80 p-4">
-              <div className="flex items-center gap-2 text-sm text-text-primary">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/12">
-                  <BellRing className="h-4 w-4 text-accent" />
+            <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/80 p-4">
+              <div className="flex items-center gap-2 text-sm text-(--text-primary)">
+                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+                  <BellRing className="h-4 w-4 text-(--accent)" />
                 </motion.div>
                 Alerts
               </div>
-              <p className="mt-2 text-sm text-text-muted">Live updates enabled</p>
+              <p className="mt-2 text-sm text-(--text-muted)">Live updates enabled</p>
             </div>
           </div>
         </div>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="app-page-section grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card className="border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
-          <div className="flex items-center gap-2 text-text-primary">
-            <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
-              <Sparkles className="h-4 w-4 text-accent" />
+        <Card className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+          <div className="flex items-center gap-2 text-(--text-primary)">
+            <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12">
+              <Sparkles className="h-4 w-4 text-(--accent)" />
             </motion.div>
             <h2 className="text-lg font-semibold">Quick access</h2>
           </div>
-          <p className="mt-2 text-sm text-text-muted">Jump straight into live matches, standings, and your favorites.</p>
-          <Link to="/matches" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-accent">
+          <p className="mt-2 text-sm text-(--text-muted)">Jump straight into live matches, standings, and your favorites.</p>
+          <Link to="/matches" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
             Explore matches
             <motion.div whileHover={{ scale: 1.15, x: 3 }} className="flex items-center justify-center">
               <ArrowRight className="h-4 w-4" />
             </motion.div>
           </Link>
         </Card>
-        <Card className="flex min-w-0 flex-col border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+        <Card className="flex min-w-0 flex-col border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <CardContent className="grow p-0">
-            <div className="flex items-center gap-2 text-text-primary">
-              <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/12">
-                <Crown className="h-4 w-4 text-accent" />
+            <div className="flex items-center gap-2 text-(--text-primary)">
+              <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+                <Crown className="h-4 w-4 text-(--accent)" />
               </motion.div>
               <h2 className="text-lg font-semibold">Subscription status</h2>
             </div>
             {isPremium && activeSubscription ? (
-              <p className="mt-2 wrap-break-word text-sm leading-6 text-text-muted">
+              <p className="mt-2 wrap-break-word text-sm leading-6 text-(--text-muted)">
                 Status: <strong>ACTIVE</strong>. Plan: <strong>{activeSubscription.plan.name}</strong>. Price: <strong>{activeSubscription.plan.price} BDT</strong>. Started: <strong>{new Date(activeSubscription.startedAt).toLocaleString()}</strong>. Your access is valid until{' '}
                 <strong>{subscriptionEndDate}</strong>.
               </p>
             ) : user.subscription?.status === 'EXPIRED' ? (
-              <p className="mt-2 text-sm text-text-muted">Status: EXPIRED. Your previous <strong>{user.subscription.plan.name}</strong> plan has ended.</p>
+              <p className="mt-2 text-sm text-(--text-muted)">Status: EXPIRED. Your previous <strong>{user.subscription.plan.name}</strong> plan has ended.</p>
             ) : (
-              <p className="mt-2 text-sm text-text-muted">You are on the free plan. Upgrade to unlock premium content.</p>
+              <p className="mt-2 text-sm text-(--text-muted)">You are on the free plan. Upgrade to unlock premium content.</p>
             )}
           </CardContent>
           <CardFooter className="p-0 pt-4">
-            <Link to="/subscriptions" className="inline-flex items-center gap-2 text-sm font-medium text-accent">
+            <Link to="/subscriptions" className="inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
               {isPremium ? 'Manage Subscription' : 'Upgrade to Premium'}
               <motion.div whileHover={{ scale: 1.15, x: 3 }} className="flex items-center justify-center">
                 <ArrowRight className="h-4 w-4" />
@@ -195,19 +195,19 @@ export function ProfilePage() {
           </CardFooter>
         </Card>
 
-        <Card className="border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
-          <div className="flex items-center gap-2 text-text-primary">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
-              <BellRing className="h-4 w-4 text-accent" />
+        <Card className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+          <div className="flex items-center gap-2 text-(--text-primary)">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12">
+              <BellRing className="h-4 w-4 text-(--accent)" />
             </span>
             <h2 className="text-lg font-semibold">Preferences</h2>
           </div>
-          <p className="mt-2 text-sm text-text-muted">Custom alerts and saved matches are kept ready for your next session.</p>
+          <p className="mt-2 text-sm text-(--text-muted)">Custom alerts and saved matches are kept ready for your next session.</p>
         </Card>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
-        <div className="flex items-center gap-2 text-text-primary">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="app-page-card border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+        <div className="flex items-center gap-2 text-(--text-primary)">
           <h2 className="text-lg font-semibold">Recently Watched</h2>
         </div>
         <div className="mt-4">
@@ -215,15 +215,15 @@ export function ProfilePage() {
         </div>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }} className="app-page-card border-border bg-surface-soft/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
-        <div className="flex items-center gap-2 text-text-primary">
-          <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12">
-            <CreditCard className="h-4 w-4 text-accent" />
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }} className="app-page-card border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+        <div className="flex items-center gap-2 text-(--text-primary)">
+          <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12">
+            <CreditCard className="h-4 w-4 text-(--accent)" />
           </motion.div>
           <h2 className="text-lg font-semibold">Billing</h2>
         </div>
-        <p className="mt-2 text-sm text-text-muted">Review your subscription payments and transaction history.</p>
-        <Link to="/profile/payment-history" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-accent">
+        <p className="mt-2 text-sm text-(--text-muted)">Review your subscription payments and transaction history.</p>
+        <Link to="/profile/payment-history" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
           View Payment History <ArrowRight className="h-4 w-4" />
         </Link>
       </motion.div>
