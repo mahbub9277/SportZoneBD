@@ -29,10 +29,13 @@ const authApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<LoginResponse> | LoginResponse) => unwrapApiResponse<LoginResponse>(response),
       invalidatesTags: ['User'], // Invalidate user to refetch profile data
     }),
-    refreshSession: builder.query<RefreshResponse, void>({
-      query: () => ({
+    refreshSession: builder.query<RefreshResponse, { includeUser?: boolean } | void>({
+      query: (arg) => ({
         url: '/auth/refresh',
         method: 'POST',
+        // Asking for the profile here is what lets the startup bootstrap restore the session in a
+        // single round trip instead of refresh + /auth/me.
+        body: arg ?? {},
       }),
       transformResponse: (response: ApiResponse<RefreshResponse> | RefreshResponse) => unwrapApiResponse<RefreshResponse>(response),
     }),

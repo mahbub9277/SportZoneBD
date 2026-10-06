@@ -1,18 +1,18 @@
 /**
  * Retention rules for automatically finished matches.
  *
- * A finished match stays available for a short grace period, then the match automation cycle makes it
- * eligible for deletion. `Match.finishedAt` is the authoritative finish moment (it is persisted by
- * every status writer), with `Match.updatedAt` used only as a fallback for rows finished through a
- * generic update that did not record a finish moment.
+ * A finished match stays available for a short grace period (30 minutes), then the match automation
+ * cycle makes it eligible for deletion. `Match.finishedAt` is the authoritative finish moment (it is
+ * persisted by every status writer), with `Match.updatedAt` used only as a fallback for rows finished
+ * through a generic update that did not record a finish moment.
  */
 
 /** Product rule: a finished match is never deleted before this grace period has elapsed. */
-export const FINISHED_MATCH_MIN_RETENTION_MINUTES = 15
+export const FINISHED_MATCH_MIN_RETENTION_MINUTES = 30
 
 /**
  * Resolves the retention window. FINISHED_MATCH_RETENTION_MINUTES can extend the grace period for
- * staging or longer archiving, but it can never shorten it below the 15 minute product rule.
+ * staging or longer archiving, but it can never shorten it below the 30 minute product rule.
  */
 export function resolveFinishedMatchRetentionMinutes(envValue?: string | number | null): number {
   const parsed = Number(envValue)

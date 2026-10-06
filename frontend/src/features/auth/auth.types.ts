@@ -54,4 +54,10 @@ export interface LoginResponse {
   user: User;
 }
 
-export type RefreshResponse = Record<string, never>
+/**
+ * The refresh response only carries the profile when the client explicitly asks for it (the startup
+ * bootstrap), so the silent 401-driven refreshes keep returning no body.
+ */
+export type RefreshResponse = {
+  user?: User;
+}

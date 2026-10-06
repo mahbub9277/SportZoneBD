@@ -36,7 +36,7 @@ const FINISHED_MATCH_RETENTION_MINUTES = resolveFinishedMatchRetentionMinutes(pr
 if (FINISHED_MATCH_RETENTION_MINUTES > FINISHED_MATCH_MIN_RETENTION_MINUTES) {
   logger.warn(
     { retentionMinutes: FINISHED_MATCH_RETENTION_MINUTES, productRuleMinutes: FINISHED_MATCH_MIN_RETENTION_MINUTES },
-    'Finished match retention is configured above the 15 minute product rule; finished matches are deleted later than required',
+    'Finished match retention is configured above the 30 minute product rule; finished matches are deleted later than required',
   )
 }
 const FINISHED_MATCH_CLEANUP_BATCH_SIZE = 25

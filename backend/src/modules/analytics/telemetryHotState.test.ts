@@ -59,6 +59,30 @@ test('ending a session removes it from the total, the state and the resource', (
   assert.equal(state.resourceActiveViewers(RESOURCE), 0)
 })
 
+test('reset drops every mirror, bucket and pending increment', () => {
+  const state = new TelemetryHotState()
+  state.applyMembership(null, { state: 'HEALTHY', resource: RESOURCE })
+  state.rememberSession('session-1', healthySession())
+  state.recordCounter(RESOURCE, 'buffering_events', 3)
+  state.addBucketSample({ total: 2, healthy: 1, buffering: 1, errors: 0 }, Date.now())
+
+  assert.equal(state.getSession('session-1') !== undefined, true)
+  assert.equal(state.pendingCounterResourceCount, 1)
+
+  state.reset()
+
+  assert.deepEqual(state.countsSnapshot(), { total: 0, healthy: 0, buffering: 0, errors: 0 })
+  assert.equal(state.getSession('session-1'), undefined)
+  assert.equal(state.pendingCounterResourceCount, 0)
+  assert.equal(state.pendingBucketCount, 0)
+  assert.deepEqual(state.takeBuckets(true), [])
+  assert.deepEqual(state.takeCounterDeltas(), [])
+  assert.deepEqual(state.errorCounterSnapshot(10), [])
+  assert.deepEqual(state.listTrackedResources(10), [])
+  assert.equal(state.resourceActiveViewers(RESOURCE), 0)
+  assert.equal(state.droppedBucketCount, 0)
+})
+
 test('an ended session that starts again is counted once', () => {
   const state = new TelemetryHotState()
   state.applyMembership(null, { state: 'HEALTHY', resource: RESOURCE })

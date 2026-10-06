@@ -11,6 +11,7 @@ import { cleanupMatch } from '../../services/match-cleanup.service.js'
 import { writeAuditLog } from '../../core/audit.js'
 import { AppError } from '../../core/errors.js'
 import { resolveTeam } from '../teams/team.service.js'
+import { resolveFinishedMatchRetentionMinutes } from '../../services/finishedMatchRetention.js'
 
 export const getLiveMatches = asyncHandler(async (req: Request, res: Response) => {
   const paginatedQuery = {
@@ -168,6 +169,15 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
 
     if (!existingMatch) {
       return res.status(404).json(errorResponse('Match not found.'))
+    }
+
+    // A FINISHED transition records the authoritative finish moment, exactly like the dedicated
+    // status endpoint: cleanup retention is measured from this timestamp.
+    if (matchData.status === 'FINISHED') {
+      if (existingMatch.status !== 'FINISHED') matchData.finishedAt = new Date()
+    } else if (matchData.status) {
+      // Leaving FINISHED clears the moment so a re-opened match cannot look finished.
+      matchData.finishedAt = null
     }
 
     const homeTeam = await resolveTeam({ id: homeTeamId || null, name: matchData.homeTeamName, logoUrl: matchData.homeTeamLogo ?? null })
@@ -340,7 +350,9 @@ export const getFinishedMatches = asyncHandler(async (req: Request, res: Respons
     search: req.query.search as string,
   }
 
-  const retentionCutoff = new Date(Date.now() - 15 * 60 * 1000)
+  // The admin list shows exactly the retention window, so it can never hide a finished match that the
+  // cleanup has not deleted yet.
+  const retentionCutoff = new Date(Date.now() - resolveFinishedMatchRetentionMinutes(process.env.FINISHED_MATCH_RETENTION_MINUTES) * 60 * 1000)
   const { items, meta } = await getPaginatedData({
     model: 'match',
     query: { ...paginatedQuery, where: { status: 'FINISHED', deletedAt: null, finishedAt: { gt: retentionCutoff } } as any },

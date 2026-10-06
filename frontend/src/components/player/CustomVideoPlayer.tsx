@@ -1591,7 +1591,6 @@ export function CustomVideoPlayer({
           subtitlesEnabled={subtitlesEnabled}
           isPiPSupported={isPiPSupported}
           isPiPActive={isPiPActive}
-          isTouchDevice={isTouchDevice}
           compactControls={compactControls}
           liveWindow={liveWindow}
           qualityLevels={qualityLevels}

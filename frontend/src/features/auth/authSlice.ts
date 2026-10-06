@@ -34,11 +34,10 @@ const extractUserFromPayload = (payload: LoginResponse | User): User => {
 }
 
 /**
- * Handles successful authentication by updating state and persisting to storage.
+ * Marks the slice as authenticated for a known user and records the bootstrap hint so a reload tries
+ * to restore the session.
  */
-const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginResponse | User>) => {
-  const user = extractUserFromPayload(payload)
-
+const applyAuthenticatedUser = (state: AuthState, user: User) => {
   state.user = user
   state.isAuthenticated = true
   state.isInitializing = false
@@ -46,6 +45,14 @@ const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginRes
   state.accountStatusMessage = null
   setAuthBootstrapHint(true)
 }
+
+/**
+ * Handles successful authentication by updating state and persisting to storage.
+ */
+const handleAuthSuccess = (state: AuthState, { payload }: PayloadAction<LoginResponse | User>) => {
+  applyAuthenticatedUser(state, extractUserFromPayload(payload))
+}
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -57,24 +64,10 @@ const authSlice = createSlice({
       state,
       action: PayloadAction<{ user: User; rememberMe?: boolean }>,
     ) => {
-      const { user } = action.payload
-
-      state.user = user
-      state.isAuthenticated = true
-      state.isInitializing = false
-      state.accountStatus = null
-      state.accountStatusMessage = null
-      setAuthBootstrapHint(true)
+      applyAuthenticatedUser(state, action.payload.user)
     },
     setUser: (state, action: PayloadAction<{ user: User }>) => {
-      const { user } = action.payload
-
-      state.user = user
-      state.isAuthenticated = true
-      state.isInitializing = false
-      state.accountStatus = null
-      state.accountStatusMessage = null
-      setAuthBootstrapHint(true)
+      applyAuthenticatedUser(state, action.payload.user)
     },
     logout: (state) => {
       state.isAuthenticated = false
@@ -96,8 +89,13 @@ const authSlice = createSlice({
         ),
         handleAuthSuccess,
       )
-      .addMatcher(authApi.endpoints.refreshSession.matchFulfilled, (state) => {
-        state.isInitializing = true
+      .addMatcher(authApi.endpoints.refreshSession.matchFulfilled, (state, { payload }) => {
+        // A bootstrap refresh can restore the session on its own. Nothing is forced here: a refresh
+        // that carries no profile leaves initialization to the /auth/me call that follows, and a
+        // silent 401-driven refresh must never flip the app back into its initializing state.
+        if (payload?.user) {
+          applyAuthenticatedUser(state, payload.user)
+        }
       })
       // Matcher for when profile is updated, only updates the user object.
       .addMatcher(authApi.endpoints.updateProfile.matchFulfilled, (state, { payload }) => {

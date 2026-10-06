@@ -347,6 +347,28 @@ export class TelemetryHotState {
     this.pendingCounters.delete(resource)
   }
 
+  /**
+   * Drops every in-memory mirror, bucket and pending increment.
+   *
+   * Used when telemetry is switched off: nothing that was buffered may be written afterwards (an
+   * OFF subsystem must not touch Redis), so the pending work is discarded instead of flushed, and the
+   * next enable starts from a clean slate rather than from stale counts.
+   */
+  reset(): void {
+    this.sessions.clear()
+    this.counts.total = 0
+    this.counts.healthy = 0
+    this.counts.buffering = 0
+    this.counts.errors = 0
+    this.resourceStates.clear()
+    this.resourceCounters.clear()
+    this.resources.clear()
+    this.finishedBuckets.length = 0
+    this.pendingCounters.clear()
+    this.currentBucket = null
+    this.droppedBuckets = 0
+  }
+
   // ---------------------------------------------------------------- internals
 
   private addResourceMembership(membership: TelemetryMembership): void {

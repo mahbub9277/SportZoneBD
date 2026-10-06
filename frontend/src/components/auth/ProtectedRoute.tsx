@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
+import { Spinner } from '../ui/Spinner';
 import { selectCurrentUser, selectIsAuthenticated, selectIsInitializing } from '../../features/auth/auth.slice';
 
 interface ProtectedRouteProps {
@@ -20,8 +21,15 @@ export function ProtectedRoute({
   const isInitializing = useAppSelector(selectIsInitializing);
   const location = useLocation();
 
+  // "Not restored yet" is not "logged out": a protected route waits for the session to be known
+  // instead of redirecting, and says so rather than rendering a blank page.
   if (isInitializing) {
-    return null;
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <Spinner size="1.75rem" label="Restoring your session" />
+        <p className="text-sm text-(--text-muted)">Restoring your session…</p>
+      </div>
+    );
   }
 
   // 1. Check Authentication

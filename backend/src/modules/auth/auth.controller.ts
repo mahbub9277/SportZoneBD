@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import type { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import prisma from '../../core/prisma.js'
-import { comparePassword, hashPassword, hashOneTimeCode, verifyOneTimeCode, isOneTimeCodeUsable, signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken } from '../../core/auth.js';
+import { comparePassword, hashPassword, hashOneTimeCode, verifyOneTimeCode, isOneTimeCodeUsable, signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken, isSupersededRefreshToken, nextSessionRefreshCredentials, serializeSessionRefreshCredentials, ACCESS_TOKEN_MAX_AGE_MS, SESSION_MAX_AGE_MS } from '../../core/auth.js';
 import { successResponse, errorResponse } from '../../core/api-response.js'
 import { publicUserSelect } from '../users/user.utils.js';
 import { getUserProfile } from '../users/user.service.js';
@@ -42,18 +42,21 @@ const setAuthCookies = (res: Response, accessToken: string, refreshToken: string
   res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
     ...sharedCookieOptions,
     path: '/',
-    maxAge: 15 * 60 * 1000, // 15 minutes
+    maxAge: ACCESS_TOKEN_MAX_AGE_MS,
   })
 
   res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
     ...sharedCookieOptions,
-    path: '/api/v1/auth', // Important: Path should be specific to refresh/logout routes
-    maxAge: 7 * 24 * 60 * 60 * 1000, // Refresh token retains its existing lifetime.
+    path: REFRESH_TOKEN_PATH, // Only the refresh/logout endpoints can receive it
+    maxAge: SESSION_MAX_AGE_MS,
   })
 }
 
 /**
  * Creates a new session, signs JWTs, and sets them as httpOnly cookies.
+ *
+ * The session carries an absolute lifetime (`SESSION_MAX_AGE_MS`) that rotation never extends, so a
+ * silently renewed session still has a hard security boundary.
  * @param res The Express Response object.
  * @param userId The ID of the user for whom to create the session.
  */
@@ -64,7 +67,7 @@ export async function createSessionAndSetCookies(res: Response, userId: string):
     const session = await tx.session.create({
       data: {
         userId,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days absolute session lifetime
+        expiresAt: new Date(Date.now() + SESSION_MAX_AGE_MS),
       },
     })
     // 2. Create Access and Refresh tokens
@@ -427,6 +430,9 @@ export async function logoutUser(req: Request, res: Response) {
 
 export async function refreshAccessToken(req: Request, res: Response) {
   const { [REFRESH_TOKEN_COOKIE]: refreshToken } = req.cookies
+  // Only the startup/bootstrap call asks for the profile, so the silent 401-driven refreshes stay
+  // as small as possible.
+  const includeUser = (req.body as { includeUser?: unknown } | undefined)?.includeUser === true
 
   try {
     if (!refreshToken) {
@@ -452,19 +458,15 @@ export async function refreshAccessToken(req: Request, res: Response) {
       throw new UnauthorizedError('Invalid or expired session')
     }
 
-    if (session.expiresAt <= new Date()) {
-      await prisma.session.update({
-        where: { id: session.id },
-        data: { deletedAt: new Date(), refreshTokenHash: null },
-      })
-      throw new UnauthorizedError('Session expired')
-    }
+    // 3. Compare the incoming token with the stored credentials. The credential superseded by the
+    //    last rotation is accepted inside a short grace window: two tabs, or a reload racing an
+    //    in-flight refresh, can legitimately present it and must not be mistaken for a replay.
+    const isCurrentCredential = await compareRefreshToken(refreshToken, session.refreshTokenHash)
+    const isSupersededCredential = !isCurrentCredential
+      && await isSupersededRefreshToken(refreshToken, session.refreshTokenHash)
 
-    // 3. Compare the incoming token with the stored hash
-    const isTokenValid = await compareRefreshToken(refreshToken, session.refreshTokenHash)
-
-    // 4. **REUSE DETECTION**: If invalid, a stolen token was likely used. Invalidate all user sessions.
-    if (!isTokenValid) {
+    // 4. **REUSE DETECTION**: If no stored credential matches, a stolen token was likely used.
+    if (!isCurrentCredential && !isSupersededCredential) {
       await prisma.session.updateMany({
         where: { userId: payload.sub },
         data: { deletedAt: new Date(), refreshTokenHash: null },
@@ -472,21 +474,52 @@ export async function refreshAccessToken(req: Request, res: Response) {
       throw new UnauthorizedError('Refresh token reuse detected. All sessions have been logged out.')
     }
 
+    const rotatedAtMs = Date.now()
+    // A rotated credential never outlives its session, so the sliding window stays bounded by the
+    // absolute session lifetime instead of being extended on every refresh.
+    const remainingSessionSeconds = Math.max(60, Math.floor((session.expiresAt.getTime() - rotatedAtMs) / 1000))
+
     // 5. **TOKEN ROTATION**: Issue new tokens and update the session atomically
-    const newAccessToken = await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newAccessToken = signAccessToken({ sub: session.userId, jti: session.id })
-      const newRefreshToken = signRefreshToken({ sub: session.userId, jti: session.id })
-      const newRefreshTokenHash = await hashRefreshToken(newRefreshToken)
+      const newRefreshToken = signRefreshToken({ sub: session.userId, jti: session.id }, remainingSessionSeconds)
+      const newRefreshTokenHash = serializeSessionRefreshCredentials(
+        nextSessionRefreshCredentials(
+          session.refreshTokenHash,
+          isCurrentCredential,
+          await hashRefreshToken(newRefreshToken),
+          rotatedAtMs,
+        ),
+      )
       await tx.session.update({
         where: { id: session.id },
         data: { refreshTokenHash: newRefreshTokenHash },
       })
       // 6. Set new cookies
       setAuthCookies(res, newAccessToken, newRefreshToken)
-      return newAccessToken
     })
 
-    return res.status(200).json(successResponse({}, 'Token refreshed successfully'))
+    // 7. Optionally hand the restored profile back so the client does not need a second round trip.
+    //    The account checks mirror the ones the authenticate middleware applies to /auth/me, so a
+    //    session that is no longer allowed to act never looks restored: the client is left without a
+    //    profile and still goes through /auth/me, which produces the existing 401/403 handling.
+    let user = null
+    if (includeUser) {
+      try {
+        const account = await prisma.user.findUnique({
+          where: { id: session.userId, deletedAt: null },
+          select: { isActive: true, isSuspended: true, isBanned: true },
+        })
+
+        if (account && account.isActive && !account.isSuspended && !account.isBanned) {
+          user = await getUserProfile(session.userId)
+        }
+      } catch (error) {
+        logger.warn({ error, sessionId: session.id }, 'Could not include the user profile in the refresh response')
+      }
+    }
+
+    return res.status(200).json(successResponse({ ...(user ? { user } : {}) }, 'Token refreshed successfully'))
   } catch (error) {
     // Only clear cookies for authorization errors. Let other errors (e.g., database)
     // be handled by the global error handler.

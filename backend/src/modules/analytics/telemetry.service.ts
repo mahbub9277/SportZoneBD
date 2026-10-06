@@ -13,6 +13,7 @@ import {
   type TelemetryResourceStates,
   type TelemetryStateCounts,
 } from './telemetryHotState.js'
+import { createTelemetryRuntime } from './telemetryRuntime.js'
 
 export const TELEMETRY_SETTING_KEY = 'telemetry.enabled'
 
@@ -70,6 +71,18 @@ return 1
 
 const hotState = new TelemetryHotState()
 
+/**
+ * Last known value of the telemetry setting for this process, readable synchronously so the kill switch
+ * can be enforced before any telemetry work starts and without touching Redis or the database.
+ * It starts `false`: nothing telemetry-related runs until the setting has actually been read.
+ */
+let telemetryEnabledState = false
+
+/** True while this process believes telemetry is enabled. Never performs I/O. */
+export function isTelemetryEnabled(): boolean {
+  return telemetryEnabledState
+}
+
 let lastBroadcastAt = 0
 let lastBroadcastSignature: string | null = null
 let summaryCache: { value: TelemetrySummary; expiresAt: number } | null = null
@@ -79,6 +92,22 @@ let lastReconcileAt = 0
 let lastPruneAt = 0
 let reconcileInFlight: Promise<void> | null = null
 let legacyResourceMigrationDone = false
+
+/**
+ * Drops every buffered telemetry increment and cached derived value.
+ *
+ * Called when telemetry is switched off: pending buckets and counters must never be flushed afterwards
+ * (flushing them would be a telemetry write while telemetry is off), and the next enable has to start
+ * from a clean slate instead of reconciling against stale mirrors.
+ */
+function discardPendingTelemetryWork(): void {
+  hotState.reset()
+  lastBroadcastAt = 0
+  lastBroadcastSignature = null
+  summaryCache = null
+  lastReconcileAt = 0
+  lastPruneAt = 0
+}
 
 export interface TelemetrySummary {
   totalActiveViewers: number
@@ -98,12 +127,18 @@ export interface TelemetrySummary {
  */
 export async function getTelemetryEnabled(): Promise<boolean> {
   const now = Date.now()
-  if (settingCache && settingCache.expiresAt > now) return settingCache.value
+  if (settingCache && settingCache.expiresAt > now) {
+    // Even a cache hit keeps the runtime in sync: an instance that went dormant must start its
+    // maintenance timer as soon as the setting is known to be on again, and stop it when it is off.
+    applyTelemetryEnabled(settingCache.value)
+    return settingCache.value
+  }
 
   try {
     const setting = await prisma.setting.findUnique({ where: { key: TELEMETRY_SETTING_KEY } })
     const value = !setting || setting.deletedAt !== null || setting.value !== 'false'
     settingCache = { value, expiresAt: now + TELEMETRY_SETTING_CACHE_MS }
+    applyTelemetryEnabled(value)
     return value
   } catch (error) {
     logger.warn({ error }, 'Unable to read the telemetry setting')
@@ -119,6 +154,9 @@ export async function setTelemetryEnabled(enabled: boolean): Promise<void> {
     create: { key: TELEMETRY_SETTING_KEY, value, type: 'boolean', description: 'Enable or disable player telemetry collection.' },
   })
   settingCache = { value: enabled, expiresAt: Date.now() + TELEMETRY_SETTING_CACHE_MS }
+  // Applies immediately on this instance: off clears the maintenance timer and all buffered work, on
+  // starts the maintenance timer exactly once.
+  applyTelemetryEnabled(enabled)
   getIoInstance()?.emit('applicationSettingChanged', { key: TELEMETRY_SETTING_KEY, value })
 }
 
@@ -271,6 +309,13 @@ async function releaseMembership(sessionId: string, membership: TelemetryMembers
  * for the same minute simply adds to the same key.
  */
 export async function flushTelemetryAggregations(includeCurrentBucket: boolean): Promise<void> {
+  if (!isTelemetryEnabled()) {
+    // Kill switch: with telemetry off nothing buffered may be written. The increments are dropped
+    // rather than flushed, so no Redis command is issued from here while telemetry is off.
+    discardPendingTelemetryWork()
+    return
+  }
+
   const buckets = hotState.takeBuckets(includeCurrentBucket)
   const counters = hotState.takeCounterDeltas()
   if (buckets.length === 0 && counters.length === 0) return
@@ -313,7 +358,17 @@ async function ensureReconciled(now: number): Promise<void> {
  * because every read is score bounded.
  */
 async function runMaintenance(now = Date.now()): Promise<void> {
+  if (!isTelemetryEnabled()) {
+    // Kill switch, checked before any telemetry work: the flush would write Redis, the legacy
+    // migration would scan and rewrite the resource registry, and the reconcile/prune below would read
+    // and trim Redis sorted sets. None of that may happen while telemetry is off.
+    return
+  }
+
   await flushTelemetryAggregations(false)
+  // Re-checked before the first unconditional Redis access of the cycle: telemetry may have been
+  // switched off while the flush above was in flight.
+  if (!isTelemetryEnabled()) return
   void migrateLegacyResourceSet()
 
   if (reconcileInFlight) return reconcileInFlight
@@ -325,6 +380,8 @@ async function runMaintenance(now = Date.now()): Promise<void> {
     // Mark the attempt first: a failing reconcile must not be retried on every ingest event.
     lastReconcileAt = Date.now()
     try {
+      // Telemetry may have been switched off since this cycle started.
+      if (!isTelemetryEnabled()) return
       const counts = await readStateCounts(shouldPrune)
       if (shouldPrune) {
         lastPruneAt = Date.now()
@@ -356,6 +413,8 @@ async function reconcileTrackedResources(): Promise<void> {
   for (const { resource } of hotState.errorCounterSnapshot(MAX_PER_RESOURCE_RECONCILE)) tracked.add(resource)
 
   for (const resource of tracked) {
+    // Stop mid-way if telemetry was switched off: no further reconciliation reads or writes.
+    if (!isTelemetryEnabled()) return
     try {
       const now = Date.now()
       const [counter, healthy, buffering, errors] = await Promise.all([
@@ -533,7 +592,7 @@ export async function getTelemetryHistory(minutes: number) {
  * so an unchanged summary must not be published again.
  */
 async function broadcastTelemetrySummary(enabled: boolean): Promise<void> {
-  if (!enabled) return
+  if (!enabled || !isTelemetryEnabled()) return
   if (Date.now() - lastBroadcastAt < TELEMETRY_BROADCAST_INTERVAL_MS) return
   lastBroadcastAt = Date.now()
   const io = getIoInstance()
@@ -546,5 +605,38 @@ async function broadcastTelemetrySummary(enabled: boolean): Promise<void> {
   io.of('/admin').to('admin-room').emit('analytics:stream-health', { ...summary })
 }
 
-const maintenanceTimer = setInterval(() => { void runMaintenance() }, TELEMETRY_RECONCILE_INTERVAL_MS)
-if (typeof maintenanceTimer.unref === 'function') maintenanceTimer.unref()
+// ---------------------------------------------------------------- runtime lifecycle
+
+/**
+ * The maintenance runtime exists only while telemetry is enabled. With telemetry off no interval is
+ * registered at all, so no flush, migration, reconciliation, pruning or broadcast can run and no
+ * telemetry-specific Redis or database access happens.
+ */
+const telemetryRuntime = createTelemetryRuntime({
+  intervalMs: TELEMETRY_RECONCILE_INTERVAL_MS,
+  // Cached settings read: at most one database read per cache window, and none while dormant.
+  isEnabled: () => getTelemetryEnabled(),
+  runMaintenance: () => runMaintenance(),
+  onDisabled: discardPendingTelemetryWork,
+  onError: (error) => logger.warn({ error }, 'Telemetry maintenance cycle failed'),
+})
+
+/** Applies a known setting value once per change, keeping the timer and the cached state in step. */
+function applyTelemetryEnabled(enabled: boolean): void {
+  if (telemetryEnabledState === enabled) return
+  telemetryEnabledState = enabled
+  telemetryRuntime.apply(enabled)
+}
+
+/**
+ * Startup hook. Reads the telemetry setting once and starts the maintenance runtime only when it is
+ * enabled, so an installation that boots with telemetry off never starts telemetry work.
+ */
+export async function initializeTelemetryRuntime(): Promise<void> {
+  applyTelemetryEnabled(await getTelemetryEnabled())
+}
+
+/** Shutdown hook: clears the maintenance timer before the process closes. */
+export function stopTelemetryRuntime(): void {
+  telemetryRuntime.stop()
+}

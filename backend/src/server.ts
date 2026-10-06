@@ -247,6 +247,12 @@ async function bootstrap(): Promise<void> {
     logger.error({ error }, 'Failed to start match automation service')
   })
 
+  // Telemetry maintenance only runs while telemetry is enabled: an installation that boots with
+  // Analytics → Telemetry off never starts a telemetry timer, worker or Redis/DB access at all.
+  void import('./modules/analytics/telemetry.service.js')
+    .then(({ initializeTelemetryRuntime }) => initializeTelemetryRuntime())
+    .catch((error) => logger.warn({ error }, 'Telemetry runtime initialization failed'))
+
   const shutdown = async (signal: string) => {
     if (isShuttingDown) {
       logger.warn('Shutdown already in progress. Ignoring signal.')
@@ -286,10 +292,14 @@ async function bootstrap(): Promise<void> {
 
     try {
       // Flush buffered telemetry aggregations before Redis closes, so a graceful restart does not
-      // drop the increments accumulated since the last minute boundary.
-      const { flushTelemetryAggregations } = await import('./modules/analytics/telemetry.service.js')
-      await flushTelemetryAggregations(true)
-      logger.info('Telemetry aggregations flushed.')
+      // drop the increments accumulated since the last minute boundary. Skipped entirely while
+      // telemetry is off: nothing may be written then, and the runtime has already cleared its timer.
+      const { flushTelemetryAggregations, isTelemetryEnabled, stopTelemetryRuntime } = await import('./modules/analytics/telemetry.service.js')
+      stopTelemetryRuntime()
+      if (isTelemetryEnabled()) {
+        await flushTelemetryAggregations(true)
+        logger.info('Telemetry aggregations flushed.')
+      }
     } catch (error) {
       logger.error(error, 'Error flushing telemetry aggregations.')
     }

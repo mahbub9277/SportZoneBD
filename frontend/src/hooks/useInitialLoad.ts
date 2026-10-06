@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppDispatch, useAppSelector } from '@/app/hooks'
 import { useGetMeQuery, useRefreshSessionQuery } from '@/features/auth/auth.api.ts'
 import { selectIsAuthenticated, selectIsInitializing, setAuthInitializing } from '@/features/auth/auth.slice'
@@ -17,6 +17,26 @@ import {
 let bootstrapOwnedByThisTab = false
 
 /**
+ * How long the splash may cover the application while the session is being restored.
+ *
+ * A warm backend answers the bootstrap in a few hundred milliseconds, so the splash normally never
+ * reaches this budget. It only matters for a cold or unreachable backend, where blocking the whole
+ * application for the full safety timeout would be worse than showing the shell early: public
+ * routes keep working, protected routes show their own short authentication state, and the session
+ * still settles in the background.
+ *
+ * The budget is one-way per page load: the initializing state is only ever cleared, never set again,
+ * so the splash cannot come back once it has been released.
+ */
+const AUTH_SPLASH_BUDGET_MS = 2500
+
+/**
+ * Last-resort bound on the bootstrap itself. A request that never settles must not leave the
+ * application in its initializing state, so it is released as a guest instead of hanging forever.
+ */
+const AUTH_BOOTSTRAP_SAFETY_TIMEOUT_MS = 8000
+
+/**
  * A custom hook to manage the initial loading state of the application.
  * It encapsulates all essential queries that must complete before the UI is shown.
  */
@@ -29,13 +49,19 @@ export function useInitialLoad() {
   // not disable its own queries, and a freshly mounted subscription (isUninitialized) is not a skip.
   const isBootstrapBlocked = !shouldAttemptBootstrap || (hasAuthBootstrapLock() && !bootstrapOwnedByThisTab)
 
-  const { isLoading: isRefreshLoading, isSuccess: isRefreshSuccessful, isError: isRefreshError } = useRefreshSessionQuery(undefined, {
+  const [isSplashBudgetSpent, setIsSplashBudgetSpent] = useState(false)
+
+  // The single round trip that restores a session: the refresh endpoint returns the profile when it
+  // is asked for it, which removes the follow-up /auth/me request from startup entirely.
+  const { isLoading: isRefreshLoading, isSuccess: isRefreshSuccessful, isError: isRefreshError } = useRefreshSessionQuery({ includeUser: true }, {
     skip: isBootstrapBlocked,
     refetchOnMountOrArgChange: true,
   })
 
   const { data: sessionUser, isLoading: isSessionLoading, isFetching: isSessionFetching, isSuccess: isSessionSuccessful, isError: isSessionError } = useGetMeQuery(undefined, {
-    skip: isBootstrapBlocked || isRefreshLoading,
+    // Only needed when the refresh could not hand back a profile (an older cached response or a
+    // failed profile lookup), so it is skipped as soon as the refresh authenticated the user.
+    skip: isBootstrapBlocked || isRefreshLoading || isAuthenticated,
     selectFromResult: ({ data, isError, isFetching, isLoading, isSuccess }) => ({
       data,
       isError,
@@ -61,6 +87,13 @@ export function useInitialLoad() {
   }, [dispatch, isAuthInitializing, isBootstrapBlocked, shouldAttemptBootstrap])
 
   useEffect(() => {
+    if (!isAuthInitializing || !shouldAttemptBootstrap) return
+
+    const timeoutId = window.setTimeout(() => setIsSplashBudgetSpent(true), AUTH_SPLASH_BUDGET_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [isAuthInitializing, shouldAttemptBootstrap])
+
+  useEffect(() => {
     if (!shouldAttemptBootstrap) return
 
     // Both bootstrap queries are skipped for this mount (another mount owns the lock), so no
@@ -82,6 +115,14 @@ export function useInitialLoad() {
       return
     }
 
+    // The refresh alone is enough evidence once it restored the profile; there is nothing left to
+    // wait for, so the application is not kept behind the splash for the /auth/me request.
+    if (isAuthenticated && !isRefreshLoading && !isSessionLoading && !isSessionFetching) {
+      releaseAuthBootstrapLock()
+      dispatch(setAuthInitializing(false))
+      return
+    }
+
     if ((isRefreshLoading || isSessionLoading || isSessionFetching) && !hasAuthBootstrapLock()) {
       if (acquireAuthBootstrapLock()) bootstrapOwnedByThisTab = true
     }
@@ -90,13 +131,13 @@ export function useInitialLoad() {
       const timeoutId = window.setTimeout(() => {
         releaseAuthBootstrapLock()
         dispatch(setAuthInitializing(false))
-      }, 8000)
+      }, AUTH_BOOTSTRAP_SAFETY_TIMEOUT_MS)
 
       return () => window.clearTimeout(timeoutId)
     }
-  }, [dispatch, isBootstrapBlocked, isRefreshError, isRefreshLoading, isRefreshSuccessful, isSessionError, isSessionFetching, isSessionLoading, isSessionSuccessful, sessionUser, shouldAttemptBootstrap])
+  }, [dispatch, isAuthenticated, isBootstrapBlocked, isRefreshError, isRefreshLoading, isRefreshSuccessful, isSessionError, isSessionFetching, isSessionLoading, isSessionSuccessful, sessionUser, shouldAttemptBootstrap])
 
   return {
-    isLoading: isAuthInitializing && shouldAttemptBootstrap,
+    isLoading: isAuthInitializing && shouldAttemptBootstrap && !isSplashBudgetSpent,
   }
 }
