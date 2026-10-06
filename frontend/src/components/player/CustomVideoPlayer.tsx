@@ -56,6 +56,7 @@ interface PlayerState {
 type SettingsSection = 'root' | 'quality' | 'playback' | 'captions'
 interface LiveWindowState { hasTimeshift: boolean; liveStart: number; liveEdge: number; currentTime: number; isLive: boolean }
 type PlayerAction =
+  | { type: 'TOGGLE_PLAY' }
   | { type: 'SET_PLAYING'; payload: boolean }
   | { type: 'SET_VOLUME'; payload: number }
   | { type: 'SET_PLAYED'; payload: number }
@@ -84,6 +85,8 @@ const initialPlayerState: PlayerState = {
 
 const playerReducer = (state: PlayerState, action: PlayerAction): PlayerState => {
   switch (action.type) {
+    case 'TOGGLE_PLAY':
+      return { ...state, isPlaying: !state.isPlaying };
     case 'SET_PLAYING':
       return { ...state, isPlaying: action.payload };
     case 'SET_VOLUME':
@@ -568,9 +571,10 @@ export function CustomVideoPlayer({
 
   const handlePlayPause = useCallback(() => {
     const video = getVideoElement()
-    // Without a media element there is nothing to toggle; playback state is only ever derived from
-    // the native play/pause events, never optimistically guessed.
-    if (!video) return
+    if (!video) {
+      dispatch({ type: 'TOGGLE_PLAY' })
+      return
+    }
 
     if (video.paused || video.ended) {
       void video.play().catch(() => dispatch({ type: 'SET_PLAYING', payload: false }))

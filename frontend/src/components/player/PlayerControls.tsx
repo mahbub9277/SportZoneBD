@@ -84,7 +84,7 @@ const transportVisibilityClass = (visible: boolean) => visible
 
 export function PlayerControls({
   isPlaying, isMuted, volume, played, duration, progressRatio, isFullscreen, hasError, controlsVisible, isSettingsOpen,
-  activeSettingsSection, playbackRate, subtitlesEnabled, isPiPSupported, isPiPActive, compactControls,
+  activeSettingsSection, playbackRate, subtitlesEnabled, isPiPSupported, isPiPActive, compactControls, isTouchDevice,
   liveWindow, qualityLevels, currentLevel, playbackRates, subtitleChoices, selectedSubtitleLanguage,
   settingsButtonRef, settingsMenuRef, volumeContainerRef, onPlayPause, onVolumeButtonClick,
   onVolumeKeyDown, onVolumeChange, onSeekMouseDown, onSeekChange, onSeekMouseUp,
@@ -159,7 +159,7 @@ export function PlayerControls({
               <input aria-label="Volume level" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="h-1.5 w-full cursor-pointer accent-[#0474C4]" />
             </div>
           </div>
-          <span className="min-w-18 shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
+          <span className="min-w-[4.5rem] shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>
             <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} aria-label={hasError ? 'Retry playback' : 'Refresh playback'} title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className="h-4 w-4" /></button>
