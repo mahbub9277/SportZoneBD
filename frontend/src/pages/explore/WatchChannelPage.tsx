@@ -337,8 +337,8 @@ export function WatchChannelPage() {
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
       <Card className="mb-3 border-(--border) bg-(--surface)/70 p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant={optimisticReactions?.userReaction === 'LIKE' ? 'default' : 'outline'} size="sm" onClick={() => handleReaction('LIKE')} aria-label={isAuthenticated ? 'Like channel' : 'Sign in to like channel'}><ThumbsUp className="mr-1.5 h-4 w-4" />{optimisticReactions?.likeCount ?? reactions?.likeCount ?? 0}</Button>
-          <Button type="button" variant={optimisticReactions?.userReaction === 'DISLIKE' ? 'default' : 'outline'} size="sm" onClick={() => handleReaction('DISLIKE')} aria-label={isAuthenticated ? 'Dislike channel' : 'Sign in to dislike channel'}><ThumbsDown className="mr-1.5 h-4 w-4" />{optimisticReactions?.dislikeCount ?? reactions?.dislikeCount ?? 0}</Button>
+          <Button type="button" variant={optimisticReactions?.userReaction === 'LIKE' ? 'default' : 'outline'} size="sm" className="tabular-nums" aria-pressed={optimisticReactions?.userReaction === 'LIKE'} onClick={() => handleReaction('LIKE')} aria-label={isAuthenticated ? 'Like channel' : 'Sign in to like channel'}><ThumbsUp className="mr-1.5 h-4 w-4" />{optimisticReactions?.likeCount ?? reactions?.likeCount ?? 0}</Button>
+          <Button type="button" variant={optimisticReactions?.userReaction === 'DISLIKE' ? 'default' : 'outline'} size="sm" className="tabular-nums" aria-pressed={optimisticReactions?.userReaction === 'DISLIKE'} onClick={() => handleReaction('DISLIKE')} aria-label={isAuthenticated ? 'Dislike channel' : 'Sign in to dislike channel'}><ThumbsDown className="mr-1.5 h-4 w-4" />{optimisticReactions?.dislikeCount ?? reactions?.dislikeCount ?? 0}</Button>
           <Button type="button" variant="outline" size="sm" onClick={() => void handleShare()} aria-label="Share channel"><Share2 className="mr-1.5 h-4 w-4" />Share</Button>
         </div>
       </Card>
@@ -369,7 +369,7 @@ export function WatchChannelPage() {
 
           <button
             onClick={() => dispatch(toggleFavoriteChannel(channel.id))}
-            className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-soft/80 text-text-muted transition-colors hover:text-accent"
+            className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center text-text-muted transition-colors hover:text-accent"
             aria-label={favoriteChannelIds.includes(channel.id) ? `Remove ${channel.name} from favorites` : `Add ${channel.name} to favorites`}
           >
             <Heart

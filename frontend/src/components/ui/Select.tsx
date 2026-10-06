@@ -4,7 +4,57 @@ import { Check, ChevronDown } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
 
-const Select = SelectPrimitive.Root
+interface SelectOpenControl {
+  isOpen: boolean
+  /** Clears a stale toggle suppression left behind by an earlier press. */
+  resetToggleSuppression: () => void
+  /** Closes the list because the trigger itself was pressed again. */
+  closeFromTrigger: () => void
+}
+
+const SelectOpenContext = React.createContext<SelectOpenControl | null>(null)
+
+/**
+ * Radix opens the list on pointerdown and, for non-mouse pointers, opens it again from the click that
+ * follows the same press — closing on a trigger press depends on its outside-pointerdown detection,
+ * which is unreliable once the trigger sits inside another interactive layer (for example a Dialog).
+ * The open state is therefore mirrored here so a press on the trigger toggles it deterministically:
+ * pressing the open trigger closes the list and the trailing open of that same press is ignored.
+ */
+function Select({ open, defaultOpen = false, onOpenChange, children, ...props }: SelectPrimitive.SelectProps) {
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen)
+  const isControlled = open !== undefined
+  const isOpen = isControlled ? open : internalOpen
+  const suppressNextOpenRef = React.useRef(false)
+
+  const commitOpen = React.useCallback((next: boolean) => {
+    if (!isControlled) setInternalOpen(next)
+    onOpenChange?.(next)
+  }, [isControlled, onOpenChange])
+
+  const handleOpenChange = React.useCallback((next: boolean) => {
+    if (next && suppressNextOpenRef.current) {
+      suppressNextOpenRef.current = false
+      return
+    }
+    commitOpen(next)
+  }, [commitOpen])
+
+  const openControl = React.useMemo<SelectOpenControl>(() => ({
+    isOpen,
+    resetToggleSuppression: () => { suppressNextOpenRef.current = false },
+    closeFromTrigger: () => {
+      suppressNextOpenRef.current = true
+      commitOpen(false)
+    },
+  }), [commitOpen, isOpen])
+
+  return (
+    <SelectPrimitive.Root {...props} open={isOpen} onOpenChange={handleOpenChange}>
+      <SelectOpenContext.Provider value={openControl}>{children}</SelectOpenContext.Provider>
+    </SelectPrimitive.Root>
+  )
+}
 
 const SelectGroup = SelectPrimitive.Group
 
@@ -15,21 +65,31 @@ const SelectPortal = SelectPrimitive.Portal
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      'flex h-11 w-full items-center justify-between rounded-2xl border border-(--border)/70 bg-(--surface-soft)/90 px-4 py-2 text-sm font-medium text-(--text-primary) shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition-all duration-200 ease-out placeholder:text-(--text-muted) focus:outline-none focus:ring-2 focus:ring-(--accent)/40 focus:ring-offset-2 hover:border-(--accent) hover:bg-(--surface) focus:bg-(--surface)',
-      className,
-    )}
-    {...props}
-  >
-    {children}
-    <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 opacity-50" />
-    </SelectPrimitive.Icon>
-  </SelectPrimitive.Trigger>
-))
+>(({ className, children, onPointerDown, ...props }, ref) => {
+  const openControl = React.useContext(SelectOpenContext)
+
+  return (
+    <SelectPrimitive.Trigger
+      ref={ref}
+      onPointerDown={(event) => {
+        onPointerDown?.(event)
+        if (!openControl) return
+        openControl.resetToggleSuppression()
+        if (openControl.isOpen) openControl.closeFromTrigger()
+      }}
+      className={cn(
+        'flex h-11 w-full items-center justify-between rounded-2xl border border-(--border)/70 bg-(--surface-soft)/90 px-4 py-2 text-sm font-medium text-(--text-primary) shadow-[0_8px_20px_rgba(15,23,42,0.04)] backdrop-blur-sm transition-all duration-200 ease-out placeholder:text-(--text-muted) focus:outline-none focus:ring-2 focus:ring-(--accent)/40 focus:ring-offset-2 hover:border-(--accent) hover:bg-(--surface) focus:bg-(--surface)',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <ChevronDown className="h-4 w-4 opacity-50" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  )
+})
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
 const SelectContent = React.forwardRef<

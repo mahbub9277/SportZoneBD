@@ -6,12 +6,19 @@ import { useAppDispatch } from '../../../app/hooks'
 import { clearRecentChannels } from '../../../features/recent/recent.slice'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { useAdvertisementGate } from '../../../hooks/useAdvertisementGate'
+import { Skeleton } from '../../ui/Skeleton'
 
 interface RecentChannelsProps {
   recentChannelIds: string[]
+  /**
+   * Keeps the list geometry reserved while channel details load. Opt-in so hosts that rely on the
+   * list appearing (or not) keep their current behaviour; the placeholder rows match the real rows
+   * exactly, so the surrounding card cannot grow and push content below it.
+   */
+  showLoadingPlaceholder?: boolean
 }
 
-export function RecentChannels({ recentChannelIds }: RecentChannelsProps) {
+export function RecentChannels({ recentChannelIds, showLoadingPlaceholder = false }: RecentChannelsProps) {
   const openChannel = useAdvertisementGate('CHANNEL')
   const dispatch = useAppDispatch()
 
@@ -26,6 +33,8 @@ export function RecentChannels({ recentChannelIds }: RecentChannelsProps) {
     const channelMap = new Map(channelsData.map((channel: Channel) => [channel.id, channel]))
     return recentChannelIds.map((id) => channelMap.get(id)).filter(Boolean) as Channel[]
   }, [recentChannelIds, channelsData, isLoading])
+
+  const showPlaceholders = showLoadingPlaceholder && isLoading && recentChannelIds.length > 0
 
   if (recentChannelIds.length === 0) {
     return null // Don't render anything if there are no recent channels
@@ -47,7 +56,9 @@ export function RecentChannels({ recentChannelIds }: RecentChannelsProps) {
         </button>
       </div>
       <div className="grid gap-2">
-        {recentChannels.map((channel: Channel, index: number) => (
+        {showPlaceholders
+          ? recentChannelIds.map((id) => <RecentChannelRowPlaceholder key={`recent-placeholder-${id}`} />)
+          : recentChannels.map((channel: Channel, index: number) => (
           <button
             key={channel.id || `recent-channel-${index}`}
             onClick={() => openChannel(`/watch/${channel.id}`, channel.isPremium === true)}
@@ -64,6 +75,21 @@ export function RecentChannels({ recentChannelIds }: RecentChannelsProps) {
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Mirrors a real recent-channel row box exactly (same wrapper classes and inner line/avatar sizes)
+ * so the list keeps its height while channel details are still loading.
+ */
+function RecentChannelRowPlaceholder() {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-(--border) bg-(--surface)/70 px-3 py-2.5" aria-hidden="true">
+      <span className="min-w-0 flex-1">
+        <Skeleton className="h-5 w-32" />
+      </span>
+      <Skeleton className="ml-2 h-6 w-6 rounded-full" />
     </div>
   )
 }

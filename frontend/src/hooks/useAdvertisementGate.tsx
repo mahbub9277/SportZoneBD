@@ -32,11 +32,25 @@ import {
 import type { Advertisement } from '../features/admin/advertisements.api'
 import { useTrackEventMutation } from '../features/analytics/analytics.api'
 import { Button } from '../components/ui/Button'
+import {
+  getAdStorage,
+  hasDurationElapsed,
+  initialAdVisitState,
+  isAdVisitRunning,
+  isUnlockActive,
+  readAdRecord,
+  recordAdCompletion,
+  recordAdDismissal,
+  reduceAdVisit,
+  shouldAutoOpenAd,
+  type AdVisitState,
+} from '../features/ads/adSession'
+import { useAdCountdown } from '../features/ads/useAdCountdown'
 
 type AdvertisementPlacement = 'MATCH' | 'CHANNEL' | 'FULL_PAGE'
-interface AdvertisementRequest { placement: AdvertisementPlacement; destination: string; onComplete?: () => void; seenKey?: string }
+interface AdvertisementRequest { placement: AdvertisementPlacement; destination: string; onComplete?: () => void }
 interface AdvertisementGateContextValue {
-  openAdvertisement: (placement: AdvertisementPlacement, destination: string, onComplete?: () => void, seenKey?: string) => void
+  openAdvertisement: (placement: AdvertisementPlacement, destination: string, onComplete?: () => void) => void
 }
 const AdvertisementGateContext = createContext<AdvertisementGateContextValue | null>(null)
 const isSafeDestination = (value: string): boolean => value.startsWith('/') && !value.startsWith('//')
@@ -45,11 +59,10 @@ const placementLabels: Record<AdvertisementPlacement, string> = {
   CHANNEL: 'Channel ad',
   FULL_PAGE: 'Full page ad',
 }
-// The countdown only commits state when the displayed second changes, so a 250ms tick keeps the
-// timer accurate without re-rendering the dialog four times per second.
-const COUNTDOWN_TICK_MS = 250
 // A completed session hands control back to the requested destination after a short beat.
 const AUTO_RETURN_DELAY_MS = 700
+// Ignore the focus event that the sponsor click itself produces.
+const SPONSOR_OPEN_GRACE_MS = 300
 
 export function useAdvertisementGate(placement: AdvertisementPlacement) {
   const context = useContext(AdvertisementGateContext)
@@ -67,7 +80,7 @@ export function useAdvertisementGate(placement: AdvertisementPlacement) {
       else navigate(destination)
       return
     }
-    const hasUnlock = Boolean(unlock && new Date(unlock.expiresAt).getTime() > Date.now())
+    const hasUnlock = isUnlockActive(unlock, Date.now())
     if (isPremium || hasUnlock || (!isAdvertisementLoading && !isUnlockLoading && !advertisement)) {
       if (onComplete) onComplete()
       else navigate(destination)
@@ -82,38 +95,33 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
   const location = useLocation()
   const isPremium = useAppSelector(selectIsPremiumSubscriber)
   const [request, setRequest] = useState<AdvertisementRequest | null>(null)
+  const [visit, setVisit] = useState<AdVisitState>(initialAdVisitState)
   const [hasVisited, setHasVisited] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [isSessionStarted, setIsSessionStarted] = useState(false)
-  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null)
-  const [remaining, setRemaining] = useState(0)
-  const [completionState, setCompletionState] = useState<'idle' | 'verifying' | 'unlocked'>('idle')
-  const [earlyExit, setEarlyExit] = useState(false)
-  const [sessionError, setSessionError] = useState<string | null>(null)
+  const [startError, setStartError] = useState<string | null>(null)
+  const { data: advertisement, isLoading } = useGetInterstitialAdvertisementQuery(request?.placement ?? 'MATCH', { skip: !request || isPremium })
+  const { data: unlock, isLoading: isUnlockLoading } = useGetAdUnlockQuery(undefined, { skip: isPremium })
+  const { data: fullPageAdvertisement } = useGetInterstitialAdvertisementQuery('FULL_PAGE', { skip: isPremium })
   const completionRequestedRef = useRef(false)
-  const countdownTimerRef = useRef<number | null>(null)
   const autoReturnTimerRef = useRef<number | null>(null)
-  const sessionStartedAtRef = useRef<number | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const requiredDurationMsRef = useRef(0)
   const hasLeftSiteRef = useRef(false)
   const sponsorOpenedAtRef = useRef<number | null>(null)
   const visitInFlightRef = useRef(false)
   const impressedAdvertisementIdRef = useRef<string | null>(null)
-  const { data: advertisement, isLoading } = useGetInterstitialAdvertisementQuery(request?.placement ?? 'MATCH', { skip: !request || isPremium })
-  const { data: unlock } = useGetAdUnlockQuery(undefined, { skip: !request || isPremium })
-  const { data: fullPageAdvertisement } = useGetInterstitialAdvertisementQuery('FULL_PAGE', { skip: isPremium })
+  // Latest committed values for the async callbacks, so a stale closure can never complete, cancel or
+  // dismiss the wrong advertisement session. Synced in an effect (declared before the countdown clock)
+  // so every ref is up to date before a handler or timer can run.
+  const visitRef = useRef(visit)
+  const requestRef = useRef(request)
+  const advertisementRef = useRef(advertisement)
+  useEffect(() => {
+    visitRef.current = visit
+    requestRef.current = request
+    advertisementRef.current = advertisement
+  })
   const [startViewSession, { isLoading: isStarting }] = useStartAdViewSessionMutation()
   const [completeViewSession, { isLoading: isCompleting }] = useCompleteAdViewSessionMutation()
   const [cancelViewSession] = useCancelAdViewSessionMutation()
   const [trackEvent] = useTrackEventMutation()
-
-  const clearCountdownTimer = useCallback(() => {
-    if (countdownTimerRef.current !== null) {
-      window.clearInterval(countdownTimerRef.current)
-      countdownTimerRef.current = null
-    }
-  }, [])
 
   const clearAutoReturnTimer = useCallback(() => {
     if (autoReturnTimerRef.current !== null) {
@@ -122,84 +130,82 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
     }
   }, [])
 
+  // The single authoritative completion path: the countdown clock, the return-to-tab check and the
+  // manual retry all funnel through here, and `completionRequestedRef` guarantees exactly one server
+  // completion per visit.
   const completeCurrentSession = useCallback(async () => {
-    const activeSessionId = sessionIdRef.current
-
-    if (!activeSessionId || completionRequestedRef.current) return
+    const active = visitRef.current
+    if (active.status !== 'active' || !active.sessionId || completionRequestedRef.current) return
 
     completionRequestedRef.current = true
-    setCompletionState('verifying')
+    setVisit((current) => reduceAdVisit(current, { type: 'beginCompletion' }))
 
     try {
-      await completeViewSession(activeSessionId).unwrap()
-      clearCountdownTimer()
-      clearAutoReturnTimer()
-      setCountdownEndsAt(null)
-      setRemaining(0)
-      setIsSessionStarted(false)
-      setSessionId(null)
-      sessionIdRef.current = null
-      sessionStartedAtRef.current = null
-      requiredDurationMsRef.current = 0
+      await completeViewSession(active.sessionId).unwrap()
+      const advertisementId = advertisementRef.current?.id
+      if (advertisementId) recordAdCompletion(getAdStorage(), advertisementId, Date.now())
       sponsorOpenedAtRef.current = null
       visitInFlightRef.current = false
-      setCompletionState('unlocked')
+      setVisit((current) => reduceAdVisit(current, { type: 'completionSucceeded' }))
 
-      if (!request) return
+      const pending = requestRef.current
+      if (!pending) return
 
+      clearAutoReturnTimer()
       autoReturnTimerRef.current = window.setTimeout(() => {
         autoReturnTimerRef.current = null
-        if (request.onComplete) request.onComplete()
-        else navigate(request.destination, { replace: true })
+        if (pending.onComplete) pending.onComplete()
+        else navigate(pending.destination, { replace: true })
         setRequest(null)
       }, AUTO_RETURN_DELAY_MS)
     } catch {
       completionRequestedRef.current = false
       visitInFlightRef.current = false
-      setCompletionState('idle')
-      setIsSessionStarted(false)
-      setCountdownEndsAt(null)
-      setSessionError('We could not verify that the advertisement was completed. Please try again.')
-      setRemaining(1)
+      setVisit((current) => reduceAdVisit(current, { type: 'completionFailed', message: 'We could not verify that the advertisement was completed. Please try again.' }))
     }
-  }, [clearAutoReturnTimer, clearCountdownTimer, completeViewSession, navigate, request])
+  }, [clearAutoReturnTimer, completeViewSession, navigate])
 
-  const openAdvertisement = useCallback((placement: AdvertisementPlacement, destination: string, onComplete?: () => void, seenKey?: string) => {
+  const remaining = useAdCountdown({
+    startedAtMs: visit.startedAtMs,
+    durationSeconds: visit.durationSeconds,
+    active: visit.status === 'active',
+    onElapsed: () => { void completeCurrentSession() },
+  })
+
+  const isSessionStarted = visit.status === 'active'
+  const completionState: 'idle' | 'verifying' | 'unlocked' = visit.status === 'verifying' ? 'verifying' : visit.status === 'completed' ? 'unlocked' : 'idle'
+  const earlyExit = visit.status === 'dismissed' && visit.dismissalReason === 'interrupted'
+  const sessionError = startError ?? visit.errorMessage
+
+  const openAdvertisement = useCallback((placement: AdvertisementPlacement, destination: string, onComplete?: () => void) => {
     if (!isSafeDestination(destination)) return
-    clearCountdownTimer()
     clearAutoReturnTimer()
-    setRequest({ placement, destination, onComplete, seenKey })
+    setRequest({ placement, destination, onComplete })
+    setVisit(initialAdVisitState)
     setHasVisited(false)
-    setSessionId(null)
-    sessionIdRef.current = null
-    setIsSessionStarted(false)
-    setCountdownEndsAt(null)
-    setRemaining(0)
-    setCompletionState('idle')
-    setEarlyExit(false)
-    setSessionError(null)
-    sessionStartedAtRef.current = null
-    requiredDurationMsRef.current = 0
+    setStartError(null)
     hasLeftSiteRef.current = false
     sponsorOpenedAtRef.current = null
     visitInFlightRef.current = false
     completionRequestedRef.current = false
     impressedAdvertisementIdRef.current = null
-  }, [clearAutoReturnTimer, clearCountdownTimer])
+  }, [clearAutoReturnTimer])
 
   useEffect(() => () => {
-    clearCountdownTimer()
     clearAutoReturnTimer()
-  }, [clearAutoReturnTimer, clearCountdownTimer])
+  }, [clearAutoReturnTimer])
 
   useEffect(() => {
     if (isPremium || request || !fullPageAdvertisement) return
     if (location.pathname.startsWith('/admin') || location.pathname.startsWith('/login') || location.pathname === '/advertisements/interstitial') return
-    const seenKey = `sportzone-full-page-ad:${fullPageAdvertisement.id}`
-    if (sessionStorage.getItem(seenKey)) return
-    const destination = `${location.pathname}${location.search}`
-    openAdvertisement('FULL_PAGE', destination, () => sessionStorage.setItem(seenKey, 'completed'), seenKey)
-  }, [fullPageAdvertisement, isPremium, location.pathname, location.search, openAdvertisement, request])
+    // Entitlements are checked before anything else: a premium account or a still-valid unlock must
+    // never be interrupted by an advertisement.
+    if (isUnlockLoading || isUnlockActive(unlock, Date.now())) return
+    const now = Date.now()
+    const record = readAdRecord(getAdStorage(), fullPageAdvertisement.id, now)
+    if (!shouldAutoOpenAd(record, { nowMs: now, isPremium, hasActiveUnlock: false })) return
+    openAdvertisement('FULL_PAGE', `${location.pathname}${location.search}`)
+  }, [fullPageAdvertisement, isPremium, isUnlockLoading, location.pathname, location.search, openAdvertisement, request, unlock])
 
   useEffect(() => {
     if (!request || !advertisement) return
@@ -207,7 +213,7 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
       impressedAdvertisementIdRef.current = advertisement.id
       void trackEvent({ type: 'ADVERTISEMENT_IMPRESSION', entityId: advertisement.id })
     }
-    if (unlock && new Date(unlock.expiresAt).getTime() > Date.now()) {
+    if (isUnlockActive(unlock, Date.now())) {
       if (request.onComplete) request.onComplete()
       else navigate(request.destination, { replace: true })
       queueMicrotask(() => setRequest(null))
@@ -215,62 +221,27 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
   }, [advertisement, navigate, request, trackEvent, unlock])
 
   useEffect(() => {
-    if (!countdownEndsAt) return
-
-    const tick = () => {
-      const next = Math.max(0, Math.ceil((countdownEndsAt - Date.now()) / 1000))
-      setRemaining((current) => (current === next ? current : next))
-
-      if (next === 0) {
-        if (countdownTimerRef.current !== null) {
-          window.clearInterval(countdownTimerRef.current)
-          countdownTimerRef.current = null
-        }
-        void completeCurrentSession()
-      }
-    }
-
-    const timer = window.setInterval(tick, COUNTDOWN_TICK_MS)
-    countdownTimerRef.current = timer
-    tick()
-
-    return () => {
-      window.clearInterval(timer)
-      if (countdownTimerRef.current === timer) countdownTimerRef.current = null
-    }
-  }, [completeCurrentSession, countdownEndsAt])
-
-  useEffect(() => {
-    if (!isSessionStarted) return
+    if (visit.status !== 'active') return
     const handleReturnToSite = () => {
       if (document.hidden) {
         hasLeftSiteRef.current = true
         return
       }
       if (!hasLeftSiteRef.current || completionRequestedRef.current) return
-      if (sponsorOpenedAtRef.current && Date.now() - sponsorOpenedAtRef.current < 300) return
+      if (sponsorOpenedAtRef.current && Date.now() - sponsorOpenedAtRef.current < SPONSOR_OPEN_GRACE_MS) return
 
-      const startedAt = sessionStartedAtRef.current
-      const durationMs = requiredDurationMsRef.current
-      const activeSessionId = sessionIdRef.current
-      const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0
-      const remainingSeconds = Math.max(0, Math.ceil((durationMs - elapsedMs) / 1000))
+      const active = visitRef.current
+      if (active.status !== 'active' || active.startedAtMs === null) return
 
-      if (elapsedMs < durationMs) {
-        clearCountdownTimer()
-        if (activeSessionId) void cancelViewSession(activeSessionId)
-        completionRequestedRef.current = true
-        visitInFlightRef.current = false
-        setEarlyExit(true)
-        setIsSessionStarted(false)
-        setSessionId(null)
-        sessionIdRef.current = null
-        setCountdownEndsAt(null)
-        setRemaining(remainingSeconds)
+      if (hasDurationElapsed(active.startedAtMs, active.durationSeconds, Date.now())) {
+        void completeCurrentSession()
         return
       }
 
-      void completeCurrentSession()
+      if (active.sessionId) void cancelViewSession(active.sessionId)
+      completionRequestedRef.current = true
+      visitInFlightRef.current = false
+      setVisit((current) => reduceAdVisit(current, { type: 'dismiss', reason: 'interrupted' }))
     }
     document.addEventListener('visibilitychange', handleReturnToSite)
     window.addEventListener('focus', handleReturnToSite)
@@ -278,7 +249,7 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
       document.removeEventListener('visibilitychange', handleReturnToSite)
       window.removeEventListener('focus', handleReturnToSite)
     }
-  }, [cancelViewSession, clearCountdownTimer, completeCurrentSession, isSessionStarted, navigate, request])
+  }, [cancelViewSession, completeCurrentSession, visit.status])
 
   useEffect(() => {
     if (!request) return
@@ -290,60 +261,54 @@ export function AdvertisementGateProvider({ children }: { children: ReactNode })
   }, [request])
 
   const handleVisit = useCallback(async () => {
-    if (!advertisement || isStarting || isSessionStarted || visitInFlightRef.current) return
+    const current = advertisementRef.current
+    if (!current || visitInFlightRef.current || isAdVisitRunning(visitRef.current)) return
     visitInFlightRef.current = true
+    completionRequestedRef.current = false
+    setStartError(null)
     try {
-      completionRequestedRef.current = false
-      setEarlyExit(false)
-      setSessionError(null)
-      const session = await startViewSession({ advertisementId: advertisement.id }).unwrap()
-      void trackEvent({ type: 'ADVERTISEMENT_WATCH_NOW', entityId: advertisement.id })
-      setSessionId(session.sessionId)
-      sessionIdRef.current = session.sessionId
-      setIsSessionStarted(true)
+      const session = await startViewSession({ advertisementId: current.id }).unwrap()
+      void trackEvent({ type: 'ADVERTISEMENT_WATCH_NOW', entityId: current.id })
+      setVisit((previous) => reduceAdVisit(previous, {
+        type: 'start',
+        sessionId: session.sessionId,
+        startedAtMs: new Date(session.startedAt).getTime(),
+        durationSeconds: session.durationSeconds,
+      }))
       setHasVisited(true)
       hasLeftSiteRef.current = true
-      const startedAtMs = new Date(session.startedAt).getTime()
-      const durationMs = session.durationSeconds * 1000
-      sessionStartedAtRef.current = startedAtMs
-      requiredDurationMsRef.current = durationMs
       sponsorOpenedAtRef.current = Date.now()
-      setCountdownEndsAt(startedAtMs + durationMs)
-      setRemaining(session.durationSeconds)
-      window.open(advertisement.link, '_blank', 'noopener,noreferrer')
+      visitInFlightRef.current = false
+      window.open(current.link, '_blank', 'noopener,noreferrer')
     } catch {
       visitInFlightRef.current = false
-      setSessionError('Unable to start the advertisement session. Please try again.')
+      setStartError('Unable to start the advertisement session. Please try again.')
     }
-  }, [advertisement, isSessionStarted, isStarting, startViewSession, trackEvent])
+  }, [startViewSession, trackEvent])
 
   const handleReopenSponsor = useCallback(() => {
-    if (!advertisement) return
+    const current = advertisementRef.current
+    if (!current) return
     sponsorOpenedAtRef.current = Date.now()
-    window.open(advertisement.link, '_blank', 'noopener,noreferrer')
-  }, [advertisement])
+    window.open(current.link, '_blank', 'noopener,noreferrer')
+  }, [])
 
   const handleClose = useCallback(() => {
-    clearCountdownTimer()
     clearAutoReturnTimer()
-    if (request?.seenKey) {
-      try {
-        sessionStorage.setItem(request.seenKey, 'dismissed')
-      } catch {
-        // Storage can be unavailable (private mode); the dismissal still applies to this mount.
-      }
-    }
-    if (sessionId && isSessionStarted) void cancelViewSession(sessionId)
-    sessionIdRef.current = null
+    const active = visitRef.current
+    if (active.status === 'active' && active.sessionId) void cancelViewSession(active.sessionId)
+    // A dismissal is stored as a dismissal — never as a completion — and only with a timestamp so it
+    // can expire instead of permanently blocking the advertisement.
+    const advertisementId = advertisementRef.current?.id
+    if (advertisementId && active.status !== 'completed') recordAdDismissal(getAdStorage(), advertisementId, Date.now())
     completionRequestedRef.current = false
     hasLeftSiteRef.current = false
-    sessionStartedAtRef.current = null
-    requiredDurationMsRef.current = 0
     sponsorOpenedAtRef.current = null
     visitInFlightRef.current = false
-    setSessionError(null)
+    setStartError(null)
+    setVisit((current) => reduceAdVisit(current, { type: 'dismiss', reason: 'closed' }))
     setRequest(null)
-  }, [cancelViewSession, clearAutoReturnTimer, clearCountdownTimer, isSessionStarted, request, sessionId])
+  }, [cancelViewSession, clearAutoReturnTimer])
 
   useEffect(() => {
     if (!request) return

@@ -75,12 +75,12 @@ export interface MatchPlayerMetadata {
 
 const buttonClass = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 shadow-sm transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-40'
 const glassClass = 'border border-white/12 bg-black/35 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur-xl'
-const transportButtonBase = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/45 text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-white/25 hover:bg-black/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
-const transportPrimaryBase = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
-// The overlay itself never captures pointer events; only the transport buttons opt in, and only
-// while the overlay is actually visible (so it can neither block the video nor leave ghost targets).
-const transportPointerClass = (visible: boolean) => (visible ? 'pointer-events-auto' : 'pointer-events-none')
-const transportOverlayClass = (visible: boolean) => `pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-3 px-4 pb-6 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 sm:pb-0 ${visible ? 'opacity-100' : 'opacity-0'}`
+const transportButtonClass = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/45 text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-white/25 hover:bg-black/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
+const transportPrimaryClass = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
+// Only the transport buttons opt into pointer events, and only while the overlay is actually shown.
+const transportVisibilityClass = (visible: boolean) => visible
+  ? 'opacity-100 [&_button]:pointer-events-auto'
+  : 'pointer-events-none opacity-0 [&_button]:pointer-events-none'
 
 export function PlayerControls({
   isPlaying, isMuted, volume, played, duration, progressRatio, isFullscreen, hasError, controlsVisible, isSettingsOpen,
@@ -127,21 +127,21 @@ export function PlayerControls({
       </div>}
 
       <div
-        className={transportOverlayClass(showTransportControls)}
+        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-3 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 ${transportVisibilityClass(showTransportControls)}`}
         aria-hidden={!showTransportControls}
         onClick={stopControlPropagation}
         onDoubleClick={stopControlPropagation}
       >
         {showSeekControls && (
-          <button type="button" className={`${transportButtonBase} ${transportPointerClass(showTransportControls)}`} onClick={onSeekBackward} tabIndex={showTransportControls ? 0 : -1} aria-label="Rewind 5 seconds" title="Rewind 5 seconds">
+          <button type="button" className={transportButtonClass} onClick={onSeekBackward} tabIndex={showTransportControls ? 0 : -1} aria-label="Rewind 5 seconds" title="Rewind 5 seconds">
             <TransportGlyph icon={<RotateCcw className="h-6 w-6" aria-hidden="true" />} badge="5" />
           </button>
         )}
-        <button type="button" className={`${transportPrimaryBase} ${transportPointerClass(showTransportControls)}`} onClick={onPlayPause} tabIndex={showTransportControls ? 0 : -1} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>
+        <button type="button" className={transportPrimaryClass} onClick={onPlayPause} tabIndex={showTransportControls ? 0 : -1} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>
           {isPlaying ? <Pause className="h-6 w-6" aria-hidden="true" /> : <Play className="h-6 w-6 translate-x-0.5" aria-hidden="true" />}
         </button>
         {showSeekControls && (
-          <button type="button" className={`${transportButtonBase} ${transportPointerClass(showTransportControls)}`} onClick={onSeekForward} tabIndex={showTransportControls ? 0 : -1} aria-label="Skip forward 10 seconds" title="Skip forward 10 seconds">
+          <button type="button" className={transportButtonClass} onClick={onSeekForward} tabIndex={showTransportControls ? 0 : -1} aria-label="Skip forward 10 seconds" title="Skip forward 10 seconds">
             <TransportGlyph icon={<RotateCw className="h-6 w-6" aria-hidden="true" />} badge="10" />
           </button>
         )}

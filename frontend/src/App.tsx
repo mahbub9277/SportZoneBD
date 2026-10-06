@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { Download, X } from 'lucide-react'
@@ -11,6 +11,7 @@ import { useAppSelector } from './app/hooks'
 import { selectIsAdmin } from './features/auth/auth.slice'
 import { Button } from './components/ui/Button'
 import { PwaExperienceContext, type PwaUpdateStatus } from './features/pwa/PwaExperienceContext'
+import { INSTALL_PROMPT_DELAY_MS, installPromptDelayRemainingMs } from './features/pwa/installPromptDelay'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -57,16 +58,52 @@ export function App() {
     || ('standalone' in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
   )
 
+  // A `beforeinstallprompt` event is captured whenever the browser offers it, even before the minimum
+  // delay has passed, so a prompt that arrives early is not lost.
+  const deferredInstallEventRef = useRef<BeforeInstallPromptEvent | null>(null)
+  const isInstallPromptEligibleRef = useRef(false)
+  const isInstalledRef = useRef(isInstalled)
+  useEffect(() => {
+    isInstalledRef.current = isInstalled
+  })
+
+  useEffect(() => {
+    // A first-visit install banner is useful, but only once the visitor has settled: the prompt waits
+    // for a minimum amount of real elapsed time, and a `beforeinstallprompt` event that arrives earlier
+    // is stored and offered later instead of being lost.
+    const startedAtMs = Date.now()
+    let timer = 0
+    const offerInstallPrompt = () => {
+      const remainingMs = installPromptDelayRemainingMs(startedAtMs, Date.now())
+      if (remainingMs > 0) {
+        timer = window.setTimeout(offerInstallPrompt, remainingMs)
+        return
+      }
+      timer = 0
+      isInstallPromptEligibleRef.current = true
+      const deferred = deferredInstallEventRef.current
+      if (deferred && !isInstalledRef.current && !readSessionFlag(INSTALL_DISMISSED_KEY)) setInstallPrompt(deferred)
+    }
+    timer = window.setTimeout(offerInstallPrompt, INSTALL_PROMPT_DELAY_MS)
+    return () => {
+      if (timer !== 0) window.clearTimeout(timer)
+    }
+  }, [])
+
   useEffect(() => {
     const handleOnline = () => setIsOffline(false)
     const handleOffline = () => setIsOffline(true)
     const handleInstallable = (event: Event) => {
       event.preventDefault()
-      const wasDismissed = readSessionFlag(INSTALL_DISMISSED_KEY)
-      if (isInstalled || wasDismissed) return
-      setInstallPrompt(event as BeforeInstallPromptEvent)
+      const deferred = event as BeforeInstallPromptEvent
+      deferredInstallEventRef.current = deferred
+      // Before the delay has elapsed the event is only stored; the delay effect offers it later.
+      if (!isInstallPromptEligibleRef.current) return
+      if (isInstalled || readSessionFlag(INSTALL_DISMISSED_KEY)) return
+      setInstallPrompt(deferred)
     }
     const handleInstalled = () => {
+      deferredInstallEventRef.current = null
       setInstallPrompt(null)
       writeSessionFlag(INSTALL_DISMISSED_KEY, false)
     }

@@ -1,5 +1,6 @@
 import { prisma } from '../../core/prisma.js'
 import { createHash, randomBytes } from 'node:crypto'
+import { decideSessionCompletion, isUnlockStillValid, normalizeUnlockHours, unlockExpiresAtMs } from './adSessionRules.js'
 
 export type AdvertisementPlacement = 'MATCH' | 'CHANNEL' | 'BOTH' | 'FULL_PAGE'
 export const AD_SESSION_COOKIE = 'sportzone_ad_session'
@@ -24,7 +25,7 @@ export const getAdvertisementForUnlock = (id: string) => prisma.advertisement.fi
 
 export const getValidUnlock = async (userId: string) => {
   const unlock = await prisma.adUnlock.findUnique({ where: { userId } })
-  return unlock && unlock.expiresAt > new Date() ? unlock : null
+  return unlock && isUnlockStillValid(unlock.expiresAt, Date.now()) ? unlock : null
 }
 
 export const getValidAccess = async (userId?: string, sessionToken?: string) => {
@@ -50,12 +51,25 @@ export const startViewSession = async (advertisementId: string, userId?: string)
 
 export const completeViewSession = async (sessionId: string, sessionToken: string, userId?: string) => {
   const session = await prisma.adViewSession.findUnique({ where: { id: sessionId }, include: { advertisement: true } })
-  if (!session || session.sessionTokenHash !== hashSessionToken(sessionToken) || session.canceledAt || !session.advertisement.isActive || session.advertisement.deletedAt) return null
-  if (userId && session.userId && session.userId !== userId) return null
-  if (session.completedAt && session.unlockExpiresAt) return { completed: session, unlockExpiresAt: session.unlockExpiresAt, alreadyCompleted: true }
-  if (Date.now() < session.startedAt.getTime() + session.durationSeconds * 1000) return null
-  const unlockExpiresAt = new Date(Date.now() + (session.advertisement.unlockHours === 12 ? 12 : 24) * 60 * 60 * 1000)
-  const completionTime = new Date()
+  if (!session) return null
+
+  const nowMs = Date.now()
+  const decision = decideSessionCompletion({
+    sessionTokenHash: session.sessionTokenHash,
+    canceledAt: session.canceledAt,
+    completedAt: session.completedAt,
+    unlockExpiresAt: session.unlockExpiresAt,
+    startedAt: session.startedAt,
+    durationSeconds: session.durationSeconds,
+    userId: session.userId,
+    advertisementUnavailable: !session.advertisement.isActive || Boolean(session.advertisement.deletedAt),
+  }, { sessionTokenHash: hashSessionToken(sessionToken), nowMs, userId })
+
+  if (decision.kind === 'invalid' || decision.kind === 'too-early') return null
+  if (decision.kind === 'already-completed') return { completed: session, unlockExpiresAt: decision.unlockExpiresAt, alreadyCompleted: true }
+
+  const unlockExpiresAt = new Date(unlockExpiresAtMs(nowMs, session.advertisement.unlockHours))
+  const completionTime = new Date(nowMs)
   const result = await prisma.adViewSession.updateMany({ where: { id: session.id, sessionTokenHash: hashSessionToken(sessionToken), completedAt: null, canceledAt: null }, data: { completedAt: completionTime, unlockExpiresAt } })
   if (result.count === 0) {
     const completed = await prisma.adViewSession.findUnique({ where: { id: session.id } })
@@ -74,11 +88,12 @@ export const cancelViewSession = (sessionId: string, sessionToken: string) => pr
 export const grantUnlock = async (userId: string, unlockHours: number) => {
   const existing = await getValidUnlock(userId)
   if (existing) return existing
-  const safeHours = unlockHours === 12 ? 12 : 24
+  const safeHours = normalizeUnlockHours(unlockHours)
+  const nowMs = Date.now()
   return prisma.adUnlock.upsert({
     where: { userId },
-    create: { userId, expiresAt: new Date(Date.now() + safeHours * 60 * 60 * 1000) },
-    update: { expiresAt: new Date(Date.now() + safeHours * 60 * 60 * 1000) },
+    create: { userId, expiresAt: new Date(unlockExpiresAtMs(nowMs, safeHours)) },
+    update: { expiresAt: new Date(unlockExpiresAtMs(nowMs, safeHours)) },
   })
 }
 

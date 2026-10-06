@@ -17,8 +17,8 @@ const teamLogoTransform = { width: 64, height: 64, crop: 'fill' as const, gravit
 const matchOptionSummary = (match: Match) =>
   `${match.title} (${match.status === 'LIVE' ? 'Live' : new Date(match.kickoffAt).toLocaleString()})`
 
-/** Team crest with the same initials fallback the match management rows use. */
-function TeamBadge({ name, logo }: { name?: string | null; logo?: string | null }) {
+/** Logo with the same initials fallback the match and channel option rows use. */
+function OptionBadge({ name, logo }: { name?: string | null; logo?: string | null }) {
   if (logo) {
     return <img src={buildCloudinaryUrl(logo, teamLogoTransform)} alt="" loading="lazy" decoding="async" className="h-7 w-7 shrink-0 rounded-full border border-(--border) bg-(--surface) object-cover" />
   }
@@ -105,11 +105,11 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="flex min-w-0 flex-1 items-center justify-end gap-2">
                           <span className="truncate text-sm font-semibold text-(--text-primary)">{match.homeTeamName || 'Team 1'}</span>
-                          <TeamBadge name={match.homeTeamName} logo={match.homeTeamLogo} />
+                          <OptionBadge name={match.homeTeamName} logo={match.homeTeamLogo} />
                         </span>
                         <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-(--text-muted)">vs</span>
                         <span className="flex min-w-0 flex-1 items-center gap-2">
-                          <TeamBadge name={match.awayTeamName} logo={match.awayTeamLogo} />
+                          <OptionBadge name={match.awayTeamName} logo={match.awayTeamLogo} />
                           <span className="truncate text-sm font-semibold text-(--text-primary)">{match.awayTeamName || 'Team 2'}</span>
                         </span>
                       </span>
@@ -129,7 +129,7 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
           <FormItem><FormLabel>Stream type</FormLabel><Select onValueChange={field.onChange} value={field.value} disabled={isLoading}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="DIRECT_URL">Match stream</SelectItem><SelectItem value="CHANNEL">Channel stream</SelectItem></SelectContent></Select><FormMessage /></FormItem>
         )} />
         {sourceType === 'CHANNEL' && <FormField control={form.control} name="channelId" render={({ field }) => (
-          <FormItem><FormLabel>Existing channel</FormLabel><Input value={channelSearch} onChange={(event) => setChannelSearch(event.target.value)} placeholder="Search channels..." className="mb-2" /><Select onValueChange={field.onChange} value={field.value ?? ''} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an existing channel" /></SelectTrigger></FormControl><SelectPortal><SelectContent>{selectableChannels.map((channel) => <SelectItem key={channel.id} value={channel.id}>{channel.name}{channel.category?.name ? ` · ${channel.category.name}` : ''}</SelectItem>)}</SelectContent></SelectPortal></Select>{selectedChannel && <p className="mt-2 text-xs text-text-muted">Using existing {selectedChannel.name} channel record{selectedChannel.category?.name ? ` in ${selectedChannel.category.name}` : ''}.</p>}<FormMessage /></FormItem>
+          <FormItem><FormLabel>Existing channel</FormLabel><Input value={channelSearch} onChange={(event) => setChannelSearch(event.target.value)} placeholder="Search channels..." className="mb-2" /><Select onValueChange={field.onChange} value={field.value ?? ''} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an existing channel"><span className="block truncate">{selectedChannel ? selectedChannel.name : 'Select an existing channel'}</span></SelectValue></SelectTrigger></FormControl><SelectPortal><SelectContent>{selectableChannels.map((channel) => <SelectItem key={channel.id} value={channel.id} className="gap-2.5 pl-8"><OptionBadge name={channel.name} logo={channel.logo} /><span className="min-w-0 truncate">{channel.name}{channel.category?.name ? ` · ${channel.category.name}` : ''}</span></SelectItem>)}</SelectContent></SelectPortal></Select>{selectedChannel && <p className="mt-2 text-xs text-text-muted">Using existing {selectedChannel.name} channel record{selectedChannel.category?.name ? ` in ${selectedChannel.category.name}` : ''}.</p>}<FormMessage /></FormItem>
         )} />}
         <FormField control={form.control} name="quality" render={({ field }) => (
           <FormItem><FormLabel>Quality</FormLabel>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../components/ui/Card'
+import { Card, CardTitle, CardContent, CardFooter } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Button } from '../../components/ui/Button'
 import { Edit, ShieldCheck, Sparkles, CalendarClock, BellRing, ArrowRight, CreditCard, Crown } from 'lucide-react'
@@ -18,7 +18,10 @@ import { RecentChannels } from '../../components/shared/sidebar/RecentChannels'
 
 export function ProfilePage() {
   const cachedUser = useAppSelector(selectCurrentUser)
-  const { data: fetchedUser, isLoading: isUserLoading, refetch: refetchUser } = useGetMeQuery();
+  // The route guard only mounts this page for a signed-in user, so the cached profile is already
+  // enough to render the real layout. Waiting for the background /auth/me refresh here used to swap
+  // a short skeleton for the full page, which jumped every section below the header.
+  const { data: fetchedUser, refetch: refetchUser } = useGetMeQuery();
   const user = fetchedUser ?? cachedUser
   const [now, setNow] = useState(() => Date.now())
   const [updateProfile, { isLoading: isUpdating }] = useUpdateProfileMutation()
@@ -45,16 +48,8 @@ export function ProfilePage() {
     : null;
 
 
-  if (isUserLoading || !user) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-semibold text-(--text-primary)">My Profile</h1>
-        <Card>
-          <CardHeader><Skeleton className="h-8 w-48" /></CardHeader>
-          <CardContent><Skeleton className="h-24 w-full" /></CardContent>
-        </Card>
-      </div>
-    )
+  if (!user) {
+    return <ProfilePagePlaceholder recentCount={recentChannelIds.length} />
   }
 
   const handleProfileUpdate = (formData: FormData): { abort: () => void } => {
@@ -211,7 +206,7 @@ export function ProfilePage() {
           <h2 className="text-lg font-semibold">Recently Watched</h2>
         </div>
         <div className="mt-4">
-          <RecentChannels recentChannelIds={recentChannelIds} />
+          <RecentChannels recentChannelIds={recentChannelIds} showLoadingPlaceholder />
         </div>
       </motion.div>
 
@@ -228,5 +223,76 @@ export function ProfilePage() {
         </Link>
       </motion.div>
     </motion.div>
+  )
+}
+
+/**
+ * Fallback for the rare case where no cached profile exists yet. It mirrors the real page section by
+ * section (same order, wrappers, paddings and card shapes) so that swapping in the live content
+ * cannot move the layout; it is never shown while a cached user is available.
+ */
+function ProfilePagePlaceholder({ recentCount }: { recentCount: number }) {
+  return (
+    <div className="app-page space-y-4 overflow-x-hidden sm:space-y-5" role="status" aria-label="Loading your profile">
+      <div className="rounded-3xl border border-(--border) bg-linear-to-br from-(--surface) via-(--surface)/90 to-(--accent)/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="mt-2 h-8 w-40 sm:h-9" />
+            <Skeleton className="mt-1 h-6 w-full max-w-xl" />
+          </div>
+          <Skeleton className="h-11 w-full shrink-0 rounded-full sm:w-40" />
+        </div>
+      </div>
+
+      <div className="overflow-hidden border-(--border) bg-(--surface)/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
+        <div className="flex flex-col gap-6 p-5 sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
+          <div className="flex min-w-0 items-center gap-4 sm:gap-5">
+            <Skeleton className="h-16 w-16 shrink-0 rounded-full sm:h-20 sm:w-20" />
+            <div className="min-w-0">
+              <Skeleton className="h-7 w-40 sm:h-8" />
+              <Skeleton className="mt-2 h-6 w-52" />
+            </div>
+          </div>
+          <div className="grid w-full gap-3 sm:grid-cols-2 md:max-w-md md:shrink-0">
+            <Skeleton className="h-24 rounded-2xl" />
+            <Skeleton className="h-24 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2].map((index) => (
+          <Card key={index} className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
+              <Skeleton className="h-7 w-32" />
+            </div>
+            <Skeleton className="mt-2 h-12 w-full" />
+            <Skeleton className="mt-4 h-5 w-32" />
+          </Card>
+        ))}
+      </div>
+
+      <div className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+        <Skeleton className="h-7 w-40" />
+        {recentCount > 0 && (
+          <div className="mt-6 rounded-[1.4rem] border border-(--border) bg-(--surface-soft)/80 p-3 shadow-[0_18px_60px_rgba(2,6,23,0.14)]">
+            <Skeleton className="mb-2 h-5 w-40" />
+            <div className="grid gap-2">
+              {Array.from({ length: recentCount }).map((_, index) => (
+                <Skeleton key={index} className="h-11.5 rounded-2xl" />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+        <Skeleton className="h-9 w-9 rounded-xl" />
+        <Skeleton className="mt-2 h-6 w-full" />
+        <Skeleton className="mt-4 h-5 w-36" />
+      </div>
+    </div>
   )
 }

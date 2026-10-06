@@ -132,7 +132,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
           {(match.tournamentName?.trim() || match.competition?.name) && <p className="truncate text-[10px] font-medium text-(--text-muted) sm:text-xs">{match.tournamentName?.trim() || match.competition?.name}</p>}
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-(--border) pt-2 text-[10px] font-semibold sm:text-xs" aria-live="polite">
             <span className="min-w-0 truncate text-(--text-muted)">{streamCount} stream{streamCount === 1 ? '' : 's'} available</span>
-            <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1', matchStatus === 'LIVE' ? 'bg-rose-500/12 text-rose-600 dark:text-rose-300' : matchStatus === 'FINISHED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300')}>
+            <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1', matchStatus === 'LIVE' ? 'bg-red-500/12 text-red-700 dark:text-red-300' : matchStatus === 'FINISHED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300')}>
               {matchStatus === 'LIVE' && <span className={cn('h-1.5 w-1.5 rounded-full bg-current', simplifyMatchCard ? '' : 'animate-pulse')} aria-hidden="true" />}
               {matchStatus === 'LIVE' ? 'LIVE' : matchStatus === 'FINISHED' ? 'FINISHED' : 'UPCOMING'}
             </span>

@@ -17,6 +17,13 @@ import { useUploadFilesMutation } from '../../features/admin/uploads.api'
 import { useGetAdminChannelsQuery, useUpdateChannelMutation } from '../../features/admin/channels.api'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
 
+/**
+ * The Associated Match selector lists real matches from the existing paginated endpoint. The endpoint
+ * defaults to 10 items per page and caps a page at 100, so the selector asks for a maximum-size page of
+ * the newest matches instead of introducing dropdown pagination.
+ */
+const ASSOCIATED_MATCH_LIMIT = 100
+
 const streamSchema = z.object({
   name: z.string().trim().min(2, 'Channel name is required.').max(80),
   logo: z.string().url('Logo must be a valid URL.').optional().or(z.literal('')),
@@ -32,7 +39,7 @@ const streamSchema = z.object({
 
 export function StreamsManagementPage() {
   const streamsQuery = useGetAdminStreamsQuery({})
-  const matchesQuery = useGetMatchesQuery({})
+  const matchesQuery = useGetMatchesQuery({ limit: ASSOCIATED_MATCH_LIMIT })
   const { data, isLoading: isLoadingStreams, isError: isStreamsError } = streamsQuery
   const { data: matchesData, isError: isMatchesError } = matchesQuery
   const [createStream, { isLoading: isCreating }] = useCreateStreamMutation()

@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, CheckCircle2, ExternalLink, Loader2, ShieldCheck, Timer, X } from 'lucide-react'
@@ -7,11 +7,20 @@ import { selectIsAuthenticated, selectIsPremiumSubscriber } from '../features/au
 import { useCompleteAdUnlockMutation, useGetAdUnlockQuery, useGetInterstitialAdvertisementQuery } from '../features/admin/advertisements.api'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import {
+  getAdStorage,
+  hasDurationElapsed,
+  initialAdVisitState,
+  isUnlockActive,
+  recordAdCompletion,
+  recordAdDismissal,
+  reduceAdVisit,
+  type AdVisitState,
+} from '../features/ads/adSession'
+import { useAdCountdown } from '../features/ads/useAdCountdown'
 
 const isSafeDestination = (value: string | null): value is string => Boolean(value && value.startsWith('/') && !value.startsWith('//'))
-// Only commit countdown state when the displayed second changes, so the page re-renders once per
-// second instead of four times (same approach as the advertisement gate modal).
-const COUNTDOWN_TICK_MS = 250
+const noop = () => {}
 
 export function AdvertisementInterstitialPage() {
   const location = useLocation()
@@ -24,45 +33,76 @@ export function AdvertisementInterstitialPage() {
   const { data: advertisement, isLoading } = useGetInterstitialAdvertisementQuery(placement, { skip: isPremium })
   const { data: unlock } = useGetAdUnlockQuery(undefined, { skip: !isAuthenticated || isPremium })
   const [completeUnlock, { isLoading: isCompleting }] = useCompleteAdUnlockMutation()
-  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null)
-  const [remaining, setRemaining] = useState(0)
+  const [visit, setVisit] = useState<AdVisitState>(initialAdVisitState)
   const [hasVisitedAdvertisement, setHasVisitedAdvertisement] = useState(false)
+  const [unlockError, setUnlockError] = useState<string | null>(null)
+  const visitRef = useRef(visit)
+  const advertisementRef = useRef(advertisement)
+  const startedAdvertisementIdRef = useRef<string | null>(null)
+  const completingRef = useRef(false)
+  // Refs are synced in an effect, which always runs before any click handler or timer callback.
+  useEffect(() => {
+    visitRef.current = visit
+    advertisementRef.current = advertisement
+  })
+
+  const remaining = useAdCountdown({
+    startedAtMs: visit.startedAtMs,
+    durationSeconds: visit.durationSeconds,
+    active: visit.status === 'active',
+    onElapsed: noop,
+  })
 
   useEffect(() => {
-    if (isPremium || (unlock && new Date(unlock.expiresAt).getTime() > Date.now())) {
+    if (isPremium || isUnlockActive(unlock, Date.now())) {
       navigate(destination, { replace: true })
       return
     }
     if (!advertisement) return
-    const end = Date.now() + advertisement.durationSeconds * 1000
+    // One visit per advertisement: a refetch of the advertisement or the unlock must never restart the
+    // countdown.
+    if (startedAdvertisementIdRef.current === advertisement.id) return
+    startedAdvertisementIdRef.current = advertisement.id
+    const startedAtMs = Date.now()
     startTransition(() => {
-      setCountdownEndsAt(end)
-      setRemaining(advertisement.durationSeconds)
+      setVisit((current) => reduceAdVisit(current, { type: 'start', sessionId: null, startedAtMs, durationSeconds: advertisement.durationSeconds }))
       setHasVisitedAdvertisement(false)
+      setUnlockError(null)
     })
   }, [advertisement, destination, isPremium, navigate, unlock])
 
-  useEffect(() => {
-    if (!countdownEndsAt) return
+  const continueToDestination = useCallback(async () => {
+    const current = advertisementRef.current
+    const active = visitRef.current
+    if (!current || completingRef.current) return
+    // 'failed' is a retryable state: the duration already elapsed and the sponsor visit is retained.
+    if (active.status !== 'active' && active.status !== 'failed') return
+    if (active.startedAtMs === null) return
+    if (!hasVisitedAdvertisement) return
+    if (!hasDurationElapsed(active.startedAtMs, active.durationSeconds, Date.now())) return
 
-    let timer = 0
-    const tick = () => {
-      const next = Math.max(0, Math.ceil((countdownEndsAt - Date.now()) / 1000))
-      setRemaining((current) => (current === next ? current : next))
-      if (next === 0) window.clearInterval(timer)
+    completingRef.current = true
+    setUnlockError(null)
+    setVisit((state) => reduceAdVisit(state, { type: 'beginCompletion' }))
+    try {
+      if (isAuthenticated) await completeUnlock({ advertisementId: current.id }).unwrap()
+      recordAdCompletion(getAdStorage(), current.id, Date.now())
+      setVisit((state) => reduceAdVisit(state, { type: 'completionSucceeded' }))
+      navigate(destination, { replace: true })
+    } catch {
+      // The visit stays retryable: the elapsed countdown and the recorded sponsor visit are kept, so a
+      // retry never restarts the timer or loses the visit.
+      completingRef.current = false
+      setVisit((state) => reduceAdVisit(state, { type: 'completionFailed', message: 'Unlock failed. Please try again.' }))
+      setUnlockError('We could not unlock ad-free access. Please try again.')
     }
+  }, [completeUnlock, destination, hasVisitedAdvertisement, isAuthenticated, navigate])
 
-    timer = window.setInterval(tick, COUNTDOWN_TICK_MS)
-    tick()
-
-    return () => window.clearInterval(timer)
-  }, [countdownEndsAt])
-
-  const continueToDestination = async () => {
-    if (!advertisement || remaining > 0 || !hasVisitedAdvertisement || isCompleting) return
-    if (isAuthenticated) await completeUnlock({ advertisementId: advertisement.id }).unwrap()
+  const leaveAdvertisement = useCallback(() => {
+    const current = advertisementRef.current
+    if (current && visitRef.current.status !== 'completed') recordAdDismissal(getAdStorage(), current.id, Date.now())
     navigate(destination, { replace: true })
-  }
+  }, [destination, navigate])
 
   if (isLoading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-(--accent)" /></div>
   if (!advertisement) return <div className="mx-auto flex min-h-[60vh] max-w-xl items-center justify-center p-6"><Card className="w-full p-8 text-center"><p className="text-(--text-muted)">Advertisement unavailable.</p><Button className="mt-4" onClick={() => navigate(destination, { replace: true })}>Continue</Button></Card></div>
@@ -84,7 +124,7 @@ export function AdvertisementInterstitialPage() {
               </div>
               <h1 className="mt-2 truncate text-xl font-semibold text-(--text-primary) sm:text-2xl">{advertisement.title}</h1>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => navigate(destination, { replace: true })} aria-label="Close advertisement" title="Close advertisement" className="shrink-0 rounded-full border border-transparent hover:border-(--border) hover:bg-(--surface-strong)">
+            <Button variant="ghost" size="icon" onClick={leaveAdvertisement} aria-label="Close advertisement" title="Close advertisement" className="shrink-0 rounded-full border border-transparent hover:border-(--border) hover:bg-(--surface-strong)">
               <X className="h-5 w-5" />
             </Button>
           </div>
@@ -153,6 +193,7 @@ export function AdvertisementInterstitialPage() {
                 {isAuthenticated ? 'Unlock and continue' : 'Continue to content'}
                 <ArrowRight className="ml-auto h-4 w-4" />
               </Button>
+              {unlockError ? <p role="alert" className="mt-3 text-center text-xs font-semibold text-(--danger)">{unlockError}</p> : null}
               <p className="mt-3 text-center text-xs text-(--text-muted)">
                 {isAuthenticated ? `Ad-free access lasts ${advertisement.unlockHours} hours after completion.` : 'Sign in to keep ad-free access across your account.'}
               </p>
