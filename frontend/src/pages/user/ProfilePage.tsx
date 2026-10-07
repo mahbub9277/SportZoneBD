@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Card, CardTitle, CardContent, CardFooter } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
@@ -16,6 +15,10 @@ import { selectCurrentUser } from '../../features/auth/authSlice'
 import { selectRecentChannelIds } from '../../features/recent/recent.slice'
 import { RecentChannels } from '../../components/shared/sidebar/RecentChannels'
 
+// Browsers clamp setTimeout delays to a signed 32-bit value (about 24.8 days), which a monthly
+// subscription can exceed, so the expiry timer is armed in segments until the real expiry is reached.
+const MAX_TIMER_DELAY = 2_147_483_647
+
 export function ProfilePage() {
   const cachedUser = useAppSelector(selectCurrentUser)
   // The route guard only mounts this page for a signed-in user, so the cached profile is already
@@ -31,17 +34,19 @@ export function ProfilePage() {
   const activeSubscription = user?.subscription;
   const isPremium = Boolean(activeSubscription && activeSubscription.status === 'ACTIVE' && new Date(activeSubscription.expiresAt).getTime() > now);
 
+  // The page only needs to change state when the subscription actually expires. The previous
+  // one-second interval re-rendered this whole page (header, cards and recent channels) 60 times a
+  // minute, which made simply being on the profile page feel heavy.
   useEffect(() => {
     if (!activeSubscription || activeSubscription.status !== 'ACTIVE') return
-    const interval = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(interval)
-  }, [activeSubscription])
-
-  useEffect(() => {
-    if (!activeSubscription || activeSubscription.status !== 'ACTIVE') return
-    const expiryTimer = window.setTimeout(() => void refetchUser(), Math.max(0, new Date(activeSubscription.expiresAt).getTime() - Date.now()) + 50)
+    const remaining = new Date(activeSubscription.expiresAt).getTime() - now
+    if (remaining <= 0) return
+    const expiryTimer = window.setTimeout(() => {
+      setNow(Date.now())
+      if (remaining <= MAX_TIMER_DELAY) void refetchUser()
+    }, Math.min(remaining, MAX_TIMER_DELAY) + 50)
     return () => window.clearTimeout(expiryTimer)
-  }, [activeSubscription, refetchUser])
+  }, [activeSubscription, now, refetchUser])
 
   const subscriptionEndDate = activeSubscription?.expiresAt
     ? new Date(activeSubscription.expiresAt).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -74,8 +79,8 @@ export function ProfilePage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="app-page space-y-4 overflow-x-hidden sm:space-y-5">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="app-page-section relative overflow-hidden rounded-3xl border border-(--border) bg-linear-to-br from-(--surface) via-(--surface)/90 to-(--accent)/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
+    <div className="app-page space-y-4 overflow-x-clip sm:space-y-5">
+      <div className="relative overflow-hidden rounded-3xl border border-(--border) bg-linear-to-br from-(--surface) via-(--surface)/90 to-(--accent)/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
         <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-(--accent)/8 blur-3xl" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
@@ -100,9 +105,9 @@ export function ProfilePage() {
           </DialogContent>
         </Dialog>
         </div>
-      </motion.div>
+      </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="app-page-card overflow-hidden border-(--border) bg-(--surface)/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
+      <div className="overflow-hidden border-(--border) bg-(--surface)/75 p-0 shadow-[0_20px_60px_rgba(2,6,23,0.1)]">
         <div className="flex flex-col gap-6 p-5 sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
           <div className="flex min-w-0 items-center gap-4 sm:gap-5">
             <Avatar className="h-16 w-16 shrink-0 border-2 border-(--accent) shadow-[0_10px_30px_var(--shadow)] sm:h-20 sm:w-20" isLoading={isUpdating}>
@@ -114,9 +119,9 @@ export function ProfilePage() {
               <p className="truncate text-sm text-(--text-muted) sm:text-base">{user.email}</p>
               {isPremium && (
                 <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-(--accent)/30 bg-(--surface-soft)/80 px-3 py-1 text-xs text-(--text-primary) sm:text-sm">
-                  <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex shrink-0 items-center justify-center rounded-full bg-(--accent)/12 p-1">
+                  <div className="flex shrink-0 items-center justify-center rounded-full bg-(--accent)/12 p-1 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
                     <ShieldCheck className="h-4 w-4 text-(--accent)" />
-                  </motion.div>
+                  </div>
                   Premium member
                 </div>
               )}
@@ -125,48 +130,48 @@ export function ProfilePage() {
           <div className="grid w-full gap-3 sm:grid-cols-2 md:max-w-md md:shrink-0">
             <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/80 p-4">
               <div className="flex items-center gap-2 text-sm text-(--text-primary)">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
                   <CalendarClock className="h-4 w-4 text-(--accent)" />
-                </motion.div>
+                </div>
                 Member since
               </div>
               <p className="mt-2 text-sm text-(--text-muted)">{new Date(user.createdAt).toLocaleDateString()}</p>
             </div>
             <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/80 p-4">
               <div className="flex items-center gap-2 text-sm text-(--text-primary)">
-                <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
                   <BellRing className="h-4 w-4 text-(--accent)" />
-                </motion.div>
+                </div>
                 Alerts
               </div>
               <p className="mt-2 text-sm text-(--text-muted)">Live updates enabled</p>
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="app-page-section grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <div className="flex items-center gap-2 text-(--text-primary)">
-            <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
               <Sparkles className="h-4 w-4 text-(--accent)" />
-            </motion.div>
+            </div>
             <h2 className="text-lg font-semibold">Quick access</h2>
           </div>
           <p className="mt-2 text-sm text-(--text-muted)">Jump straight into live matches, standings, and your favorites.</p>
           <Link to="/matches" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
             Explore matches
-            <motion.div whileHover={{ scale: 1.15, x: 3 }} className="flex items-center justify-center">
+            <div className="flex items-center justify-center transition-transform duration-200 hover:scale-110 hover:translate-x-1 motion-reduce:transition-none">
               <ArrowRight className="h-4 w-4" />
-            </motion.div>
+            </div>
           </Link>
         </Card>
         <Card className="flex min-w-0 flex-col border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
           <CardContent className="grow p-0">
             <div className="flex items-center gap-2 text-(--text-primary)">
-              <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--accent)/12 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
                 <Crown className="h-4 w-4 text-(--accent)" />
-              </motion.div>
+              </div>
               <h2 className="text-lg font-semibold">Subscription status</h2>
             </div>
             {isPremium && activeSubscription ? (
@@ -183,9 +188,9 @@ export function ProfilePage() {
           <CardFooter className="p-0 pt-4">
             <Link to="/subscriptions" className="inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
               {isPremium ? 'Manage Subscription' : 'Upgrade to Premium'}
-              <motion.div whileHover={{ scale: 1.15, x: 3 }} className="flex items-center justify-center">
+              <div className="flex items-center justify-center transition-transform duration-200 hover:scale-110 hover:translate-x-1 motion-reduce:transition-none">
                 <ArrowRight className="h-4 w-4" />
-              </motion.div>
+              </div>
             </Link>
           </CardFooter>
         </Card>
@@ -199,30 +204,30 @@ export function ProfilePage() {
           </div>
           <p className="mt-2 text-sm text-(--text-muted)">Custom alerts and saved matches are kept ready for your next session.</p>
         </Card>
-      </motion.div>
+      </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="app-page-card border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+      <div className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
         <div className="flex items-center gap-2 text-(--text-primary)">
           <h2 className="text-lg font-semibold">Recently Watched</h2>
         </div>
         <div className="mt-4">
           <RecentChannels recentChannelIds={recentChannelIds} showLoadingPlaceholder />
         </div>
-      </motion.div>
+      </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }} className="app-page-card border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
+      <div className="border-(--border) bg-(--surface-soft)/70 p-5 shadow-[0_14px_40px_rgba(2,6,23,0.08)]">
         <div className="flex items-center gap-2 text-(--text-primary)">
-          <motion.div whileHover={{ scale: 1.15, rotate: 5 }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--accent)/12 transition-transform duration-200 hover:scale-110 hover:rotate-3 motion-reduce:transition-none">
             <CreditCard className="h-4 w-4 text-(--accent)" />
-          </motion.div>
+          </div>
           <h2 className="text-lg font-semibold">Billing</h2>
         </div>
         <p className="mt-2 text-sm text-(--text-muted)">Review your subscription payments and transaction history.</p>
         <Link to="/profile/payment-history" className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-(--accent)">
           View Payment History <ArrowRight className="h-4 w-4" />
         </Link>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 }
 
@@ -233,7 +238,7 @@ export function ProfilePage() {
  */
 function ProfilePagePlaceholder({ recentCount }: { recentCount: number }) {
   return (
-    <div className="app-page space-y-4 overflow-x-hidden sm:space-y-5" role="status" aria-label="Loading your profile">
+    <div className="app-page space-y-4 overflow-x-clip sm:space-y-5" role="status" aria-label="Loading your profile">
       <div className="rounded-3xl border border-(--border) bg-linear-to-br from-(--surface) via-(--surface)/90 to-(--accent)/8 p-5 shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

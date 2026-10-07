@@ -1,5 +1,5 @@
 import React, { startTransition, useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
-import { Unlock, Tv, RotateCcw, AlertCircle, Loader2 } from 'lucide-react'
+import { Unlock, Tv, RotateCcw, AlertCircle } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { TooltipProvider } from '../ui/Tooltip'
@@ -11,9 +11,11 @@ import { useAutoHideControls } from '../../hooks/useAutoHideControls'
 import { useSubtitles } from '../../hooks/useSubtitles'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { usePictureInPicture } from '../../hooks/usePictureInPicture'
+import { SportZoneBDLoader, type SportZoneBDLoaderVariant } from '../ui/SportZoneBDLoader'
+import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { PlayerControls, type MatchPlayerMetadata } from './PlayerControls'
 import { getPlayerContainerClass } from './playerLayout'
-import { getActualHlsCurrentLevel, normalizeQualityLevels } from './qualityUtils'
+import { buildVodQualityLevels, getActualHlsCurrentLevel, isCloudinaryVideoUrl, normalizeQualityLevels } from './qualityUtils'
 import { isHlsPlayer, type HlsEventData, type HlsPlayer, type QualityLevel, type ReactPlayerInstance, type SubtitleTrack } from './player.types'
 
 export type { SubtitleTrack } from './player.types'
@@ -48,6 +50,40 @@ const LOW_POWER_PLAYBACK_RATES = [0.75, 1, 1.25]
 
 function writeRef<T>(ref: { current: T }, value: T) {
   ref.current = value
+}
+
+/**
+ * Length of the media window the browser currently holds at the playhead.
+ *
+ * Only the contiguous range containing the playhead is counted — or the next range when the playhead
+ * sits in a gap, for example right after seeking past the buffer. Summing every range would count
+ * discontiguous or stale fragments that cannot be played through from the current position, which
+ * would report a loaded amount larger than the media actually available there.
+ */
+function getLoadedWindowSeconds(ranges: TimeRanges, currentTime: number): number {
+  if (!ranges || ranges.length === 0) return 0
+
+  let selectedRange = -1
+  for (let index = 0; index < ranges.length; index += 1) {
+    if (currentTime >= ranges.start(index) && currentTime <= ranges.end(index)) {
+      selectedRange = index
+      break
+    }
+  }
+
+  if (selectedRange === -1) {
+    for (let index = 0; index < ranges.length; index += 1) {
+      if (ranges.start(index) >= currentTime) {
+        selectedRange = index
+        break
+      }
+    }
+  }
+
+  if (selectedRange === -1) selectedRange = ranges.length - 1
+
+  const windowLength = ranges.end(selectedRange) - ranges.start(selectedRange)
+  return Number.isFinite(windowLength) && windowLength > 0 ? windowLength : 0
 }
 
 interface PlayerState {
@@ -146,6 +182,13 @@ export function CustomVideoPlayer({
 
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
   const [currentLevel, setCurrentLevel] = useState<number>(-1) // -1 for Auto
+  // Progressive (MP4/WebM) highlights switch quality by requesting a real Cloudinary rendition, so
+  // the selected height is remembered here and applied to the delivered source URL.
+  const [manualVideoHeight, setManualVideoHeight] = useState<number | null>(null)
+  const [sourceVideoHeight, setSourceVideoHeight] = useState(0)
+  const [bufferedAmount, setBufferedAmount] = useState(0)
+  const pendingResumeRef = useRef<{ time: number; wasPlaying: boolean } | null>(null)
+  const lastDurationRef = useRef(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const refreshKeyRef = useRef(0)
   const refreshPlayer = useCallback(() => {
@@ -153,10 +196,16 @@ export function CustomVideoPlayer({
     refreshKeyRef.current = nextKey
     setRefreshKey(nextKey)
   }, [])
-  const [, setHasNativeMediaReady] = useState(false)
+  // Tracks whether the player has attached a live media element. It also gates Picture-in-Picture
+  // support detection, which can only be decided once that element exists.
+  const [hasNativeMediaReady, setHasNativeMediaReady] = useState(false)
   const [qualityToast, setQualityToast] = useState<string | null>(null)
   // Driven by real media/HLS buffering events so the indicator reflects actual playback state.
   const [isBuffering, setIsBuffering] = useState(false)
+  // True while the current source cannot render a frame yet. It is set when a source or rendition
+  // changes and cleared from the media element's own readiness, so a missed, reordered, or
+  // old-source event can never leave the loader on screen.
+  const [isSourceLoading, setIsSourceLoading] = useState(true)
   const { currentUrl, errorMessage, retry, setError } = useHlsPlayer(url, streamId)
   const draggingTrackRef = useRef<HTMLDivElement | null>(null)
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('root')
@@ -255,7 +304,7 @@ export function CustomVideoPlayer({
   )
   const { choices: subtitleChoices, selectedLanguage: selectedSubtitleLanguage, subtitlesEnabled, preferredLanguage, applyLanguage: applySubtitleLanguage, refreshNativeTracks } = useSubtitles(videoElementRef, subtitles)
   const { isFullscreen: isFullscreenFromHook, toggle: toggleFullscreen } = useFullscreen(playerContainerRef, isTouchDevice)
-  const { isActive: isPiPActive, isSupported: isPiPSupported, toggle: togglePictureInPicture } = usePictureInPicture(videoElementRef)
+  const { isActive: isPiPActive, isSupported: isPiPSupported, toggle: togglePictureInPicture } = usePictureInPicture(videoElementRef, hasNativeMediaReady)
 
   useEffect(() => {
     dispatch({ type: 'SET_FULLSCREEN', payload: isFullscreenFromHook })
@@ -470,6 +519,61 @@ export function CustomVideoPlayer({
     }
   }, [getLastTimeRange, getVideoElement])
 
+  /**
+   * Keeps duration, buffered amount and source resolution in step with the media element.
+   *
+   * This runs from the existing media events (loadedmetadata, durationchange, progress, timeupdate,
+   * canplay) and from the same poll that already refreshes the timeline, so metadata that only
+   * becomes available after the initial render — or after a source or quality change — is picked up
+   * without adding another timer or listener set. A live stream reports no finite duration, so the
+   * duration stays unknown there and the buffered amount is what the controller shows instead.
+   */
+  const syncMediaMetrics = useCallback((video: HTMLMediaElement) => {
+    // Readiness is level-triggered from the element itself rather than from one event, and it is the
+    // same condition for every source type: at HAVE_CURRENT_DATA the position being played has data,
+    // so a frame can be shown. Nothing waits for the whole file, and because this is re-evaluated on
+    // every media event and on the existing poll, the loader cannot get stuck after the media is ready.
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      setIsSourceLoading(false)
+    }
+
+    const mediaDuration = video.duration
+    if (Number.isFinite(mediaDuration) && mediaDuration > 0 && lastDurationRef.current !== mediaDuration) {
+      lastDurationRef.current = mediaDuration
+      dispatch({ type: 'SET_DURATION', payload: mediaDuration })
+    }
+
+    const nextBufferedAmount = getLoadedWindowSeconds(video.buffered, Number.isFinite(video.currentTime) ? video.currentTime : 0)
+    if (Number.isFinite(nextBufferedAmount)) {
+      setBufferedAmount((previous) => (Math.abs(previous - nextBufferedAmount) < 0.25 ? previous : nextBufferedAmount))
+    }
+
+    if (video instanceof HTMLVideoElement && video.videoHeight > 0) {
+      // Kept as the largest height seen for this source: a lower rendition must not shrink the list of
+      // resolutions the source can still deliver.
+      setSourceVideoHeight((previous) => (previous >= video.videoHeight ? previous : video.videoHeight))
+    }
+
+    // A quality change reloads the same element, so the position and play state are restored as soon
+    // as the replacement rendition is selected. Until the browser swaps the source, the element still
+    // reports the previous rendition's metadata and position, so the resume is only consumed once the
+    // media is back at its start (or when there was no position worth preserving).
+    const pendingResume = pendingResumeRef.current
+    const mediaAtStart = !Number.isFinite(video.currentTime) || video.currentTime <= 0.05
+    if (pendingResume && video.readyState >= HTMLMediaElement.HAVE_METADATA && (pendingResume.time <= 0.05 || mediaAtStart)) {
+      pendingResumeRef.current = null
+      const latestSeek = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, video.duration - 0.25) : pendingResume.time
+      try {
+        video.currentTime = Math.min(pendingResume.time, latestSeek)
+      } catch {
+        // A rejected seek leaves playback at the start of the new rendition.
+      }
+      if (pendingResume.wasPlaying) {
+        void video.play().catch(() => undefined)
+      }
+    }
+  }, [dispatch])
+
   const updateLiveWindow = useCallback(() => {
     const video = getVideoElement()
     if (!video) return
@@ -493,8 +597,9 @@ export function CustomVideoPlayer({
       return { hasTimeshift, liveStart: seekable?.start ?? 0, liveEdge, currentTime: video.currentTime, isLive }
     })
     dispatch({ type: 'SET_PLAYED', payload: Number.isFinite(video.currentTime) ? video.currentTime : 0 })
+    syncMediaMetrics(video)
     updateTimelineDom()
-  }, [dispatch, getLastTimeRange, getVideoElement, updateTimelineDom])
+  }, [dispatch, getLastTimeRange, getVideoElement, syncMediaMetrics, updateTimelineDom])
 
   const syncNativeVolume = useCallback((nextVolume: number) => { // Changed to use useCallback
     const video = getVideoElement()
@@ -568,6 +673,17 @@ export function CustomVideoPlayer({
   }, [resolvedUrl])
   const isLiveHlsSource = isHlsSource && (presenceType === 'channel' || liveWindow.isLive)
   const showSeekControls = Boolean(resolvedUrl) && !isHlsSource
+
+  // Progressive highlights offer only the Cloudinary renditions their source can really deliver;
+  // HLS keeps using the levels hls.js reports.
+  const vodQualityLevels = useMemo(() => {
+    if (isHlsSource || !isCloudinaryVideoUrl(resolvedUrl)) return []
+    return buildVodQualityLevels(sourceVideoHeight)
+  }, [isHlsSource, resolvedUrl, sourceVideoHeight])
+  const activeQualityLevels = qualityLevels.length > 0 ? qualityLevels : vodQualityLevels
+  const playbackUrl = !isHlsSource && manualVideoHeight && isCloudinaryVideoUrl(resolvedUrl)
+    ? buildCloudinaryUrl(resolvedUrl, { resourceType: 'video', height: manualVideoHeight, crop: 'limit' })
+    : resolvedUrl
 
   const handlePlayPause = useCallback(() => {
     const video = getVideoElement()
@@ -839,6 +955,7 @@ export function CustomVideoPlayer({
       currentSourceKeyRef.current = sourceKey
       clearQualityToast()
       dispatch({ type: 'SET_ERROR', payload: null })
+      setIsSourceLoading(true)
       refreshPlayer()
       writeRef(proxyTriedRef, false)
       writeRef(proxyFailedRef, false)
@@ -862,6 +979,7 @@ export function CustomVideoPlayer({
     clearQualityToast()
     dispatch({ type: 'SET_ERROR', payload: null });
     dispatch({ type: 'SET_PLAYING', payload: false });
+    setIsSourceLoading(true)
     refreshPlayer()
     writeRef(proxyTriedRef, false)
     writeRef(proxyFailedRef, false)
@@ -1143,7 +1261,15 @@ export function CustomVideoPlayer({
       setQualityLevels([])
       setCurrentLevel(-1)
       setLiveWindow({ hasTimeshift: false, liveStart: 0, liveEdge: 0, currentTime: 0, isLive: false })
+      // Media metrics belong to the previous source and must not leak into the next one.
+      setSourceVideoHeight(0)
+      setBufferedAmount(0)
+      setManualVideoHeight(null)
+      // The new source reports its own readiness, from its own media element.
+      setIsSourceLoading(true)
     })
+    writeRef(pendingResumeRef, null)
+    lastDurationRef.current = 0
     manualQualityRef.current = false
   }, [autoPlay, clearQualityToast, refreshPlayer, resolvedUrl, sourceKey, stopPlayback])
   
@@ -1170,6 +1296,21 @@ export function CustomVideoPlayer({
       } catch {
         // Ignore invalid HLS level selection
       }
+    } else if (vodQualityLevels.length > 0) {
+      const selectedLevel = levelIndex < 0 ? null : vodQualityLevels.find((level) => level.hlsIndex === levelIndex) ?? null
+      const video = getVideoElement()
+
+      // The same media element is reloaded with the new rendition, so the position and play state
+      // are captured here and restored as soon as the replacement has metadata.
+      if (video && Number.isFinite(video.currentTime)) {
+        writeRef(pendingResumeRef, { time: video.currentTime, wasPlaying: !video.paused })
+      }
+      // The replacement rendition is a genuine media transition, so it shows the loading state until
+      // its own first frame is available; the saved position is restored independently of this flag.
+      setIsSourceLoading(true)
+      setManualVideoHeight(selectedLevel ? selectedLevel.height : null)
+      setCurrentLevel(selectedLevel ? selectedLevel.hlsIndex : -1)
+      showQualityToast(selectedLevel ? `Quality set to ${selectedLevel.height}p` : 'Quality set to Auto')
     }
 
     if (qualityLevels.length === 0 && levelIndex < 0) {
@@ -1298,7 +1439,7 @@ export function CustomVideoPlayer({
       refreshTimeline()
     }
 
-    const events = ['timeupdate', 'progress', 'durationchange', 'loadedmetadata', 'canplay', 'seeking', 'seeked']
+    const events = ['timeupdate', 'progress', 'durationchange', 'loadedmetadata', 'loadeddata', 'canplay', 'seeking', 'seeked']
     events.forEach((eventName) => video.addEventListener(eventName, refreshLiveWindow))
     const liveWindowRefreshMs = shouldReduceEffects || isSmartTV ? 2000 : 1000
     const liveWindowTimer = window.setInterval(refreshLiveWindow, liveWindowRefreshMs)
@@ -1388,11 +1529,22 @@ export function CustomVideoPlayer({
     )
   }
 
+  // One status for the whole surface. Source loading wins over buffering, a stall while the viewer has
+  // intentionally paused is not shown as buffering, and a real error always yields to the error UI so
+  // the loader can never mask a failure or spin forever over one.
+  const mediaStatusVariant: SportZoneBDLoaderVariant | null = playerError
+    ? null
+    : isSourceLoading
+      ? 'loading'
+      : isBuffering && isPlaying
+        ? 'buffering'
+        : null
+
   return (
     <TooltipProvider delayDuration={200}>
       <div
         ref={playerContainerRef}
-        aria-busy={isBuffering && !playerError}
+        aria-busy={Boolean(mediaStatusVariant)}
         aria-label={title ? `${title} video player` : 'Video player'}
         className={getPlayerContainerClass({ compact: compactControls, fullscreen: isFullscreen })}
         onDoubleClick={handleContainerDoubleClick}
@@ -1411,7 +1563,7 @@ export function CustomVideoPlayer({
           <LazyReactPlayer
             key={refreshKey}
             ref={playerRef as unknown as React.Ref<HTMLVideoElement>}
-            src={resolvedUrl}
+            src={playbackUrl}
             playing={isPlaying && !!resolvedUrl}
             config={playerConfig}
             volume={isLowPower ? Math.min(volume, 0.7) : volume}
@@ -1508,13 +1660,13 @@ export function CustomVideoPlayer({
           />
         </React.Suspense>
 
-      {isBuffering && !playerError && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center" role="status" aria-live="polite" aria-label="Buffering video">
-          <span className="inline-flex items-center gap-2 rounded-full border border-[#5379AE]/40 bg-[#262B40]/85 px-3 py-2 text-xs font-semibold text-[#A8C4EC] shadow-lg backdrop-blur-md">
-            <Loader2 className="h-4 w-4 animate-spin text-[#0474C4]" aria-hidden="true" />
-            Buffering…
-          </span>
-        </div>
+      {mediaStatusVariant && (
+        <SportZoneBDLoader
+          variant={mediaStatusVariant}
+          // The compact mini surface has no centred transport control, so the loader stays centred there
+          // and cannot be clipped by a very small player.
+          className={compactControls ? 'translate-y-0 sm:translate-y-0' : undefined}
+        />
       )}
 
       {qualityToast && <div className="pointer-events-none absolute bottom-24 left-1/2 z-35 -translate-x-1/2 rounded-full border border-[#A8C4EC]/20 bg-[#262B40]/90 px-3 py-1.5 text-xs font-semibold text-[#A8C4EC] shadow-lg backdrop-blur-md" role="status" aria-live="polite">{qualityToast}</div>}
@@ -1592,8 +1744,9 @@ export function CustomVideoPlayer({
           isPiPSupported={isPiPSupported}
           isPiPActive={isPiPActive}
           compactControls={compactControls}
+          bufferedAmount={bufferedAmount}
           liveWindow={liveWindow}
-          qualityLevels={qualityLevels}
+          qualityLevels={activeQualityLevels}
           currentLevel={currentLevel}
           playbackRates={playbackRates}
           subtitleChoices={subtitleChoices}

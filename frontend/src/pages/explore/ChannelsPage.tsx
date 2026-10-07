@@ -7,6 +7,9 @@ import { Link } from 'react-router-dom'
 import { Heart, Grid, List, Search, X } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../app/hooks'
 import { selectFavoriteChannelIds, toggleFavoriteChannel } from '../../features/favorites/favorites.slice'
+import { selectPinnedChannelIds } from '../../features/pinned/pinnedChannels.slice'
+import { sortPinnedFirst } from '../../features/pinned/pinnedOrdering'
+import { PinChannelButton } from '../../components/ui/PinChannelButton'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { Input } from '../../components/ui/Input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
@@ -25,6 +28,7 @@ export function ChannelsPage() {
   const openChannel = useAdvertisementGate('CHANNEL')
   const { data: categories, isLoading, isError } = useGetPublicChannelsQuery()
   const favoriteChannelIds = useAppSelector(selectFavoriteChannelIds)
+  const pinnedChannelIds = useAppSelector(selectPinnedChannelIds)
   const dispatch = useAppDispatch()
 
   const [query, setQuery] = useState('')
@@ -67,6 +71,16 @@ export function ChannelsPage() {
     const filtered = { ...cat, channels: filterChannels(cat.channels) }
     return filtered.channels.length > 0 ? [filtered] : []
   }, [catList, normalizedQuery, selectedCategoryId, premiumOnly])
+
+  // Pinned channels lead every section they belong to; both groups keep the order the page already
+  // produced, so nothing is duplicated and no section changes shape.
+  const orderedCategories = useMemo(
+    () => filteredCategories.map((category) => ({
+      ...category,
+      channels: sortPinnedFirst(category.channels ?? [], pinnedChannelIds),
+    })),
+    [filteredCategories, pinnedChannelIds],
+  )
 
   if (isLoading) {
     return (
@@ -160,7 +174,7 @@ export function ChannelsPage() {
         </div>
       </section>
 
-      {filteredCategories.length === 0 && (
+      {orderedCategories.length === 0 && (
         <div className="rounded-4xl border border-dashed border-(--border) bg-(--surface-soft)/45 px-6 py-16 text-center shadow-[0_18px_50px_rgba(2,6,23,0.1)]">
           <Search className="mx-auto h-10 w-10 text-(--text-muted)" />
           <h2 className="mt-4 text-xl font-semibold text-(--text-primary)">No channels found</h2>
@@ -169,7 +183,7 @@ export function ChannelsPage() {
         </div>
       )}
 
-      {filteredCategories.map((category: ChannelCategory) => (
+      {orderedCategories.map((category: ChannelCategory) => (
         <div
           key={category.id}
           className="space-y-4"
@@ -209,6 +223,7 @@ export function ChannelsPage() {
                     >
                       <span className="block transition-transform duration-150 hover:scale-110"><Heart size={18} className={favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-(--text-muted)'} /></span>
                     </button>
+                    <PinChannelButton channelId={channel.id} channelName={channel.name} className="absolute bottom-1.5 right-1.5" />
                   </Card>
                 </div>
               ))}
@@ -230,14 +245,17 @@ export function ChannelsPage() {
                       </div>
                     </Link>
                     <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
-                      <button
-                        type="button"
-                        onClick={() => dispatch(toggleFavoriteChannel(channel.id))}
-                        className="hidden h-10 w-10 items-center justify-center rounded-full text-(--text-muted) transition hover:bg-(--accent)/10 hover:text-(--accent) focus-visible:opacity-100 lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100"
-                        aria-label={favoriteChannelIds.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}
-                      >
-                        <span className="block transition-transform duration-150 hover:scale-110"><Heart size={18} className={favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-(--text-muted)'} /></span>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <PinChannelButton channelId={channel.id} channelName={channel.name} className="h-10 w-10 [&_svg]:h-4 [&_svg]:w-4" />
+                        <button
+                          type="button"
+                          onClick={() => dispatch(toggleFavoriteChannel(channel.id))}
+                          className="hidden h-10 w-10 items-center justify-center rounded-full text-(--text-muted) transition hover:bg-(--accent)/10 hover:text-(--accent) focus-visible:opacity-100 lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100"
+                          aria-label={favoriteChannelIds.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}
+                        >
+                          <span className="block transition-transform duration-150 hover:scale-110"><Heart size={18} className={favoriteChannelIds.includes(channel.id) ? 'fill-current text-(--danger)' : 'text-(--text-muted)'} /></span>
+                        </button>
+                      </div>
                       <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} aria-label={`Watch ${channel.name}`}>Watch</Link>
                     </div>
                   </Card>

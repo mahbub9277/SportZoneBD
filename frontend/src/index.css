@@ -105,6 +105,34 @@
   display: none;
 }
 
+/* Pinning a channel: devices that can hover reveal the control together with the channel card,
+   while touch screens and TV remotes, which cannot hover, always see it. The card is the existing
+   `group` wrapper, and :focus-within keeps the control visible for keyboard users. */
+.channel-pin {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 180ms ease, color 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+@media (hover: hover) {
+  .channel-pin {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .group:hover .channel-pin,
+  .group:focus-within .channel-pin {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .channel-pin {
+    transition: none;
+  }
+}
+
 html {
   scroll-behavior: smooth;
   font-size: 2.35rem;

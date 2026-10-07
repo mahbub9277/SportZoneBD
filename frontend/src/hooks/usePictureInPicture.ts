@@ -5,7 +5,19 @@ interface SafariVideoElement extends HTMLVideoElement {
   webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture') => void
 }
 
-export function usePictureInPicture(videoRef: RefObject<HTMLMediaElement | null>) {
+/**
+ * Picture-in-Picture for a media element that is created after this hook first mounts.
+ *
+ * The element only exists once the underlying player has rendered it, so support and active state are
+ * re-evaluated whenever `isMediaReady` changes instead of being decided once while the ref is still
+ * empty. Native video Picture-in-Picture is used: it is the API built for media, whereas the Document
+ * Picture-in-Picture API needs the media element physically moved into another document, which is not
+ * possible for the MSE-backed live streams this player mounts.
+ *
+ * @param videoRef Ref to the media element.
+ * @param isMediaReady Flips to true once the player has attached its media element.
+ */
+export function usePictureInPicture(videoRef: RefObject<HTMLMediaElement | null>, isMediaReady = false) {
   const [isActive, setIsActive] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
 
@@ -78,25 +90,31 @@ export function usePictureInPicture(videoRef: RefObject<HTMLMediaElement | null>
       document.addEventListener('leavepictureinpicture', handlePiPChange)
     }
 
-    const video = videoRef.current as SafariVideoElement | null
-    if (video) {
-      video.addEventListener('webkitpresentationmodechanged', handlePiPChange)
-      video.addEventListener('enterpictureinpicture', handlePiPChange)
-      video.addEventListener('leavepictureinpicture', handlePiPChange)
-    }
-
     return () => {
       cancelled = true
       if (typeof document !== 'undefined') {
         document.removeEventListener('enterpictureinpicture', handlePiPChange)
         document.removeEventListener('leavepictureinpicture', handlePiPChange)
       }
-
-      video?.removeEventListener('webkitpresentationmodechanged', handlePiPChange)
-      video?.removeEventListener('enterpictureinpicture', handlePiPChange)
-      video?.removeEventListener('leavepictureinpicture', handlePiPChange)
     }
-  }, [syncState, videoRef])
+  }, [isMediaReady, syncState])
+
+  useEffect(() => {
+    // Element-scoped events follow the element itself, so they are re-bound once it exists.
+    const video = videoRef.current as SafariVideoElement | null
+    if (!video) return
+
+    const handlePiPChange = () => syncState()
+    video.addEventListener('webkitpresentationmodechanged', handlePiPChange)
+    video.addEventListener('enterpictureinpicture', handlePiPChange)
+    video.addEventListener('leavepictureinpicture', handlePiPChange)
+
+    return () => {
+      video.removeEventListener('webkitpresentationmodechanged', handlePiPChange)
+      video.removeEventListener('enterpictureinpicture', handlePiPChange)
+      video.removeEventListener('leavepictureinpicture', handlePiPChange)
+    }
+  }, [isMediaReady, syncState, videoRef])
 
   return { isActive, isSupported, toggle }
 }

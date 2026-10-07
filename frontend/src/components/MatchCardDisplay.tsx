@@ -1,7 +1,6 @@
 import { memo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
-import { motion } from 'framer-motion'
 
 import type { Match } from '../features/matches/matches.types'
 import { Card, CardContent } from './ui/Card'
@@ -82,7 +81,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
   const awayTeam = buildTeamVisual(match.awayTeamName ?? match.awayTeam?.name ?? '', 'Team 2', match.awayTeamLogo || match.awayTeam?.logoUrl)
 
   return (
-    <motion.div className="h-full w-full min-w-0">
+    <div className="h-full w-full min-w-0">
       <Card
         onClick={handleCardClick}
         onKeyDown={handleCardKeyDown}
@@ -140,6 +139,6 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
           </div>
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 })

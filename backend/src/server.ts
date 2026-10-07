@@ -19,6 +19,7 @@ import { matchAutomationService } from './services/matchAutomation.service.js'
 import { setIoInstance, initializeSocketHandlers, getIoInstance, setSocketClusterAdapterEnabled } from './core/socketManager.js'
 import { createAdapter } from '@socket.io/redis-adapter'
 import { closeRedisFailoverClients, getPrimaryRedisStatus, isRedisConfigured, redis } from './core/redis.js'
+import { isMultiInstanceDeployment } from './config/deployment.js'
 import { getRedisErrorCode } from './core/redisFailover.js'
 import { startNotificationWorker } from './core/notificationQueue.js'
 import { prisma } from './core/prisma.js'
@@ -209,7 +210,12 @@ async function bootstrap(): Promise<void> {
     })
 
     let redisAdapterEnabled = false
-    if (isRedisConfigured) {
+    if (!isMultiInstanceDeployment) {
+      // A single instance reaches every socket through the process-local adapter, so the Redis
+      // adapter would only add one PUBLISH per broadcast plus its own pub/sub connections.
+      // Set MULTI_INSTANCE_ENABLED=true before scaling out.
+      logger.info('Socket.IO Redis adapter disabled by MULTI_INSTANCE_ENABLED; using the process-local adapter')
+    } else if (isRedisConfigured) {
       try {
         pubClient = redis.duplicate()
         subClient = redis.duplicate()

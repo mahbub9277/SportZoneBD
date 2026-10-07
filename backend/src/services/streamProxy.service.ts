@@ -2,8 +2,10 @@ import http, { type ClientRequest, type IncomingMessage } from 'node:http'
 import https from 'node:https'
 import { prisma } from '../core/prisma.js'
 import logger from '../core/logger.js'
-import { cacheRedis } from '../core/redis.js'
+import { isRedisConfigured } from '../core/redis.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
+import { isMultiInstanceDeployment } from '../config/deployment.js'
+import { createManifestSharedCache, type ManifestCacheEntry } from './manifestSharedCache.js'
 import { createPinnedLookup, validateProxyRedirect, validateProxyTargetUrl } from '../utils/ssrfGuard.js'
 import { rewriteManifestBody } from '../utils/streamManifest.js'
 
@@ -23,15 +25,7 @@ interface StreamManifestProxyResult {
   usedBackup: boolean
 }
 
-interface CacheEntry {
-  expiresAt: number
-  body: string
-  contentType: string
-  sourceUrl: string
-  usedBackup: boolean
-}
-
-const manifestCache = new Map<string, CacheEntry>()
+const manifestCache = new Map<string, ManifestCacheEntry>()
 const manifestTtlMs = 5_000
 const MAX_MANIFEST_CACHE_ENTRIES = 500
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024
@@ -39,7 +33,12 @@ const MAX_REDIRECTS = 3
 const inFlightManifestRequests = new Map<string, Promise<StreamManifestProxyResult>>()
 const isProduction = process.env.NODE_ENV === 'production'
 
-const getRedisManifestKey = (cacheKey: string) => `sportzone:stream:manifest:${cacheKey}`
+// The shared copy is only useful when another instance can read it, so it is skipped on a
+// single-instance deployment where the process-local cache above is already the complete answer.
+const sharedManifestCache = createManifestSharedCache({
+  enabled: isMultiInstanceDeployment && isRedisConfigured,
+  ttlMs: manifestTtlMs,
+})
 
 function pruneManifestCache(now: number): void {
   for (const [key, entry] of manifestCache) {
@@ -259,13 +258,12 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   }
 
   try {
-    const redisEntry = await cacheRedis.get(getRedisManifestKey(cacheKey))
+    const redisEntry = await sharedManifestCache.read(cacheKey)
     if (redisEntry) {
-      const parsed = JSON.parse(redisEntry) as CacheEntry
-      if (parsed.expiresAt > now && typeof parsed.body === 'string') {
-        manifestCache.set(cacheKey, parsed)
+      if (redisEntry.expiresAt > now && typeof redisEntry.body === 'string') {
+        manifestCache.set(cacheKey, redisEntry)
         return {
-          ...parsed,
+          ...redisEntry,
           cacheControl: 'public, max-age=3, stale-while-revalidate=1',
         }
       }
@@ -298,7 +296,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
       const manifest = await tryFetch(selectedUrl)
       const rewrittenManifest = rewriteManifestBody(manifest.body, manifest.sourceUrl)
 
-      const entry: CacheEntry = {
+      const entry: ManifestCacheEntry = {
         body: rewrittenManifest,
         contentType: manifest.contentType,
         sourceUrl: manifest.sourceUrl,
@@ -306,7 +304,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
         expiresAt: Date.now() + manifestTtlMs,
       }
       manifestCache.set(cacheKey, entry)
-      await cacheRedis.set(getRedisManifestKey(cacheKey), JSON.stringify(entry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((error: unknown) => {
+      await sharedManifestCache.write(cacheKey, entry).catch((error: unknown) => {
         logger.warn({ code: getRedisErrorCode(error) }, 'Unable to write resolved manifest cache')
       })
 
@@ -316,7 +314,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
         const backupManifest = await tryFetch(fallbackUrl)
         const rewrittenManifest = rewriteManifestBody(backupManifest.body, backupManifest.sourceUrl)
 
-        const backupEntry: CacheEntry = {
+        const backupEntry: ManifestCacheEntry = {
           body: rewrittenManifest,
           contentType: backupManifest.contentType,
           sourceUrl: backupManifest.sourceUrl,
@@ -324,7 +322,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
           expiresAt: Date.now() + manifestTtlMs,
         }
         manifestCache.set(cacheKey, backupEntry)
-        await cacheRedis.set(getRedisManifestKey(cacheKey), JSON.stringify(backupEntry), 'EX', Math.ceil(manifestTtlMs / 1000)).catch((cacheError: unknown) => {
+        await sharedManifestCache.write(cacheKey, backupEntry).catch((cacheError: unknown) => {
           logger.warn({ code: getRedisErrorCode(cacheError) }, 'Unable to cache recovered backup manifest')
         })
 

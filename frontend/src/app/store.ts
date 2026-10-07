@@ -9,6 +9,7 @@ import loadingReducer from '../features/loading/loadingSlice'
 import {rtkQueryErrorLogger} from './api/error-logging.middleware'
 import recentReducer, { recentListenerMiddleware } from '../features/recent/recent.slice'
 import favoritesReducer, { favoritesListenerMiddleware } from '../features/favorites/favorites.slice'
+import pinnedChannelsReducer, { pinnedChannelsListenerMiddleware } from '../features/pinned/pinnedChannels.slice'
 
 const authCacheCleanupMiddleware = createListenerMiddleware()
 authCacheCleanupMiddleware.startListening({
@@ -25,6 +26,7 @@ export const store = configureStore({
     loading: loadingReducer,
     recent: recentReducer,
     favorites: favoritesReducer,
+    pinnedChannels: pinnedChannelsReducer,
     theme: themeReducer,
     upload: uploadReducer,
     // Add the single API slice reducer
@@ -39,6 +41,7 @@ export const store = configureStore({
       .concat(themeListenerMiddleware.middleware)
       .concat(recentListenerMiddleware.middleware)
       .concat(favoritesListenerMiddleware.middleware)
+      .concat(pinnedChannelsListenerMiddleware.middleware)
       .concat(authCacheCleanupMiddleware.middleware)
       // The single middleware from emptyApi will handle all injected endpoints.
       .concat(rtkQueryErrorLogger),

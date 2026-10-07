@@ -402,13 +402,21 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
     const applySuggestion = <T extends keyof CreateMatchFormValues>(name: T, value: CreateMatchFormValues[T] | null, confidence: 'high' | 'medium' | 'low' | undefined, allowDefault = false) => {
       if (value === null || value === undefined || confidence === 'low') {
         if (value !== null && value !== undefined && confidence === 'low') needsReview += 1
-        return
+        return false
       }
-      if (setUntouchedValue(name, value, allowDefault)) applied += 1
+      if (setUntouchedValue(name, value, allowDefault)) {
+        applied += 1
+        return true
+      }
+      return false
     }
     applySuggestion('title', result.title, result.confidence.title)
-    applySuggestion('homeTeamName', result.homeTeamName, result.confidence.homeTeamName)
-    applySuggestion('awayTeamName', result.awayTeamName, result.confidence.awayTeamName)
+    const homeNameApplied = applySuggestion('homeTeamName', result.homeTeamName, result.confidence.homeTeamName)
+    const awayNameApplied = applySuggestion('awayTeamName', result.awayTeamName, result.confidence.awayTeamName)
+    // The resolved team id belongs to the resolved canonical name, so it is only applied when that name
+    // was actually written into the field.
+    if (homeNameApplied && result.homeTeamId) applySuggestion('homeTeamId', result.homeTeamId, result.confidence.homeTeamId)
+    if (awayNameApplied && result.awayTeamId) applySuggestion('awayTeamId', result.awayTeamId, result.confidence.awayTeamId)
     applySuggestion('homeTeamLogo', result.homeTeamLogo, result.confidence.homeTeamLogo)
     applySuggestion('awayTeamLogo', result.awayTeamLogo, result.confidence.awayTeamLogo)
     applySuggestion('sport', result.sport, result.confidence.sport, true)
@@ -517,7 +525,7 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Direction</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.homeTeamName || 'Team 1'} <span className="text-accent">vs</span> {lastResult.awayTeamName || 'Team 2'}</p></div>
-            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Competition</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.tournamentName || lastResult.title || 'Needs review'}</p></div>
+            <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Competition</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.tournamentName || lastResult.title || 'Needs review'}{lastResult.round ? ` · Round ${lastResult.round}` : ''}</p></div>
             <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Kickoff</span><p className="mt-1 font-medium text-text-primary">{lastResult.kickoffDate && lastResult.kickoffTime ? `${lastResult.kickoffDate} ${lastResult.kickoffTime}` : 'Needs review'} <span className="text-[10px] text-text-muted">{lastResult.timezone}</span></p></div>
             <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Sport / stream</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.sport || 'Needs review'}{lastResult.primaryStreamUrl ? ` · ${lastResult.quality || 'stream found'}` : ' · No stream found'}</p></div>
           </div>

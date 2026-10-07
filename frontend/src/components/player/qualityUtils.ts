@@ -1,5 +1,46 @@
 import type { HlsPlayer, HlsManifestLevel, QualityLevel } from './player.types'
 
+/**
+ * Heights a Cloudinary-hosted progressive video (MP4/WebM highlights) can be delivered at.
+ * Cloudinary renders each of these on demand from the stored asset, so they are real playable
+ * renditions rather than labels for the same file.
+ */
+export const VOD_QUALITY_HEIGHTS = [144, 240, 360, 480, 720, 1080] as const
+
+/**
+ * Reports whether a URL points at a Cloudinary video this app may re-render at another resolution.
+ * Only the /video/upload/ delivery path is accepted, so unrelated hosts and the internal stream proxy
+ * are never treated as transformable.
+ */
+export function isCloudinaryVideoUrl(url?: string | null): boolean {
+  if (typeof url !== 'string' || !url.trim()) return false
+
+  try {
+    const parsed = new URL(url.trim())
+    return parsed.hostname.includes('cloudinary.com') && /\/video\/upload\//.test(parsed.pathname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Builds the quality options a progressive source can actually deliver.
+ *
+ * The delivered source height is the asset's own height, so only resolutions at or below it are
+ * offered: asking Cloudinary for a larger height would silently return the source height and the
+ * label would be a lie. An unknown height means no options at all rather than guessed ones.
+ *
+ * Callers must pass the source's own height, not the height of a rendition currently being played,
+ * otherwise choosing a lower quality would hide the higher ones.
+ */
+export function buildVodQualityLevels(sourceHeight: number): QualityLevel[] {
+  if (!Number.isFinite(sourceHeight) || sourceHeight <= 0) return []
+
+  return VOD_QUALITY_HEIGHTS
+    .filter((height) => height <= sourceHeight)
+    .map((height, index) => ({ height, bitrate: 0, hlsIndex: index }))
+}
+
 export function normalizeQualityLevels(levels: HlsManifestLevel[] | undefined): QualityLevel[] {
   if (!Array.isArray(levels) || levels.length === 0) return []
 

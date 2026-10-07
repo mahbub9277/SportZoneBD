@@ -25,8 +25,13 @@ export interface ParsedMatchDetails {
   sport: 'CRICKET' | 'FOOTBALL' | 'BASKETBALL' | 'TENNIS' | 'MOTORSPORTS' | 'WWE' | null
   homeTeamName: string | null
   awayTeamName: string | null
+  /** Existing `Team` id resolved by the server, never suggested by the model. */
+  homeTeamId: string | null
+  awayTeamId: string | null
   homeTeamLogo: string | null
   awayTeamLogo: string | null
+  /** League matchday/round number, when the input stated one. */
+  round: number | null
   timezone: string
   kickoffDate: string | null
   kickoffTime: string | null

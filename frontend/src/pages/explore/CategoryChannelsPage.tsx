@@ -7,6 +7,9 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { Button } from '../../components/ui/Button'
 import { useAppDispatch, useAppSelector } from '../../app/hooks'
 import { selectFavoriteChannelIds, toggleFavoriteChannel } from '../../features/favorites/favorites.slice'
+import { selectPinnedChannelIds } from '../../features/pinned/pinnedChannels.slice'
+import { sortPinnedFirst } from '../../features/pinned/pinnedOrdering'
+import { PinChannelButton } from '../../components/ui/PinChannelButton'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile'
@@ -26,6 +29,7 @@ export function CategoryChannelsPage() {
   const simplifyChannelCards = deviceTier === 'low' || isSmartTV || shouldReduceEffects || reducedMotion
   const { data: categories = [], isLoading, isError } = useGetPublicChannelsQuery()
   const favorites = useAppSelector(selectFavoriteChannelIds)
+  const pinnedChannelIds = useAppSelector(selectPinnedChannelIds)
   const dispatch = useAppDispatch()
   const category = categories.find((item: ChannelCategory) => item.id === decodeURIComponent(categoryId))
 
@@ -33,7 +37,8 @@ export function CategoryChannelsPage() {
   if (isError) return <div className="rounded-2xl border border-(--danger)/30 bg-(--danger-soft) p-5 text-center text-(--danger)">Failed to load category channels.</div>
   if (!category) return <main className="app-page flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center"><Radio className="h-12 w-12 text-text-muted" /><h1 className="text-2xl font-semibold text-text-primary">Category not found</h1><Button variant="outline" onClick={() => navigate('/categories')}>Back to categories</Button></main>
 
-  const channels = category.channels ?? []
+  // Pinned channels lead the grid; the rest keep the order the API returned.
+  const channels = sortPinnedFirst(category.channels ?? [], pinnedChannelIds)
   return (
     <motion.main className="app-page w-full min-w-0 space-y-3 pb-28 xl:pb-8" initial={{ opacity: 0, y: simplifyChannelCards ? 0 : 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: simplifyChannelCards ? 0 : 0.28, ease: 'easeOut' }}>
       <motion.section className="flex flex-col gap-4 rounded-3xl border border-[#0474C4]/25 bg-linear-to-br from-[#0d1527] via-(--surface) to-[#0474C4]/10 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7" initial={{ opacity: 0, y: simplifyChannelCards ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: simplifyChannelCards ? 0 : 0.3, delay: simplifyChannelCards ? 0 : 0.05 }}>
@@ -56,6 +61,7 @@ export function CategoryChannelsPage() {
                 <button type="button" onClick={() => dispatch(toggleFavoriteChannel(channel.id))} className="absolute right-2 top-2 rounded-full p-1.5 text-text-muted opacity-100 transition hover:text-accent sm:opacity-0 sm:group-hover:opacity-100" aria-label={favorites.includes(channel.id) ? 'Remove from favorites' : 'Add to favorites'}>
                   <motion.span whileHover={simplifyChannelCards ? undefined : { scale: 1.15, rotate: 8 }} whileTap={simplifyChannelCards ? undefined : { scale: 0.9 }}><Heart className="h-4 w-4" fill={favorites.includes(channel.id) ? 'currentColor' : 'none'} /></motion.span>
                 </button>
+                <PinChannelButton channelId={channel.id} channelName={channel.name} className="absolute bottom-2 right-2" />
               </Card>
             </motion.div>
           ))}

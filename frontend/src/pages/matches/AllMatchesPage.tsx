@@ -1,4 +1,3 @@
-import { motion, useReducedMotion } from 'framer-motion'
 import { useGetMatchesQuery, useLazyGetMatchesQuery } from '../../features/matches/matches.api'
 import { MatchCardSkeleton } from '../../components/skeletons/MatchCardSkeleton'
 import { Search, Star } from 'lucide-react'
@@ -13,7 +12,7 @@ import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { filterMatches, sortMatches } from '../../features/matches/matchOrdering'
 import { getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, memo, useCallback } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
 const RECENT_MATCH_LIMIT = 24
@@ -27,6 +26,22 @@ const statusFilters = [
 
 type MatchStatus = (typeof matchStatuses)[number]
 
+type MatchOpenHandler = (destination: string, requiresPremium?: boolean) => void
+
+/**
+ * Each card owns a stable open handler so `MatchCardDisplay`'s memo actually holds. Passing an inline
+ * arrow from the list (as before) created a new prop on every render, which re-rendered all match
+ * cards — up to a hundred of them when the "All" filter loads every page.
+ */
+const MatchCardItem = memo(function MatchCardItem({ match, onOpen }: { match: Match; onOpen: MatchOpenHandler }) {
+  const handleOpen = useCallback(
+    () => onOpen(`/matches/${match.id}`, match.premium === true),
+    [match.id, match.premium, onOpen],
+  )
+
+  return <MatchCardDisplay match={match} onOpen={handleOpen} />
+})
+
 const normalizeStatus = (status?: string) => {
   if (!status) return undefined
   const upperStatus = status.toUpperCase()
@@ -36,7 +51,6 @@ const normalizeStatus = (status?: string) => {
 
 export function AllMatchesPage() {
   const openMatch = useAdvertisementGate('MATCH')
-  const shouldReduceMotion = useReducedMotion()
 
   const { filters, setFilters, debouncedFilters } = useFilterState({
     search: '',
@@ -122,8 +136,8 @@ export function AllMatchesPage() {
   const hasNoMatches = !isLoading && (isError || visibleMatches.length === 0)
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="space-y-6">
-      <motion.section initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }} className="premium-border relative overflow-hidden rounded-3xl bg-(--surface-soft)/70 p-5 sm:p-6">
+    <div className="app-page space-y-6">
+      <section className="premium-border relative overflow-hidden rounded-3xl bg-(--surface-soft)/70 p-5 sm:p-6">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="max-w-2xl">
             <h1 className="text-3xl font-semibold tracking-tight text-(--text-primary) sm:text-4xl">All Matches</h1>
@@ -140,9 +154,8 @@ export function AllMatchesPage() {
             />
           </div>
         </div>
-      </motion.section>
+      </section>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
       <Card className="premium-border flex flex-col items-center justify-between gap-4 bg-(--surface-soft)/70 p-4 md:flex-row md:flex-wrap">
         <div className="flex flex-wrap items-center gap-2">
           {statusFilters.map((option) => {
@@ -176,14 +189,13 @@ export function AllMatchesPage() {
           </div>
         </div>
       </Card>
-      </motion.div>
 
       <div className="flex items-center justify-between text-xs text-(--text-muted)" aria-live="polite">
         <span>{isFetching ? 'Refreshing matches...' : `${visibleMatches.length} matches`}</span>
         {status !== 'All' && <span>{status}</span>}
       </div>
 
-      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }} className="grid min-h-[50vh] grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-h-[50vh] grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading && Array.from({ length: 9 }).map((_, index) => <MatchCardSkeleton key={index} />)}
         {hasNoMatches && (
           <Card className="col-span-full flex min-h-[clamp(22rem,50vh,34rem)] w-full flex-col items-center justify-center gap-5 border-(--border) bg-(--surface-soft)/55 p-6 text-center shadow-[0_24px_70px_rgba(2,6,23,0.12)] sm:p-10">
@@ -198,17 +210,10 @@ export function AllMatchesPage() {
             </CardContent>
           </Card>
         )}
-        {visibleMatches.map((match, index) => (
-          <motion.div
-            key={match.id}
-            initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: shouldReduceMotion ? 0 : 0.24, delay: shouldReduceMotion ? 0 : Math.min(index * 0.04, 0.24), ease: 'easeOut' }}
-          >
-            <MatchCardDisplay match={match} onOpen={() => openMatch(`/matches/${match.id}`, match.premium === true)} />
-          </motion.div>
+        {visibleMatches.map((match) => (
+          <MatchCardItem key={match.id} match={match} onOpen={openMatch} />
         ))}
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 }

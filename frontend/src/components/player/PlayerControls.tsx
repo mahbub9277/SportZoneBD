@@ -1,5 +1,5 @@
 import React from 'react'
-import { CirclePlay, Expand, Maximize, Minimize, Pause, PictureInPicture2, Play, RefreshCw, RotateCcw, RotateCw, Settings, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { CirclePlay, Maximize, Minimize, Pause, PictureInPicture2, Play, RefreshCw, RotateCcw, RotateCw, Settings, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SettingsMenu, type PlayerQualityLevel, type PlayerSubtitleChoice } from './SettingsMenu'
 
@@ -28,6 +28,11 @@ export interface PlayerControlsProps {
   isPiPSupported: boolean
   isPiPActive: boolean
   compactControls: boolean
+  /**
+   * Seconds of media the browser currently holds for the active source. Live and duration-less HLS
+   * playback shows this instead of a duration it cannot know.
+   */
+  bufferedAmount?: number
   liveWindow: LiveWindowState
   qualityLevels: PlayerQualityLevel[]
   currentLevel: number
@@ -72,10 +77,17 @@ export interface MatchPlayerMetadata {
   timer?: string
 }
 
-const buttonClass = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 shadow-sm transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-40'
+// The bottom bar is the primary control surface. Its buttons are sized about 2% above the previous
+// 2.25rem so the row feels slightly more comfortable without changing the design language.
+const buttonClass = 'inline-flex h-[2.3rem] w-[2.3rem] shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 shadow-sm transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-40'
 const glassClass = 'border border-white/12 bg-black/35 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur-xl'
-const transportButtonClass = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/45 text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-white/25 hover:bg-black/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
-const transportPrimaryClass = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
+// Inside the fixed mini card the bar is nearly opaque already, so the blur (and its per-frame
+// compositing cost over playing video) is dropped in favour of a flat translucent fill.
+const compactGlassClass = 'border border-white/12 bg-[#080B15]/65 shadow-[0_10px_28px_rgba(0,0,0,0.32)]'
+// The transport controls live over the video, so they stay deliberately light: a soft translucent
+// fill that reads clearly against both live video and bright highlight frames.
+const transportButtonClass = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/35 text-white/90 shadow-[0_10px_26px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
+const transportPrimaryClass = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/22 bg-black/45 text-white shadow-[0_14px_36px_rgba(0,0,0,0.4)] backdrop-blur-md transition hover:border-white/35 hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
 // Only the transport buttons opt into pointer events, and only while the overlay is actually shown.
 const transportVisibilityClass = (visible: boolean) => visible
   ? 'opacity-100 [&_button]:pointer-events-auto'
@@ -84,6 +96,7 @@ const transportVisibilityClass = (visible: boolean) => visible
 export function PlayerControls({
   isPlaying, isMuted, volume, played, duration, progressRatio, isFullscreen, hasError, controlsVisible, isSettingsOpen,
   activeSettingsSection, playbackRate, subtitlesEnabled, isPiPSupported, isPiPActive, compactControls,
+  bufferedAmount = 0,
   liveWindow, qualityLevels, currentLevel, playbackRates, subtitleChoices, selectedSubtitleLanguage,
   settingsButtonRef, settingsMenuRef, volumeContainerRef, onPlayPause, onVolumeButtonClick,
   onVolumeKeyDown, onVolumeChange, onSeekMouseDown, onSeekChange, onSeekMouseUp,
@@ -94,7 +107,14 @@ export function PlayerControls({
 }: PlayerControlsProps) {
   const displayCurrentTime = Number.isFinite(played) ? Math.max(0, played) : Number.isFinite(liveWindow.currentTime) ? Math.max(0, liveWindow.currentTime) : 0
   const hasKnownDuration = Number.isFinite(duration) && duration > 0 && duration !== Infinity
-  const timeLabel = liveWindow.isLive ? 'LIVE' : `${formatTime(displayCurrentTime)} / ${formatDuration(hasKnownDuration ? duration : 0)}`
+  // A meaningful loaded amount is at least a second long: anything shorter would render as "0:00".
+  const hasKnownBufferedAmount = Number.isFinite(bufferedAmount) && bufferedAmount >= 1
+  // A live stream has no total duration, so the loaded amount is shown in its place. The same applies
+  // to an HLS source whose duration is not (yet) exposed, instead of an unavailable "--:--".
+  const loadedLabel = hasKnownBufferedAmount ? formatTime(bufferedAmount) : null
+  const timeLabel = liveWindow.isLive
+    ? `${formatTime(displayCurrentTime)} / ${loadedLabel ?? 'LIVE'}`
+    : `${formatTime(displayCurrentTime)} / ${hasKnownDuration ? formatDuration(duration) : loadedLabel ?? '--:--'}`
   const showSideControls = controlsVisible || isSettingsOpen
   // The transport controls live over the video; they follow the same visibility rules as the bar so
   // the overlay never becomes permanent UI while the player is running.
@@ -147,10 +167,13 @@ export function PlayerControls({
       </div>
 
       <div className={`absolute inset-x-0 bottom-0 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={stopControlPropagation}>
-        <div className="h-8 bg-linear-to-t from-[#080B15]/95 to-transparent px-4 pt-4 sm:px-5"><div className="relative h-1.5 rounded-full bg-white/15"><div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${Math.min(100, progressRatio * 100 + 10)}%` }} /><div className="absolute inset-y-0 left-0 rounded-full bg-[#0474C4]" style={{ width: `${progressRatio * 100}%` }} /><input aria-label="Seek video" type="range" min="0" max="1" step="0.001" value={progressRatio} onMouseDown={onSeekMouseDown} onChange={onSeekChange} onMouseUp={onSeekMouseUp} className="absolute inset-x-0 -top-2 h-5 w-full cursor-pointer opacity-0" /></div></div>
-        <div className={`${glassClass} flex min-h-14 flex-wrap items-center gap-1.5 border-x-0 border-b-0 px-3 py-2 sm:gap-3 sm:px-5`}>
+        <div className={`h-8 bg-linear-to-t from-[#080B15]/95 to-transparent pt-4 ${compactControls ? 'px-2' : 'px-4 sm:px-5'}`}><div className="relative h-1.5 rounded-full bg-white/15"><div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${Math.min(100, progressRatio * 100 + 10)}%` }} /><div className="absolute inset-y-0 left-0 rounded-full bg-[#0474C4]" style={{ width: `${progressRatio * 100}%` }} /><input aria-label="Seek video" type="range" min="0" max="1" step="0.001" value={progressRatio} onMouseDown={onSeekMouseDown} onChange={onSeekChange} onMouseUp={onSeekMouseUp} className="absolute inset-x-0 -top-2 h-5 w-full cursor-pointer opacity-0" /></div></div>
+        <div className={`${compactControls ? compactGlassClass : glassClass} flex flex-wrap items-center border-x-0 border-b-0 ${compactControls ? 'min-h-[3.2rem] gap-1 px-2 py-1.5' : 'min-h-[3.57rem] gap-1.5 px-3 py-2 sm:gap-3 sm:px-5'}`}>
           {compactControls && (
             <button type="button" className={`${buttonClass} h-10 w-10`} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="h-4 w-4" /> : <CirclePlay className="h-5 w-5" />}</button>
+          )}
+          {!compactControls && (
+            <button type="button" className={buttonClass} onClick={onPlayPause} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-px" />}</button>
           )}
           <div className="group/volume relative flex shrink-0 items-center" ref={volumeContainerRef}>
             <button type="button" className={buttonClass} onClick={onVolumeButtonClick} aria-label={volumeLabel} title={volumeLabel}>{isMuted ? <VolumeX className="h-4 w-4" /> : volume < 0.5 ? <Volume1 className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
@@ -158,14 +181,13 @@ export function PlayerControls({
               <input aria-label="Volume level" type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} onKeyDown={onVolumeKeyDown} className="h-1.5 w-full cursor-pointer accent-[#0474C4]" />
             </div>
           </div>
-          <span className="min-w-18 shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 sm:min-w-24 sm:text-xs">{timeLabel}</span>
+          <span className={`shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 ${compactControls ? 'min-w-16' : 'min-w-18 sm:min-w-24 sm:text-xs'}`}>{timeLabel}</span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>
+            {(!compactControls || subtitleChoices.length > 0) && <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>}
             <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} aria-label={hasError ? 'Retry playback' : 'Refresh playback'} title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className="h-4 w-4" /></button>
-            <SettingsMenu buttonRef={settingsButtonRef} menuRef={settingsMenuRef} isOpen={isSettingsOpen} activeSection={activeSettingsSection} qualityLevels={qualityLevels} currentLevel={currentLevel} playbackRate={playbackRate} playbackRates={playbackRates} subtitleChoices={subtitleChoices} selectedSubtitleLanguage={selectedSubtitleLanguage} onToggle={onSettingsToggle} onSectionChange={onSettingsSectionChange} onQualityChange={onQualityChange} onPlaybackRateChange={onPlaybackRateChange} onSubtitleChange={onSubtitleChange} onLock={onLock} />
+            {!compactControls && <SettingsMenu buttonRef={settingsButtonRef} menuRef={settingsMenuRef} isOpen={isSettingsOpen} activeSection={activeSettingsSection} qualityLevels={qualityLevels} currentLevel={currentLevel} playbackRate={playbackRate} playbackRates={playbackRates} subtitleChoices={subtitleChoices} selectedSubtitleLanguage={selectedSubtitleLanguage} onToggle={onSettingsToggle} onSectionChange={onSettingsSectionChange} onQualityChange={onQualityChange} onPlaybackRateChange={onPlaybackRateChange} onSubtitleChange={onSubtitleChange} onLock={onLock} />}
             <button type="button" className={buttonClass} onClick={onPiPToggle} disabled={!isPiPSupported} aria-label="Picture-in-picture" title={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'}><PictureInPicture2 className="h-4 w-4" /></button>
             <button type="button" className={buttonClass} onClick={onFullscreenToggle} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>{isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}</button>
-            {compactControls && <button type="button" className={buttonClass} onClick={onFullscreenToggle} aria-label="Open full player" title="Open full player"><Expand className="h-4 w-4" /></button>}
           </div>
         </div>
       </div>

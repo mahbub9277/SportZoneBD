@@ -1,6 +1,7 @@
 import { prisma } from '../../core/prisma.js'
+import { normalizeTeamName } from './teamName.js'
 
-export const normalizeTeamName = (name: string): string => name.trim().replace(/\s+/g, ' ').toLowerCase()
+export { normalizeTeamName }
 
 const toTeamResult = (team: { id: string; name: string; normalizedName: string; logoUrl: string | null; logoPublicId: string | null }) => ({
   id: team.id,
