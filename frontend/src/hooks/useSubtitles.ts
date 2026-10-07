@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { SubtitleTrack } from '../components/player/player.types'
 
 const normalizeLanguage = (value?: string | null) => (value || '').trim().toLowerCase()
@@ -6,6 +6,8 @@ const normalizeLanguage = (value?: string | null) => (value || '').trim().toLowe
 export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, providedTracks: SubtitleTrack[] = []) {
   const [nativeTracks, setNativeTracks] = useState<SubtitleTrack[]>([])
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null)
+  // Once the viewer turns captions off they stay off: an automatic pick must not switch them back on.
+  const captionsOffRef = useRef(false)
 
   const choices = useMemo(() => {
     const seen = new Set<string>()
@@ -50,9 +52,20 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
     setSelectedLanguage(selectedValue)
   }, [choices, videoRef])
 
+  /**
+   * Viewer-driven selection.
+   *
+   * Turning captions off is remembered, so the automatic language pick below cannot immediately turn
+   * them back on; choosing a language (or turning them on) clears that state again.
+   */
+  const selectLanguage = useCallback((language: string | null) => {
+    captionsOffRef.current = language === null
+    applyLanguage(language)
+  }, [applyLanguage])
+
   const setNativeTrackOptions = useCallback((video: HTMLMediaElement | null) => {
     if (!video) {
-      setNativeTracks([])
+      setNativeTracks((previous) => (previous.length === 0 ? previous : []))
       return
     }
 
@@ -64,7 +77,17 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
       default: track.mode === 'showing',
     }))
 
-    setNativeTracks(tracks)
+    // The list identity stays stable while its content is unchanged: it feeds the caption choices, and
+    // a fresh array on every media event would ripple through the selection effects for no reason.
+    setNativeTracks((previous) => {
+      const unchanged = previous.length === tracks.length && previous.every((track, index) => (
+        track.kind === tracks[index].kind
+        && track.src === tracks[index].src
+        && track.srcLang === tracks[index].srcLang
+        && track.label === tracks[index].label
+      ))
+      return unchanged ? previous : tracks
+    })
   }, [])
 
   useEffect(() => {
@@ -72,7 +95,9 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
   }, [videoRef, setNativeTrackOptions])
 
   useEffect(() => {
-    if (!selectedLanguage && nativeTracks.length > 0) {
+    // Subtitle renditions of an HLS manifest reach the player as provided choices rather than native
+    // TextTracks, so availability — not the native track list — is what enables captions by default.
+    if (!selectedLanguage && !captionsOffRef.current && choices.length > 0) {
       const nextChoice = preferredLanguage || choices[0]?.srcLang || null
       if (nextChoice) {
         startTransition(() => {
@@ -86,10 +111,13 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
     if (selectedLanguage && choices.length > 0) {
       const hasSelectedTrack = choices.some((track) => normalizeLanguage(track.srcLang) === normalizeLanguage(selectedLanguage))
       if (!hasSelectedTrack) {
-        startTransition(() => setSelectedLanguage(null))
+        startTransition(() => {
+          setSelectedLanguage(null)
+          applyLanguage(null)
+        })
       }
     }
-  }, [applyLanguage, choices, nativeTracks.length, preferredLanguage, selectedLanguage])
+  }, [applyLanguage, choices, preferredLanguage, selectedLanguage])
 
   return {
     choices,
@@ -97,6 +125,7 @@ export function useSubtitles(videoRef: RefObject<HTMLMediaElement | null>, provi
     subtitlesEnabled: Boolean(selectedLanguage),
     preferredLanguage,
     applyLanguage,
+    selectLanguage,
     setNativeTrackOptions,
     refreshNativeTracks: setNativeTrackOptions,
     setSelectedLanguage,

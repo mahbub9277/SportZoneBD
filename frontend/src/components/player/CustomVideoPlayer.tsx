@@ -15,9 +15,10 @@ import { useVideoLifecycle } from '../../hooks/useVideoLifecycle'
 import { SportZoneBDLoader } from '../ui/SportZoneBDLoader'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { PlayerControls, type MatchPlayerMetadata } from './PlayerControls'
+import { NoSignalOverlay } from './NoSignalOverlay'
 import { getPlayerContainerClass } from './playerLayout'
 import { buildVodQualityLevels, getActualHlsCurrentLevel, isCloudinaryVideoUrl, normalizeQualityLevels } from './qualityUtils'
-import { getHlsHandle, isHlsPlayer, type HlsEventData, type HlsPlayer, type QualityLevel, type ReactPlayerInstance, type SubtitleTrack } from './player.types'
+import { getHlsHandle, isHlsPlayer, type HlsEventData, type HlsManifestLevel, type HlsPlayer, type QualityLevel, type ReactPlayerInstance, type SubtitleTrack } from './player.types'
 import {
   classifyHlsError,
   classifyMediaError,
@@ -130,6 +131,32 @@ function getLoadedWindowSeconds(ranges: TimeRanges, currentTime: number): number
 
   const windowLength = ranges.end(selectedRange) - ranges.start(selectedRange)
   return Number.isFinite(windowLength) && windowLength > 0 ? windowLength : 0
+}
+
+/**
+ * The subtitle renditions hls.js reports for the current manifest.
+ *
+ * Only real `#EXT-X-MEDIA:TYPE=SUBTITLES` entries become choices — a source without them simply has no
+ * caption options, and nothing is invented for it.
+ */
+function mapHlsSubtitleTracks(tracks?: HlsManifestLevel[]): SubtitleTrack[] {
+  if (!Array.isArray(tracks)) return []
+
+  return tracks
+    .filter((track) => typeof track?.lang === 'string' && track.lang.length > 0)
+    .map((track, index) => ({
+      kind: 'subtitles' as const,
+      src: typeof track.url === 'string' && track.url ? track.url : `hls-subtitle-${index}`,
+      srcLang: String(track.lang),
+      label: typeof track.name === 'string' && track.name ? track.name : String(track.lang),
+    }))
+}
+
+function areSubtitleTrackListsEqual(current: SubtitleTrack[], next: SubtitleTrack[]): boolean {
+  if (current.length !== next.length) return false
+  return current.every((track, index) => (
+    track.src === next[index].src && track.srcLang === next[index].srcLang && track.label === next[index].label
+  ))
 }
 
 interface PlayerState {
@@ -246,6 +273,9 @@ export function CustomVideoPlayer({
   // Tracks whether the player has attached a live media element. It also gates Picture-in-Picture
   // support detection, which can only be decided once that element exists.
   const [hasNativeMediaReady, setHasNativeMediaReady] = useState(false)
+  // Subtitle renditions of the current HLS manifest: they are the only captions a channel can really
+  // offer, so the caption menu lists exactly these and nothing else.
+  const [hlsSubtitleTracks, setHlsSubtitleTracks] = useState<SubtitleTrack[]>([])
   const [qualityToast, setQualityToast] = useState<string | null>(null)
   const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId)
   const sourceKey = `${streamId || ''}|${url || ''}`
@@ -299,6 +329,21 @@ export function CustomVideoPlayer({
   const presenceActiveRef = useRef(false)
   const presenceKeyRef = useRef<string | null>(null)
   const suppressAutoplayOnSourceChangeRef = useRef(false)
+  /**
+   * Whether the viewer wants the stream running.
+   *
+   * The `isPlaying` state follows media events, and the player's own teardown pauses the element, so it
+   * cannot answer "should this resume?" after a retry: it would always look paused. Intent therefore
+   * only changes when the viewer plays, pauses or finishes a stream.
+   */
+  const playIntentRef = useRef(autoPlay)
+  const selectedSubtitleLanguageRef = useRef<string | null>(null)
+  /**
+   * Play intent carried into the next candidate of a failed source, consumed by the source reset.
+   *
+   * Only recovery sets it: an ordinary source switch keeps its existing autoplay behaviour.
+   */
+  const recoveryIntentRef = useRef(false)
   const presenceIdentity = presenceId || streamId || null
   const { track: trackTelemetry } = usePlayerTelemetry({
     streamId,
@@ -430,13 +475,23 @@ export function CustomVideoPlayer({
             : failure.kind === 'decoder' || failure.kind === 'media' ? 'media_error'
               : 'fatal_error'
     )
+    // Recovery is a continuation of the stream the viewer was watching, so the intent and the position
+    // are read before the teardown pauses the element. Without this the automatic transport retry
+    // reloaded the source and left it paused at the start.
+    const video = videoElementRef.current
+    const resumeIntent = playIntentRef.current
+    const resumeTime = video && Number.isFinite(video.currentTime) ? video.currentTime : 0
+    const isLiveSource = !video || !Number.isFinite(video.duration)
+
     trackTelemetry(event, { kind: failure.kind, ...(failure.detail ? { detail: failure.detail } : {}), ...(failure.status ? { status: failure.status } : {}) })
     dispatchLifecycle({ type: 'FAILED', sourceKey, kind: failure.kind })
-    dispatch({ type: 'SET_PLAYING', payload: false })
 
     if (retry()) {
       // A retry is a new load of the same source, so the previous element, its hls.js instance and all
-      // their listeners are released before the replacement is created.
+      // their listeners are released before the replacement is created — and the same position and play
+      // intent are restored by the resume mechanism, exactly as an explicit retry does.
+      writeRef(pendingResumeRef, resumeIntent && !isLiveSource && resumeTime > 0.05 ? { time: resumeTime, wasPlaying: true } : null)
+      dispatch({ type: 'SET_PLAYING', payload: resumeIntent })
       stopPlaybackRef.current()
       terminatedRef.current = false
       currentSourceKeyRef.current = sourceKey
@@ -451,6 +506,9 @@ export function CustomVideoPlayer({
     const failedUrl = typeof url === 'string' ? url.trim() : ''
     if (failedUrl && fallbackRequestedUrlRef.current !== failedUrl && onStreamFallback?.(failedUrl)) {
       fallbackRequestedUrlRef.current = failedUrl
+      // The next candidate is a different source, so only the intent is carried over: the new source
+      // decides whether the previous position is valid at all.
+      writeRef(recoveryIntentRef, resumeIntent)
       clearPlayerError()
       trackTelemetry('playback_fallback')
       dispatchLifecycle({ type: 'AWAIT_CANDIDATE', sourceKey })
@@ -498,7 +556,14 @@ export function CustomVideoPlayer({
     () => (isLowPower ? LOW_POWER_PLAYBACK_RATES : PLAYBACK_RATES),
     [isLowPower]
   )
-  const { choices: subtitleChoices, selectedLanguage: selectedSubtitleLanguage, subtitlesEnabled, preferredLanguage, applyLanguage: applySubtitleLanguage, refreshNativeTracks } = useSubtitles(videoElementRef, subtitles)
+  // Caption options come from two real sources only: the tracks the caller provides and the subtitle
+  // renditions of the current HLS manifest. Native TextTracks of the loaded media are merged in by the
+  // hook itself, which de-duplicates them against these entries.
+  const subtitleTrackChoices = useMemo(
+    () => [...(subtitles ?? []), ...hlsSubtitleTracks],
+    [hlsSubtitleTracks, subtitles],
+  )
+  const { choices: subtitleChoices, selectedLanguage: selectedSubtitleLanguage, subtitlesEnabled, preferredLanguage, applyLanguage: applySubtitleLanguage, selectLanguage: selectSubtitleLanguage, refreshNativeTracks } = useSubtitles(videoElementRef, subtitleTrackChoices)
   const { isFullscreen: isFullscreenFromHook, toggle: toggleFullscreen } = useFullscreen(playerContainerRef, isTouchDevice)
   const { isActive: isPiPActive, isSupported: isPiPSupported, toggle: togglePictureInPicture } = usePictureInPicture(videoElementRef, hasNativeMediaReady)
 
@@ -514,7 +579,6 @@ export function CustomVideoPlayer({
     isVisible: controlsVisible,
     isSeeking,
     isSettingsOpen,
-    isLocked,
     hasError: !!playerError,
     isTouchDevice,
     isPointerInside: isPointerInsidePlayer,
@@ -522,16 +586,16 @@ export function CustomVideoPlayer({
   })
 
   const handlePlayerPointerEnter = useCallback(() => {
-    if (isTouchDevice || isLocked || isSettingsOpen) return
+    if (isTouchDevice || isSettingsOpen) return
     setIsPointerInsidePlayer(true)
     showControls()
-  }, [isLocked, isSettingsOpen, isTouchDevice, showControls])
+  }, [isSettingsOpen, isTouchDevice, showControls])
 
   const handlePlayerPointerMove = useCallback(() => {
-    if (isTouchDevice || isLocked || isSettingsOpen) return
+    if (isTouchDevice || isSettingsOpen) return
     setIsPointerInsidePlayer(true)
     showControls()
-  }, [isLocked, isSettingsOpen, isTouchDevice, showControls])
+  }, [isSettingsOpen, isTouchDevice, showControls])
 
   const handlePlayerPointerLeave = useCallback(() => {
     setIsPointerInsidePlayer(false)
@@ -795,6 +859,88 @@ export function CustomVideoPlayer({
   // ---------------------------------------------------------------- HLS handle + media adapter
 
   /**
+   * Reads the subtitle renditions of the current manifest.
+   *
+   * The identity of the list is kept stable while its content is unchanged, because the caption
+   * selection is re-applied whenever the list changes.
+   */
+  const syncHlsSubtitleTracks = useCallback((handle?: HlsPlayer | null) => {
+    const resolved = handle ?? getHlsHandle(videoElementRef.current) ?? getHlsHandle(playerRef.current)
+    const next = mapHlsSubtitleTracks(resolved?.subtitleTracks)
+    setHlsSubtitleTracks((previous) => (areSubtitleTrackListsEqual(previous, next) ? previous : next))
+  }, [])
+
+  /**
+   * Applies the selected caption language to hls.js.
+   *
+   * The native TextTracks of a subtitle rendition only exist once hls.js has created them, so the handle
+   * is the dependable place to switch captions on and off: `subtitleTrack` loads or releases the
+   * rendition and `subtitleDisplay` decides whether its cues are rendered. A language that the manifest
+   * does not offer simply leaves captions off.
+   */
+  const applyHlsSubtitleSelection = useCallback((language: string | null) => {
+    const handle = hlsRef.current ?? getHlsHandle(videoElementRef.current) ?? getHlsHandle(playerRef.current)
+    const tracks = handle?.subtitleTracks
+    if (!handle || !Array.isArray(tracks)) return
+
+    const normalized = (language || '').trim().toLowerCase()
+    const trackIndex = normalized
+      ? tracks.findIndex((track) => {
+          const trackLanguage = typeof track.lang === 'string' ? track.lang.toLowerCase() : ''
+          return trackLanguage === normalized
+            || trackLanguage.startsWith(`${normalized}-`)
+            || normalized.startsWith(`${trackLanguage}-`)
+        })
+      : -1
+
+    try {
+      if (trackIndex < 0) {
+        Object.assign(handle, { subtitleDisplay: false, subtitleTrack: -1 })
+        return
+      }
+
+      Object.assign(handle, { subtitleDisplay: true, subtitleTrack: trackIndex })
+    } catch {
+      // A destroyed instance rejects the selection; the next load re-applies it.
+    }
+  }, [])
+
+  useEffect(() => {
+    applyHlsSubtitleSelection(selectedSubtitleLanguage)
+  }, [applyHlsSubtitleSelection, hlsSubtitleTracks, selectedSubtitleLanguage])
+
+  /**
+   * Re-reads the media's own text tracks whenever the *list* changes.
+   *
+   * A subtitle rendition produces its TextTrack only after hls.js appended its fragment, which happens
+   * after the selection was made: without this the chosen language could never be applied to a track
+   * that appeared later, and the same applies to any source that adds tracks as it loads.
+   *
+   * Only add/remove events are observed. Mode changes are deliberately not handled: hls.js derives its
+   * subtitle selection from the native track modes, so re-applying modes on every change made the two
+   * fight over the same tracks and could loop until React aborted the update.
+   */
+  useEffect(() => {
+    const textTracks = mediaElement?.textTracks
+    if (!textTracks) return
+
+    const handleTextTracksChanged = () => {
+      refreshNativeTracks(mediaElement)
+      applySubtitleLanguage(selectedSubtitleLanguageRef.current)
+    }
+    textTracks.addEventListener('addtrack', handleTextTracksChanged)
+    textTracks.addEventListener('removetrack', handleTextTracksChanged)
+    return () => {
+      textTracks.removeEventListener('addtrack', handleTextTracksChanged)
+      textTracks.removeEventListener('removetrack', handleTextTracksChanged)
+    }
+  }, [applySubtitleLanguage, mediaElement, refreshNativeTracks])
+
+  useEffect(() => {
+    selectedSubtitleLanguageRef.current = selectedSubtitleLanguage
+  }, [selectedSubtitleLanguage])
+
+  /**
    * Attaches the lifecycle listeners to the hls.js instance behind the current media element.
    *
    * react-player v3 plays HLS through `hls-video-element`, which keeps its hls.js instance on
@@ -823,12 +969,25 @@ export function CustomVideoPlayer({
       manualQualityRef.current = nextCurrentLevel >= 0 && !handle.autoLevelEnabled
     }
     syncQualityState()
+    syncHlsSubtitleTracks(handle)
 
     const onManifestParsed = () => {
       if (!isCurrentHandle()) return
       noteProgress()
       syncQualityState()
+      syncHlsSubtitleTracks(handle)
       trackTelemetry('manifest_ready')
+    }
+    const onSubtitleTracksUpdated = () => {
+      if (!isCurrentHandle()) return
+      syncHlsSubtitleTracks(handle)
+    }
+    const onSubtitleTrackSwitched = () => {
+      if (!isCurrentHandle()) return
+      // hls.js owns the authoritative selection, so the media's tracks are re-read: a rendition whose
+      // TextTrack appears after the switch is picked up here and gets the selected mode applied.
+      const video = videoElementRef.current
+      if (video) refreshNativeTracks(video)
     }
     const onLevelLoaded = () => {
       if (!isCurrentHandle()) return
@@ -879,6 +1038,8 @@ export function CustomVideoPlayer({
 
     const listeners: Array<[string, (event: string, data: HlsEventData) => void]> = [
       ['hlsManifestParsed', onManifestParsed],
+      ['hlsSubtitleTracksUpdated', onSubtitleTracksUpdated],
+      ['hlsSubtitleTrackSwitch', onSubtitleTrackSwitched],
       ['hlsLevelLoaded', onLevelLoaded],
       ['hlsFragBuffered', onFragBuffered],
       ['hlsBufferAppended', onBufferAppended],
@@ -904,7 +1065,7 @@ export function CustomVideoPlayer({
         }
       }
     }
-  }, [dispatchLifecycle, noteProgress, sourceKey, trackTelemetry])
+  }, [dispatchLifecycle, noteProgress, refreshNativeTracks, sourceKey, syncHlsSubtitleTracks, trackTelemetry])
 
   /** Resolves the hls.js instance of the current element and attaches the listeners when it appears. */
   const syncHlsHandle = useCallback(() => {
@@ -970,6 +1131,9 @@ export function CustomVideoPlayer({
   const handleMediaPlaying = useCallback(() => {
     if (!isCurrentSource()) return
     const wasTerminal = isTerminalPlaybackStatus(lifecycleRef.current.status)
+    // Playback started, so the viewer's intent is to keep this stream running (this also covers the
+    // automatic resume after a retry, which the element reports as an ordinary play).
+    playIntentRef.current = true
     setHasNativeMediaReady(true)
     dispatchLifecycle({ type: 'PLAYING', sourceKey })
     dispatch({ type: 'SET_PLAYING', payload: true })
@@ -1001,6 +1165,7 @@ export function CustomVideoPlayer({
 
   const handleMediaEnded = useCallback(() => {
     if (!isCurrentSource()) return
+    playIntentRef.current = false
     leaveViewerPresence()
     trackTelemetry('ended')
     dispatch({ type: 'SET_PLAYING', payload: false })
@@ -1123,8 +1288,11 @@ export function CustomVideoPlayer({
     }
 
     if (video.paused || video.ended) {
+      playIntentRef.current = true
       void video.play().catch(() => dispatch({ type: 'SET_PLAYING', payload: false }))
     } else {
+      // Only a viewer pausing clears the intent; the player's own teardown pauses must not.
+      playIntentRef.current = false
       video.pause()
     }
   }, [getVideoElement])
@@ -1178,16 +1346,19 @@ export function CustomVideoPlayer({
   
   const handleControlsSurfaceClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation()
-    if (isLocked || isSettingsOpen) return
+    if (isSettingsOpen) return
 
     const target = event.target as HTMLElement | null
     if (target?.closest('button, input, [role="button"], [role="slider"], [role="menu"]')) return
 
-    if (showSeekControls) {
+    // A locked player has no control bar, so any tap only brings the unlock affordance back.
+    if (isLocked) {
       showControls()
       return
     }
 
+    // Touch surfaces own this gesture: a tap reveals or hides the chrome. The skip shortcuts are not a
+    // reason to swallow it — video highlights would otherwise never let the controls be hidden again.
     if (isTouchDevice) {
       if (!controlsVisible) {
         showControls()
@@ -1195,6 +1366,11 @@ export function CustomVideoPlayer({
       }
 
       toggleControls()
+      return
+    }
+
+    if (showSeekControls) {
+      showControls()
       return
     }
 
@@ -1235,19 +1411,19 @@ export function CustomVideoPlayer({
 
     const current = selectedSubtitleLanguage
     if (current) {
-      applySubtitleLanguage(null)
+      selectSubtitleLanguage(null)
       return
     }
 
-    applySubtitleLanguage(preferredLanguage)
-  }, [applySubtitleLanguage, preferredLanguage, selectedSubtitleLanguage, subtitleChoices.length])
+    selectSubtitleLanguage(preferredLanguage)
+  }, [preferredLanguage, selectSubtitleLanguage, selectedSubtitleLanguage, subtitleChoices.length])
   
   const handleSetSubtitleLanguage = useCallback((language: string | null) => { // Changed to use useCallback
     if (!subtitleChoices.length) return
-    applySubtitleLanguage(language)
+    selectSubtitleLanguage(language)
     dispatch({ type: 'TOGGLE_SETTINGS' })
     settingsButtonRef.current?.focus()
-  }, [applySubtitleLanguage, dispatch, subtitleChoices.length])
+  }, [dispatch, selectSubtitleLanguage, subtitleChoices.length])
   
   const handleToggleFullscreen = useCallback(async () => {
     await toggleFullscreen()
@@ -1283,11 +1459,18 @@ export function CustomVideoPlayer({
   }, [compactControls, isTouchDevice, sourceKey])
 
   const handleTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (isLocked || compactControls || event.changedTouches.length !== 1) return
+    if (compactControls || event.changedTouches.length !== 1) return
 
     const target = event.target as HTMLElement | null
     if (target?.closest('button, input, [role="button"], [role="slider"], [role="menu"]')) {
       writeRef(lastTouchRef, null)
+      return
+    }
+
+    // While locked there are no controls to toggle, so the tap only reveals the unlock affordance.
+    if (isLocked) {
+      writeRef(lastTouchRef, null)
+      showControls()
       return
     }
 
@@ -1307,7 +1490,7 @@ export function CustomVideoPlayer({
       void handleToggleFullscreen()
       return
     }
-  }, [compactControls, handleToggleFullscreen, isLocked])
+  }, [compactControls, handleToggleFullscreen, isLocked, showControls])
   
   const handleLockScreen = useCallback((event?: React.MouseEvent<HTMLElement>) => { // Changed to use useCallback
     event?.stopPropagation()
@@ -1381,8 +1564,23 @@ export function CustomVideoPlayer({
    * The retry chain is reset first, so the attempt starts from the source's own preferred transport
    * (proxy primary), and the media element is recreated — which is also what releases a wedged MSE
    * buffer or a decoder that gave up.
+   *
+   * The teardown pauses the element, so the position and the viewer's play intent are captured before it
+   * runs and restored once the replacement has data: a retry must not quietly leave the stream paused at
+   * the start. A live source has no position worth preserving, so only the intent is restored there.
    */
   const handleRetry = useCallback(() => {
+    // A retry that is already running owns the recovery; a second press must not stack attempts.
+    if (lifecycleRef.current.status === 'retrying') return
+
+    const video = videoElementRef.current
+    const resumeTime = video && Number.isFinite(video.currentTime) ? video.currentTime : 0
+    const isLiveSource = liveWindow.isLive || (video ? !Number.isFinite(video.duration) : false)
+    const resumeIntent = playIntentRef.current
+    writeRef(pendingResumeRef, resumeIntent && !isLiveSource && resumeTime > 0.05
+      ? { time: resumeTime, wasPlaying: true }
+      : null)
+
     resetFallbackState()
     fallbackRequestedUrlRef.current = null
     awaitingRenditionReloadRef.current = false
@@ -1392,11 +1590,11 @@ export function CustomVideoPlayer({
     currentSourceKeyRef.current = sourceKey
     clearQualityToast()
     clearPlayerError()
-    dispatch({ type: 'SET_PLAYING', payload: false })
-    dispatchLifecycle({ type: 'SOURCE_START', sourceKey })
+    dispatch({ type: 'SET_PLAYING', payload: resumeIntent })
+    dispatchLifecycle({ type: 'RETRY', sourceKey })
     trackTelemetry('playback_retry')
     refreshPlayer()
-  }, [clearPlayerError, clearQualityToast, dispatch, dispatchLifecycle, refreshPlayer, resetFallbackState, sourceKey, stopPlayback, trackTelemetry])
+  }, [clearPlayerError, clearQualityToast, dispatch, dispatchLifecycle, liveWindow.isLive, refreshPlayer, resetFallbackState, sourceKey, stopPlayback, trackTelemetry])
 
   useEffect(() => {
     if (!resolvedUrl) return
@@ -1536,13 +1734,22 @@ export function CustomVideoPlayer({
     awaitingRenditionReloadRef.current = false
     const shouldAutoPlay = autoPlay && !suppressAutoplayOnSourceChangeRef.current
     suppressAutoplayOnSourceChangeRef.current = false
-    dispatch({ type: 'RESET_FOR_NEW_URL', payload: shouldAutoPlay })
+    // A candidate that replaces a failed source continues what the viewer was watching.
+    const recoveryIntent = recoveryIntentRef.current
+    recoveryIntentRef.current = false
+    const shouldContinuePlayback = shouldAutoPlay || recoveryIntent
+    // The new source starts with the intent its own rules dictate.
+    playIntentRef.current = shouldContinuePlayback
+    dispatch({ type: 'RESET_FOR_NEW_URL', payload: shouldContinuePlayback })
     // A new source starts a new lifecycle: loading, no error, no attempts, watchdog armed. The reducer
     // drops every late event that still belongs to the previous source key.
     dispatchLifecycle({ type: 'SOURCE_START', sourceKey })
     startTransition(() => {
       setQualityLevels([])
       setCurrentLevel(-1)
+      // Caption renditions belong to the previous manifest and must not remain selectable for the next
+      // source; the manifest of the new one republishes its own list.
+      setHlsSubtitleTracks([])
       setLiveWindow({ hasTimeshift: false, liveStart: 0, liveEdge: 0, currentTime: 0, isLive: false })
       // Media metrics belong to the previous source and must not leak into the next one.
       setSourceVideoHeight(0)
@@ -1564,11 +1771,20 @@ export function CustomVideoPlayer({
 
         manualQualityRef.current = levelIndex >= 0 && Boolean(selectedLevel)
 
-        if (typeof hlsHandle.autoLevelEnabled === 'boolean') {
-          Object.assign(hlsHandle, { autoLevelEnabled: levelIndex < 0 })
+        // `autoLevelEnabled` is only a derivation of hls.js's `manualLevel`, and assigning it directly
+        // throws (the property has no setter) — which aborted the whole change inside the surrounding
+        // try/catch, so the selected channel quality never reached hls.js. Selecting is done through the
+        // level setters instead; they update `manualLevel`, and auto is restored with -1.
+        //
+        // While playing, the switch waits for the next fragment boundary (`nextLevel`) because it does
+        // not interrupt playback; assigning `currentLevel` flushes the buffer on the spot, which stalls
+        // the stream. A paused element has no boundary to wait for, so it takes the immediate path.
+        const video = getVideoElement()
+        if (video && !video.paused) {
+          Object.assign(hlsHandle, { nextLevel: nextIndex })
+        } else {
+          Object.assign(hlsHandle, { currentLevel: nextIndex })
         }
-
-        Object.assign(hlsHandle, { currentLevel: nextIndex })
         setCurrentLevel(levelIndex < 0 ? -1 : nextIndex)
         const selectedLabel = levelIndex < 0 ? 'Auto' : selectedLevel ? `${selectedLevel.height}p` : null
         if (selectedLabel) showQualityToast(`Quality set to ${selectedLabel}`)
@@ -1807,6 +2023,9 @@ export function CustomVideoPlayer({
   const loaderVariant = playbackLoaderVariant(lifecycle)
   const loaderLabel = playbackLoaderLabel(lifecycle)
   const showAlternateStreamAction = Boolean(onStreamFallback) && lifecycle.status === 'exhausted'
+  // A live channel that ends up in a terminal state is "no signal"; a failed highlight is not, so the
+  // static stays out of the file-based player.
+  const showNoSignal = isTerminalPlaybackStatus(lifecycle.status) && Boolean(playerError) && (isHlsSource || presenceType === 'channel')
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1888,6 +2107,8 @@ export function CustomVideoPlayer({
 
       {qualityToast && <div className="pointer-events-none absolute bottom-24 left-1/2 z-35 -translate-x-1/2 rounded-full border border-[#A8C4EC]/20 bg-[#262B40]/90 px-3 py-1.5 text-xs font-semibold text-[#A8C4EC] shadow-lg backdrop-blur-md" role="status" aria-live="polite">{qualityToast}</div>}
 
+      {showNoSignal && <NoSignalOverlay />}
+
       <AnimatePresence>
         {playerError && (
           <motion.div
@@ -1896,7 +2117,7 @@ export function CustomVideoPlayer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-linear-to-br from-black/80 via-black/75 to-black/80 text-white backdrop-blur-sm"
+            className={`absolute inset-0 z-30 flex flex-col items-center justify-center text-white backdrop-blur-sm ${showNoSignal ? 'bg-linear-to-br from-black/65 via-black/55 to-black/65' : 'bg-linear-to-br from-black/80 via-black/75 to-black/80'}`}
           >
             <motion.div
               initial={{ scale: 0.8 }}
@@ -1950,13 +2171,15 @@ export function CustomVideoPlayer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 z-40 flex items-end justify-center bg-transparent pb-5 sm:items-center sm:pb-0"
+            className={`absolute inset-0 z-40 flex items-end justify-center bg-transparent pb-5 sm:items-center sm:pb-0 ${controlsVisible ? '' : 'pointer-events-none'}`}
           >
             <motion.button
               type="button"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="flex min-h-11 items-center gap-2 rounded-full border border-cyan-400/30 bg-black/75 px-5 py-2.5 text-sm font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/85 hover:border-cyan-400/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+              // The unlock affordance auto-hides with the rest of the chrome, can be brought back by any
+              // interaction, and stays in the tab order so a keyboard can always reach it.
+              className={`flex min-h-11 items-center gap-2 rounded-full border border-cyan-400/30 bg-black/75 px-5 py-2.5 text-sm font-semibold text-white shadow-lg backdrop-blur-md transition-opacity duration-200 hover:bg-black/85 hover:border-cyan-400/50 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:outline-none motion-reduce:transition-none ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
               onClick={handleUnlockScreen}
               aria-label="Unlock screen"
             >
@@ -2014,6 +2237,7 @@ export function CustomVideoPlayer({
           onPiPToggle={() => { void handleTogglePictureInPicture() }}
           onFullscreenToggle={() => { void handleToggleFullscreen() }}
           onRetry={handleRetry}
+          isRetrying={lifecycle.status === 'retrying'}
           onSurfaceClick={handleControlsSurfaceClick}
           onSurfaceDoubleClick={handleControlsSurfaceDoubleClick}
           onMouseMove={handlePlayerPointerMove}

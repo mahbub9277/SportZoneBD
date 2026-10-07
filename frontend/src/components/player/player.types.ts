@@ -16,9 +16,12 @@ export interface HlsManifestLevel {
   height?: number
   bitrate?: number
   name?: string
+  /** Subtitle renditions carry a language tag and the playlist URL instead of a bitrate. */
+  lang?: string
+  url?: string
+  id?: number
   [key: string]: unknown
 }
-
 export type HlsLifecycleEvent =
   | 'hlsManifestLoading'
   | 'hlsManifestParsed'
@@ -52,6 +55,14 @@ export interface HlsPlayer {
   off?: (event: HlsLifecycleEvent | string, callback: (event: string, data: HlsEventData) => void) => void
   currentLevel: number
   autoLevelEnabled?: boolean
+  /** `nextLevel` switches at the next fragment boundary, so a manual pick does not flush the buffer. */
+  nextLevel?: number
+  /** Real subtitle renditions of the manifest (`#EXT-X-MEDIA:TYPE=SUBTITLES`). */
+  subtitleTracks?: HlsManifestLevel[]
+  /** Selected subtitle rendition index, or -1 for none. */
+  subtitleTrack?: number
+  /** Whether hls.js renders the selected subtitle rendition into the media element's text tracks. */
+  subtitleDisplay?: boolean
   stopLoad?: () => void
   detachMedia?: () => void
   destroy?: () => void

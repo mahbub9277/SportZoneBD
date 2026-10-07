@@ -120,9 +120,11 @@ export function WatchChannelPage() {
 
   const flushReaction = async () => {
     if (reactionRequestActiveRef.current) return
-    const serverState = serverReactionRef.current
+    // Without a resolved query there is no server snapshot to compare against, but the viewer's click
+    // must still reach the API: the response is authoritative and replaces this empty baseline.
+    const serverState = serverReactionRef.current ?? { likeCount: 0, dislikeCount: 0, userReaction: null }
     const desiredReaction = desiredReactionRef.current
-    if (!serverState || desiredReaction === serverState.userReaction) return
+    if (desiredReaction === serverState.userReaction) return
 
     const requestType = desiredReaction ?? serverState.userReaction
     if (!requestType) return
@@ -159,8 +161,9 @@ export function WatchChannelPage() {
       return
     }
 
-    const current = reactionStateRef.current ?? optimisticReactions ?? serverReactionRef.current
-    if (!current) return
+    // The counts come from the reactions query; if it has not resolved yet (or failed) the interaction
+    // still has to work, so it starts from an empty summary that the server response then corrects.
+    const current = reactionStateRef.current ?? optimisticReactions ?? serverReactionRef.current ?? { likeCount: 0, dislikeCount: 0, userReaction: null }
     const nextReaction = current.userReaction === type ? null : type
     const next = {
       likeCount: Math.max(0, current.likeCount + (nextReaction === 'LIKE' ? 1 : current.userReaction === 'LIKE' ? -1 : 0)),

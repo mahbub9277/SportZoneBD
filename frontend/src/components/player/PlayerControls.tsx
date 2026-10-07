@@ -62,6 +62,8 @@ export interface PlayerControlsProps {
   onPiPToggle: () => void
   onFullscreenToggle: () => void
   onRetry: () => void
+  /** True while a retry is already running, so the refresh affordance cannot stack attempts. */
+  isRetrying?: boolean
   onSurfaceClick: (event: React.MouseEvent<HTMLDivElement>) => void
   onSurfaceDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void
   onMouseMove: () => void
@@ -85,8 +87,10 @@ const glassClass = 'border border-white/12 bg-black/35 shadow-[0_14px_36px_rgba(
 // compositing cost over playing video) is dropped in favour of a flat translucent fill.
 const compactGlassClass = 'border border-white/12 bg-[#080B15]/65 shadow-[0_10px_28px_rgba(0,0,0,0.32)]'
 // The transport controls live over the video, so they stay deliberately light: a soft translucent
-// fill that reads clearly against both live video and bright highlight frames.
-const transportButtonClass = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/35 text-white/90 shadow-[0_10px_26px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
+// fill that reads clearly against both live video and bright highlight frames. The glyph stays 15px
+// while the button grows and gains an invisible 5px halo, so the tap target is comfortable without a
+// heavier visual footprint.
+const transportButtonClass = 'relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/18 bg-black/35 text-white/90 shadow-[0_10px_26px_rgba(0,0,0,0.3)] backdrop-blur-md transition after:absolute after:-inset-2 after:rounded-full after:content-[""] hover:border-white/30 hover:bg-black/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-13 sm:w-13'
 // Only the transport buttons opt into pointer events, and only while the overlay is actually shown.
 const transportVisibilityClass = (visible: boolean) => visible
   ? 'opacity-100 [&_button]:pointer-events-auto'
@@ -101,7 +105,7 @@ export function PlayerControls({
   onVolumeKeyDown, onVolumeChange, onSeekMouseDown, onSeekChange, onSeekMouseUp,
   onSeekBackward, onSeekForward, showSeekControls = false, onSettingsToggle, onSettingsSectionChange,
   onQualityChange, onPlaybackRateChange, onSubtitleChange, onToggleSubtitles, onLock, onPiPToggle,
-  onFullscreenToggle, onRetry, onSurfaceClick, onSurfaceDoubleClick, onMouseMove, onMouseEnter,
+  onFullscreenToggle, onRetry, isRetrying = false, onSurfaceClick, onSurfaceDoubleClick, onMouseMove, onMouseEnter,
   matchMetadata,
 }: PlayerControlsProps) {
   const displayCurrentTime = Number.isFinite(played) ? Math.max(0, played) : Number.isFinite(liveWindow.currentTime) ? Math.max(0, liveWindow.currentTime) : 0
@@ -147,7 +151,7 @@ export function PlayerControls({
       {/* The centre overlay now holds only the optional skip shortcuts: play/pause lives in the control
           bar, so it is no longer duplicated over the video. */}
       <div
-        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-3 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 ${transportVisibilityClass(showTransportControls)}`}
+        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-4 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 ${transportVisibilityClass(showTransportControls)}`}
         aria-hidden={!showTransportControls}
         onClick={stopControlPropagation}
         onDoubleClick={stopControlPropagation}
@@ -182,7 +186,7 @@ export function PlayerControls({
           <span className={`shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/65 ${compactControls ? 'min-w-16' : 'min-w-18 sm:min-w-24 sm:text-xs'}`}>{timeLabel}</span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {(!compactControls || subtitleChoices.length > 0) && <button type="button" className={buttonClass} onClick={onToggleSubtitles} disabled={!subtitleChoices.length} aria-label={subtitlesEnabled ? 'Disable captions' : 'Enable captions'} title={subtitlesEnabled ? 'Turn captions off' : 'Turn captions on'}><span className="text-[10px] font-black">CC</span></button>}
-            <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} aria-label={hasError ? 'Retry playback' : 'Refresh playback'} title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" className={buttonClass} onClick={(event) => { event.stopPropagation(); onRetry() }} disabled={isRetrying} aria-busy={isRetrying || undefined} aria-label={hasError ? 'Retry playback' : 'Refresh playback'} title={hasError ? 'Retry playback' : 'Refresh playback'}><RefreshCw className={`h-4 w-4 ${isRetrying ? 'animate-spin motion-reduce:animate-none' : ''}`} /></button>
             {!compactControls && <SettingsMenu buttonRef={settingsButtonRef} menuRef={settingsMenuRef} isOpen={isSettingsOpen} activeSection={activeSettingsSection} qualityLevels={qualityLevels} currentLevel={currentLevel} playbackRate={playbackRate} playbackRates={playbackRates} subtitleChoices={subtitleChoices} selectedSubtitleLanguage={selectedSubtitleLanguage} onToggle={onSettingsToggle} onSectionChange={onSettingsSectionChange} onQualityChange={onQualityChange} onPlaybackRateChange={onPlaybackRateChange} onSubtitleChange={onSubtitleChange} onLock={onLock} />}
             <button type="button" className={buttonClass} onClick={onPiPToggle} disabled={!isPiPSupported} aria-label="Picture-in-picture" title={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'}><PictureInPicture2 className="h-4 w-4" /></button>
             <button type="button" className={buttonClass} onClick={onFullscreenToggle} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>{isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}</button>

@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils'
 export type SportZoneBDLoaderVariant = 'loading' | 'buffering'
 
 const VARIANT_LABELS: Record<SportZoneBDLoaderVariant, string> = {
-  loading: 'Loading stream…',
+  loading: 'Loading…',
   buffering: 'Buffering…',
 }
 
@@ -25,12 +25,13 @@ export interface SportZoneBDLoaderProps {
  * and is pointer-transparent, so it never covers the video frame, a control, the settings menu, or a
  * touch/mouse gesture underneath it.
  *
- * The visual is a small logo chip with a soft glow, surrounded by thin rings that expand and fade on
- * staggered delays so they read as one continuous wave. Only `transform` and `opacity` animate, and the
- * motion is dropped when the user prefers reduced motion.
+ * The visual is the real brand asset held perfectly still inside three concentric blue rings that share
+ * one heartbeat, with a soft left/right energy bloom and the status text beneath it. The geometry and
+ * keyframes live in the scoped `szb-loader*` rules in `index.css`; only `transform` and `opacity`
+ * animate, the sizing is fluid so the same loader fits a mini card through to a TV, and the motion stops
+ * (with every part still visible) when the user prefers reduced motion.
  */
 export function SportZoneBDLoader({ variant = 'loading', label, className }: SportZoneBDLoaderProps) {
-  const isBuffering = variant === 'buffering'
   const resolvedLabel = label ?? VARIANT_LABELS[variant]
 
   return (
@@ -41,46 +42,24 @@ export function SportZoneBDLoader({ variant = 'loading', label, className }: Spo
       className={cn(
         // Centred in the loading area: the surface has no centred transport control any more, so the
         // overlay sits exactly where the viewer looks for the state.
-        'pointer-events-none absolute inset-0 z-20 flex items-center justify-center',
+        'szb-loader pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-4',
         className,
       )}
     >
-      <div
-        className={cn(
-          'inline-flex items-center rounded-full border border-[#5379AE]/30 bg-[#262B40]/85 shadow-[0_10px_30px_rgba(3,7,16,0.45)] backdrop-blur-md',
-          isBuffering ? 'gap-2 py-1 pr-3 pl-1' : 'gap-2.5 py-1.5 pr-3.5 pl-1.5',
-        )}
-      >
-        <span className={cn('relative inline-flex shrink-0 items-center justify-center', isBuffering ? 'h-9 w-9' : 'h-10 w-10 sm:h-11 sm:w-11')}>
-          {[0, 0.9, 1.8].map((delay) => (
-            <span
-              key={delay}
-              aria-hidden="true"
-              className="absolute inset-0 animate-ping rounded-full border border-[#5379AE]/45 motion-reduce:animate-none"
-              style={{ animationDuration: isBuffering ? '2.4s' : '2.8s', animationDelay: `${delay}s` }}
-            />
-          ))}
-          <span
-            className={cn(
-              'relative inline-flex items-center justify-center overflow-hidden rounded-[10px] border border-[#5379AE]/35 bg-[#0F1526]/90',
-              'shadow-[0_0_0_1px_rgba(83,121,174,0.18),0_6px_18px_rgba(4,116,196,0.3)]',
-              isBuffering ? 'h-9 w-9' : 'h-10 w-10 sm:h-11 sm:w-11',
-            )}
-          >
-            <img
-              src={appLogo}
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-              className={cn('object-contain', isBuffering ? 'h-8 w-8' : 'h-9 w-9 sm:h-10 sm:w-10')}
-            />
-          </span>
-        </span>
+      <span aria-hidden="true" className="szb-loader-scrim" />
 
-        <span className={cn('font-medium text-[#A8C4EC]/85', isBuffering ? 'text-[10px] sm:text-[11px]' : 'text-[11px] sm:text-[12px]')}>
-          {resolvedLabel}
-        </span>
-      </div>
+      <span aria-hidden="true" className="szb-loader-stage relative inline-flex shrink-0 items-center justify-center">
+        <span className="szb-loader-bloom" />
+        <span className="szb-loader-ring szb-loader-ring--inner" />
+        <span className="szb-loader-ring szb-loader-ring--middle" />
+        <span className="szb-loader-ring szb-loader-ring--outer" />
+        {/* The brand asset itself: contain-fit, no rotation, no motion of its own. */}
+        <img src={appLogo} alt="" aria-hidden="true" decoding="async" className="szb-loader-logo" />
+      </span>
+
+      <span className="relative max-w-72 text-center text-[12px] font-medium tracking-[0.04em] text-[#A8C4EC]/85 sm:text-[13px]">
+        {resolvedLabel}
+      </span>
     </div>
   )
 }

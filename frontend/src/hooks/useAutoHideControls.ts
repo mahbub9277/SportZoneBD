@@ -7,7 +7,6 @@ interface UseAutoHideControlsOptions {
   isVisible: boolean
   isSeeking: boolean
   isSettingsOpen: boolean
-  isLocked: boolean
   hasError: boolean
   isTouchDevice: boolean
   isPointerInside?: boolean
@@ -20,7 +19,6 @@ export function useAutoHideControls({
   isVisible,
   isSeeking,
   isSettingsOpen,
-  isLocked,
   hasError,
   isTouchDevice,
   isPointerInside = false,
@@ -35,7 +33,11 @@ export function useAutoHideControls({
     timeoutRef.current = null
   }, [])
 
-  const mustStayVisible = !isPlaying || isSeeking || isSettingsOpen || isLocked || hasError
+  /**
+   * A locked player is deliberately *not* kept visible: the unlock affordance auto-hides like the rest
+   * of the chrome and is revealed again by the existing pointer/tap/focus handlers.
+   */
+  const mustStayVisible = !isPlaying || isSeeking || isSettingsOpen || hasError
 
   const hide = useCallback(() => {
     if (mustStayVisible) {
