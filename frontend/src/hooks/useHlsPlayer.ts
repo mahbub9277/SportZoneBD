@@ -84,7 +84,10 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
   const retry = useCallback((): boolean => {
     if (!mountedRef.current) return false
     const canUseBackup = !usedBackup && Boolean(streamId) && !forceDirectUrl
-    const canUseDirect = !forceDirectUrl && Boolean(currentUrl)
+    // `forceDirectUrl` only changes the playback URL while a proxy is in use, so without a streamId a
+    // "direct" retry would silently reload the identical URL. Reporting it as a successful retry used to
+    // hide the real failure behind an extra pointless attempt.
+    const canUseDirect = !forceDirectUrl && Boolean(streamId) && Boolean(currentUrl)
 
     if (!canUseBackup && !canUseDirect) {
       logger.error(`[useHlsPlayer] Retry called for streamId: ${streamId}, but no further fallback is available.`)

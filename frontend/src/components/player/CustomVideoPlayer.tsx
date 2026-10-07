@@ -1,5 +1,5 @@
-import React, { startTransition, useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
-import { Unlock, Tv, RotateCcw, AlertCircle } from 'lucide-react'
+﻿import React, { startTransition, useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
+import { Unlock, Tv, RotateCcw, AlertCircle, Server } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { TooltipProvider } from '../ui/Tooltip'
@@ -11,14 +11,54 @@ import { useAutoHideControls } from '../../hooks/useAutoHideControls'
 import { useSubtitles } from '../../hooks/useSubtitles'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { usePictureInPicture } from '../../hooks/usePictureInPicture'
-import { SportZoneBDLoader, type SportZoneBDLoaderVariant } from '../ui/SportZoneBDLoader'
+import { useVideoLifecycle } from '../../hooks/useVideoLifecycle'
+import { SportZoneBDLoader } from '../ui/SportZoneBDLoader'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { PlayerControls, type MatchPlayerMetadata } from './PlayerControls'
 import { getPlayerContainerClass } from './playerLayout'
 import { buildVodQualityLevels, getActualHlsCurrentLevel, isCloudinaryVideoUrl, normalizeQualityLevels } from './qualityUtils'
-import { isHlsPlayer, type HlsEventData, type HlsPlayer, type QualityLevel, type ReactPlayerInstance, type SubtitleTrack } from './player.types'
+import { getHlsHandle, isHlsPlayer, type HlsEventData, type HlsPlayer, type QualityLevel, type ReactPlayerInstance, type SubtitleTrack } from './player.types'
+import {
+  classifyHlsError,
+  classifyMediaError,
+  classifyPlaybackException,
+  createPlaybackWatchdog,
+  hasStartedPlayback,
+  initialPlaybackLifecycle,
+  isTerminalPlaybackStatus,
+  playbackErrorMessage,
+  playbackExhaustedMessage,
+  playbackLifecycleReducer,
+  playbackLoaderLabel,
+  playbackLoaderVariant,
+  type PlaybackFailure,
+  type PlaybackLifecycleAction,
+  type PlaybackLifecycleState,
+  type PlaybackWatchdog,
+} from './playerLifecycle'
 
 export type { SubtitleTrack } from './player.types'
+
+/**
+ * The playable media element behind the react-player instance.
+ *
+ * react-player v3 takes `RefAttributes<HTMLVideoElement>` and hands its ref the element it renders,
+ * unlike v2 which exposed a player object with `getInternalPlayer()`. For HLS that element is
+ * `hls-video`, a custom element that extends `HTMLElement` (not a media element) and renders the real
+ * `<video>` — the element that owns the MSE source, fires the media events and supports Picture-in-
+ * Picture — inside its shadow root. Progressive sources render a plain `<video>`.
+ */
+const resolveMediaElement = (candidate: unknown): HTMLMediaElement | null => {
+  if (candidate instanceof HTMLMediaElement) return candidate
+
+  const wrapper = candidate as { getInternalPlayer?: () => unknown } | null | undefined
+  const internal = typeof wrapper?.getInternalPlayer === 'function' ? wrapper.getInternalPlayer() : null
+  if (internal instanceof HTMLMediaElement) return internal
+
+  if (!(candidate instanceof Element)) return null
+  const shadowVideo = candidate.shadowRoot?.querySelector('video')
+  return shadowVideo instanceof HTMLMediaElement ? shadowVideo : null
+}
 
 export interface CustomVideoPlayerProps {
   url?: string | null
@@ -33,6 +73,12 @@ export interface CustomVideoPlayerProps {
   compactControls?: boolean
   onPlayerError?: (message: string) => void
   onStopReady?: (stop: (() => void) | null) => void
+  /**
+   * Asks the owner of the source list for the next stream candidate after the current one failed.
+   * Returning true means a new URL was applied (the player then waits for it); returning false means
+   * the candidate list is exhausted and the player reports a terminal error.
+   */
+  onStreamFallback?: (failedUrl: string) => boolean
   subtitles?: SubtitleTrack[];
   matchMetadata?: MatchPlayerMetadata
 }
@@ -159,6 +205,7 @@ export function CustomVideoPlayer({
   compactControls = false,
   onPlayerError,
   onStopReady,
+  onStreamFallback,
   subtitles,
   presenceId,
   presenceType = 'stream',
@@ -200,13 +247,13 @@ export function CustomVideoPlayer({
   // support detection, which can only be decided once that element exists.
   const [hasNativeMediaReady, setHasNativeMediaReady] = useState(false)
   const [qualityToast, setQualityToast] = useState<string | null>(null)
-  // Driven by real media/HLS buffering events so the indicator reflects actual playback state.
-  const [isBuffering, setIsBuffering] = useState(false)
-  // True while the current source cannot render a frame yet. It is set when a source or rendition
-  // changes and cleared from the media element's own readiness, so a missed, reordered, or
-  // old-source event can never leave the loader on screen.
-  const [isSourceLoading, setIsSourceLoading] = useState(true)
-  const { currentUrl, errorMessage, retry, setError } = useHlsPlayer(url, streamId)
+  const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId)
+  const sourceKey = `${streamId || ''}|${url || ''}`
+  // The single authoritative playback lifecycle: every media/HLS/timer signal feeds this reducer and
+  // the loader, the error copy and the recovery decisions all read from it.
+  const [lifecycle, lifecycleDispatch] = useReducer(playbackLifecycleReducer, sourceKey, initialPlaybackLifecycle)
+  const lifecycleRef = useRef<PlaybackLifecycleState>(lifecycle)
+  const [mediaElement, setMediaElement] = useState<HTMLMediaElement | null>(null)
   const draggingTrackRef = useRef<HTMLDivElement | null>(null)
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('root')
   const [isLocked, setIsLocked] = useState(false)
@@ -220,6 +267,21 @@ export function CustomVideoPlayer({
     isLive: false,
   })
   const videoElementRef = useRef<HTMLMediaElement | null>(null)
+  /**
+   * Publishes the media element react-player rendered.
+   *
+   * This is the only dependable trigger for HLS: `hls-video` starts loading inside its own
+   * `connectedCallback` and re-dispatches media events from its shadow root, but it never surfaces the
+   * `loadstart` that react-player turns into `onReady` — so the adapter would never learn about the
+   * element and the initial loader could never clear. React's ref is handed the element at commit time,
+   * which is the same node react-player would report.
+   */
+  const handlePlayerRef = useCallback((node: HTMLVideoElement | null) => {
+    playerRef.current = node
+    const media = resolveMediaElement(node)
+    if (media) videoElementRef.current = media
+    startTransition(() => setMediaElement(media))
+  }, [])
   const timelineInputRef = useRef<HTMLInputElement | null>(null)
   const timelineProgressRef = useRef<HTMLDivElement | null>(null)
   const timelineBufferedRef = useRef<HTMLDivElement | null>(null)
@@ -227,21 +289,16 @@ export function CustomVideoPlayer({
   const lastMediaTimeRef = useRef<number | null>(null)
   const prevVolumeRef = useRef(0.8)
   const volumePointerCleanupRef = useRef<(() => void) | null>(null)
-  const hlsLevelSwitchListenerRef = useRef<((event: string, data: { level?: number }) => void) | null>(null)
   const hlsRef = useRef<HlsPlayer | null>(null)
   const sourceGenerationRef = useRef(0)
   const manualQualityRef = useRef(false)
-  const sourceKey = `${streamId || ''}|${url || ''}`
   const currentSourceKeyRef = useRef(sourceKey)
   const terminatedRef = useRef(false)
   const previousSourceKeyRef = useRef(sourceKey)
-  const mediaLifecycleCleanupRef = useRef<(() => void) | null>(null)
-  const hlsLifecycleCleanupRef = useRef<(() => void) | null>(null)
   const qualityToastTimeoutRef = useRef<number | null>(null)
   const presenceActiveRef = useRef(false)
   const presenceKeyRef = useRef<string | null>(null)
   const suppressAutoplayOnSourceChangeRef = useRef(false)
-  const retryInProgressRef = useRef(false)
   const presenceIdentity = presenceId || streamId || null
   const { track: trackTelemetry } = usePlayerTelemetry({
     streamId,
@@ -249,6 +306,55 @@ export function CustomVideoPlayer({
     matchId,
     active: isPlaying,
   })
+
+  // ---------------------------------------------------------------- playback lifecycle wiring
+
+  /** True while the callbacks belong to the source that is still the current one. */
+  const isCurrentSource = useCallback(() => !terminatedRef.current && currentSourceKeyRef.current === sourceKey, [sourceKey])
+
+  /**
+   * Dispatches through the reducer and keeps a synchronously readable mirror, so a recovery decision
+   * taken inside an event callback can never act on a stale status.
+   */
+  const dispatchLifecycle = useCallback((action: PlaybackLifecycleAction) => {
+    lifecycleRef.current = playbackLifecycleReducer(lifecycleRef.current, action)
+    lifecycleDispatch(action)
+  }, [])
+
+  const hlsCleanupRef = useRef<(() => void) | null>(null)
+  const watchdogRef = useRef<PlaybackWatchdog | null>(null)
+  const watchdogTimeoutHandlerRef = useRef<() => void>(() => {})
+  const mediaReadyHandlerRef = useRef<() => void>(() => {})
+  /**
+   * Set while a manual quality change reloads the same element with a new rendition.
+   *
+   * The rendition keeps the same source key, so readiness is only accepted once the element reports the
+   * new load (it is back at its start) — a late `canplay` from the rendition being replaced cannot clear
+   * the loader for the new one.
+   */
+  const awaitingRenditionReloadRef = useRef(false)
+  const failureHandlerRef = useRef<(failure: PlaybackFailure, telemetryEvent?: 'network_error' | 'media_error' | 'fatal_error' | 'playback_timeout') => void>(() => {})
+  const fallbackRequestedUrlRef = useRef<string | null>(null)
+
+  const getWatchdog = useCallback(() => {
+    watchdogRef.current ??= createPlaybackWatchdog({ onTimeout: () => watchdogTimeoutHandlerRef.current() })
+    return watchdogRef.current
+  }, [])
+
+  // `stopPlayback` is defined after the recovery flow, and it must always be the current version.
+  const stopPlaybackRef = useRef<() => void>(() => {})
+
+  const noteProgress = useCallback(() => {
+    if (!isCurrentSource()) return
+    const { status } = lifecycleRef.current
+    // Only the initial load needs progress bookkeeping; during playback the media events drive the UI.
+    if (status !== 'loading' && status !== 'retrying') return
+    dispatchLifecycle({ type: 'PROGRESS', sourceKey })
+  }, [dispatchLifecycle, isCurrentSource, sourceKey])
+
+  const clearPlayerError = useCallback(() => {
+    dispatch({ type: 'SET_ERROR', payload: null })
+  }, [])
 
   const clearQualityToast = useCallback(() => {
     if (qualityToastTimeoutRef.current !== null) {
@@ -297,6 +403,96 @@ export function CustomVideoPlayer({
       socket.off('connect', handleConnect)
     }
   }, [presenceIdentity, presenceType, socket])
+
+  /**
+   * The bounded recovery path for a failure of the current source.
+   *
+   * 1. the same source's other transport (proxy backup, then direct URL) when one is still untried,
+   * 2. otherwise the next candidate from the owner of the source list — at most once per failed URL,
+   * 3. otherwise a terminal error state, which always replaces the loader.
+   */
+  const handlePlaybackFailure = useCallback((
+    failure: PlaybackFailure,
+    telemetryEvent?: 'network_error' | 'media_error' | 'fatal_error' | 'playback_timeout' | 'playback_invalid_stream',
+  ) => {
+    if (!failure.fatal || !isCurrentSource()) return
+    // A second event for the same failed source must not re-enter recovery (media + hls.js can both
+    // report the same failure) nor replace an already terminal error.
+    if (isTerminalPlaybackStatus(lifecycleRef.current.status)) return
+
+    if (import.meta.env.DEV) {
+      console.warn('[player] source failed', { kind: failure.kind, detail: failure.detail, status: failure.status })
+    }
+    const event = telemetryEvent ?? (
+      failure.kind === 'timeout' ? 'playback_timeout'
+        : failure.kind === 'invalid_stream' ? 'playback_invalid_stream'
+          : failure.kind === 'network' ? 'network_error'
+            : failure.kind === 'decoder' || failure.kind === 'media' ? 'media_error'
+              : 'fatal_error'
+    )
+    trackTelemetry(event, { kind: failure.kind, ...(failure.detail ? { detail: failure.detail } : {}), ...(failure.status ? { status: failure.status } : {}) })
+    dispatchLifecycle({ type: 'FAILED', sourceKey, kind: failure.kind })
+    dispatch({ type: 'SET_PLAYING', payload: false })
+
+    if (retry()) {
+      // A retry is a new load of the same source, so the previous element, its hls.js instance and all
+      // their listeners are released before the replacement is created.
+      stopPlaybackRef.current()
+      terminatedRef.current = false
+      currentSourceKeyRef.current = sourceKey
+      awaitingRenditionReloadRef.current = false
+      clearPlayerError()
+      trackTelemetry('playback_retry')
+      dispatchLifecycle({ type: 'RETRY', sourceKey })
+      refreshPlayer()
+      return
+    }
+
+    const failedUrl = typeof url === 'string' ? url.trim() : ''
+    if (failedUrl && fallbackRequestedUrlRef.current !== failedUrl && onStreamFallback?.(failedUrl)) {
+      fallbackRequestedUrlRef.current = failedUrl
+      clearPlayerError()
+      trackTelemetry('playback_fallback')
+      dispatchLifecycle({ type: 'AWAIT_CANDIDATE', sourceKey })
+      return
+    }
+
+    trackTelemetry('playback_exhausted')
+    dispatchLifecycle({ type: 'EXHAUSTED', sourceKey })
+    leaveViewerPresence()
+    const message = onStreamFallback ? playbackExhaustedMessage() : playbackErrorMessage(failure.kind)
+    setError(message)
+    dispatch({ type: 'SET_ERROR', payload: message })
+    if (typeof onPlayerError === 'function') onPlayerError(message)
+  }, [clearPlayerError, dispatch, dispatchLifecycle, isCurrentSource, leaveViewerPresence, onPlayerError, onStreamFallback, refreshPlayer, retry, setError, sourceKey, trackTelemetry, url])
+
+  useEffect(() => {
+    failureHandlerRef.current = handlePlaybackFailure
+  }, [handlePlaybackFailure])
+
+  /** A no-progress initial load ends in the same bounded recovery path as an explicit error. */
+  const handleWatchdogTimeout = useCallback(() => {
+    if (!isCurrentSource()) return
+    handlePlaybackFailure({ kind: 'timeout', fatal: true, detail: 'noProgress' }, 'playback_timeout')
+  }, [handlePlaybackFailure, isCurrentSource])
+
+  useEffect(() => {
+    watchdogTimeoutHandlerRef.current = handleWatchdogTimeout
+  }, [handleWatchdogTimeout])
+
+  // The watchdog is armed only while the current attempt has no playable data, and is re-armed by every
+  // progress signal (progressCount). Readiness, errors, retries and unmount all disarm it.
+  useEffect(() => {
+    const watchdog = getWatchdog()
+    if (lifecycle.status === 'loading' || lifecycle.status === 'retrying') watchdog.arm()
+    else watchdog.disarm()
+    return () => watchdog.disarm()
+  }, [getWatchdog, lifecycle.progressCount, lifecycle.status, sourceKey])
+
+  useEffect(() => () => {
+    hlsCleanupRef.current?.()
+    hlsCleanupRef.current = null
+  }, [])
 
   const playbackRates = useMemo(
     () => (isLowPower ? LOW_POWER_PLAYBACK_RATES : PLAYBACK_RATES),
@@ -349,7 +545,7 @@ export function CustomVideoPlayer({
       return videoElementRef.current
     }
 
-    const internalPlayer = playerRef.current?.getInternalPlayer?.()
+    const internalPlayer = resolveMediaElement(playerRef.current)
     const nativeVideo = internalPlayer instanceof HTMLMediaElement ? internalPlayer : null
 
     if (nativeVideo) {
@@ -375,7 +571,7 @@ export function CustomVideoPlayer({
 
     let internalPlayer: unknown = activeHls
     try {
-      internalPlayer = activeHls || playerRef.current?.getInternalPlayer?.() || null
+      internalPlayer = activeHls || resolveMediaElement(playerRef.current) || null
     } catch {
       internalPlayer = activeHls
     }
@@ -383,7 +579,7 @@ export function CustomVideoPlayer({
     const videos = new Set<HTMLMediaElement>()
     if (videoElementRef.current) videos.add(videoElementRef.current)
     if (internalPlayer instanceof HTMLMediaElement) videos.add(internalPlayer)
-    playerContainerRef.current?.querySelectorAll('video').forEach((video) => videos.add(video))
+    playerContainerRef.current?.querySelectorAll('video, hls-video').forEach((video) => videos.add(video as HTMLMediaElement))
 
     const previousGeneration = sourceGenerationRef.current
     const previousSource = currentSourceKeyRef.current
@@ -405,23 +601,14 @@ export function CustomVideoPlayer({
     leaveViewerPresence()
     trackTelemetry('player_destroyed')
 
-    mediaLifecycleCleanupRef.current?.()
-    mediaLifecycleCleanupRef.current = null
-    hlsLifecycleCleanupRef.current?.()
-    hlsLifecycleCleanupRef.current = null
-
+    // Every listener set belongs to the source being released: the media adapter follows the element
+    // state, and the hls.js listeners are dropped here so a late event of a destroyed instance can
+    // never reach the current lifecycle.
+    hlsCleanupRef.current?.()
+    hlsCleanupRef.current = null
     hlsRef.current = null
-
-    if (hlsLevelSwitchListenerRef.current && isHlsPlayer(internalPlayer) && typeof internalPlayer.off === 'function') {
-      try {
-        internalPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
-        internalPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
-        internalPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
-      } catch {
-        // Ignore cleanup failures during player shutdown.
-      }
-      hlsLevelSwitchListenerRef.current = null
-    }
+    watchdogRef.current?.disarm()
+    startTransition(() => setMediaElement(null))
 
     if (isHlsPlayer(internalPlayer)) {
       try {
@@ -466,6 +653,10 @@ export function CustomVideoPlayer({
       currentSourceKeyRef.current = ''
     }
   }, [clearQualityToast, leaveViewerPresence, trackTelemetry])
+
+  useEffect(() => {
+    stopPlaybackRef.current = stopPlayback
+  }, [stopPlayback])
 
   useEffect(() => {
     if (!onStopReady) return
@@ -529,12 +720,12 @@ export function CustomVideoPlayer({
    * duration stays unknown there and the buffered amount is what the controller shows instead.
    */
   const syncMediaMetrics = useCallback((video: HTMLMediaElement) => {
-    // Readiness is level-triggered from the element itself rather than from one event, and it is the
-    // same condition for every source type: at HAVE_CURRENT_DATA the position being played has data,
-    // so a frame can be shown. Nothing waits for the whole file, and because this is re-evaluated on
-    // every media event and on the existing poll, the loader cannot get stuck after the media is ready.
+    // Readiness is level-triggered from the element itself rather than from one event: at
+    // HAVE_CURRENT_DATA the position being played has data, so a frame can be shown. Nothing waits for
+    // the whole file, and because this is re-evaluated on every media event and on the existing poll,
+    // the loader cannot get stuck after the media is ready. The lifecycle reducer ignores a repeat.
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      setIsSourceLoading(false)
+      mediaReadyHandlerRef.current()
     }
 
     const mediaDuration = video.duration
@@ -600,6 +791,246 @@ export function CustomVideoPlayer({
     syncMediaMetrics(video)
     updateTimelineDom()
   }, [dispatch, getLastTimeRange, getVideoElement, syncMediaMetrics, updateTimelineDom])
+
+  // ---------------------------------------------------------------- HLS handle + media adapter
+
+  /**
+   * Attaches the lifecycle listeners to the hls.js instance behind the current media element.
+   *
+   * react-player v3 plays HLS through `hls-video-element`, which keeps its hls.js instance on
+   * `element.api`: manifest, fragment, stall and error events are only observable from there. The
+   * listeners are re-attached whenever the element reports a new load (the instance is recreated per
+   * load and set to null when destroyed), and every handler verifies the handle, the source key and the
+   * source generation before touching state.
+   */
+  const attachHlsListeners = useCallback((handle: HlsPlayer) => {
+    if (hlsRef.current === handle && hlsCleanupRef.current) return
+
+    hlsCleanupRef.current?.()
+    hlsRef.current = handle
+
+    const activeGeneration = sourceGenerationRef.current
+    const isCurrentHandle = () => !terminatedRef.current
+      && hlsRef.current === handle
+      && sourceGenerationRef.current === activeGeneration
+      && currentSourceKeyRef.current === sourceKey
+
+    const syncQualityState = () => {
+      const activeLevels = normalizeQualityLevels(handle.levels)
+      setQualityLevels(activeLevels)
+      const nextCurrentLevel = getActualHlsCurrentLevel(handle, activeLevels)
+      setCurrentLevel(nextCurrentLevel)
+      manualQualityRef.current = nextCurrentLevel >= 0 && !handle.autoLevelEnabled
+    }
+    syncQualityState()
+
+    const onManifestParsed = () => {
+      if (!isCurrentHandle()) return
+      noteProgress()
+      syncQualityState()
+      trackTelemetry('manifest_ready')
+    }
+    const onLevelLoaded = () => {
+      if (!isCurrentHandle()) return
+      noteProgress()
+    }
+    const onFragBuffered = () => {
+      if (!isCurrentHandle()) return
+      noteProgress()
+    }
+    const onBufferAppended = () => {
+      if (!isCurrentHandle()) return
+      noteProgress()
+    }
+    const onStallResolved = () => {
+      if (!isCurrentHandle()) return
+      dispatchLifecycle({ type: 'BUFFERING_END', sourceKey })
+    }
+    const onLevelSwitched = (_event: string, data: HlsEventData) => {
+      if (!isCurrentHandle()) return
+      const level = typeof data.level === 'number' ? data.level : -1
+      trackTelemetry('bitrate_switch', { level })
+      const nextCurrentLevel = getActualHlsCurrentLevel(handle, normalizeQualityLevels(handle.levels))
+      const resolvedLevel = typeof handle.autoLevelEnabled === 'boolean'
+        ? (handle.autoLevelEnabled ? -1 : level)
+        : nextCurrentLevel
+      setCurrentLevel(resolvedLevel)
+      manualQualityRef.current = typeof handle.autoLevelEnabled === 'boolean' ? !handle.autoLevelEnabled : manualQualityRef.current
+    }
+    const onHlsError = (_event: string, data: HlsEventData) => {
+      if (!isCurrentHandle()) return
+      const failure = classifyHlsError(data)
+      if (!failure) return
+
+      if (!failure.fatal) {
+        // A stall is a buffering condition on an otherwise healthy source, never a source failure.
+        if (failure.detail === 'bufferStalledError' && hasStartedPlayback(lifecycleRef.current.status)) {
+          dispatchLifecycle({ type: 'BUFFERING_START', sourceKey })
+          trackTelemetry('buffering_start')
+        }
+        return
+      }
+
+      const telemetryEvent = failure.kind === 'timeout'
+        ? 'playback_timeout'
+        : failure.kind === 'network' ? 'network_error' : failure.kind === 'media' ? 'media_error' : 'fatal_error'
+      failureHandlerRef.current(failure, telemetryEvent)
+    }
+
+    const listeners: Array<[string, (event: string, data: HlsEventData) => void]> = [
+      ['hlsManifestParsed', onManifestParsed],
+      ['hlsLevelLoaded', onLevelLoaded],
+      ['hlsFragBuffered', onFragBuffered],
+      ['hlsBufferAppended', onBufferAppended],
+      ['hlsStallResolved', onStallResolved],
+      ['hlsLevelSwitched', onLevelSwitched],
+      ['hlsError', onHlsError],
+    ]
+
+    for (const [eventName, listener] of listeners) {
+      try {
+        handle.on(eventName, listener)
+      } catch {
+        // A destroyed instance rejects new listeners; the next load re-attaches them.
+      }
+    }
+
+    hlsCleanupRef.current = () => {
+      for (const [eventName, listener] of listeners) {
+        try {
+          handle.off?.(eventName, listener)
+        } catch {
+          // Ignore detach failures while the instance is being torn down.
+        }
+      }
+    }
+  }, [dispatchLifecycle, noteProgress, sourceKey, trackTelemetry])
+
+  /** Resolves the hls.js instance of the current element and attaches the listeners when it appears. */
+  const syncHlsHandle = useCallback(() => {
+    const element = videoElementRef.current
+    if (!element) return
+    const handle = getHlsHandle(element)
+    if (handle) attachHlsListeners(handle)
+  }, [attachHlsListeners])
+
+  /**
+   * The one readiness transition: the current source has data it can render.
+   *
+   * It is idempotent (the reducer ignores a repeat) and deliberately does not re-enter the metric sync,
+   * so it can be called from media events and from the metrics poll without recursion or churn.
+   */
+  const notifyMediaReady = useCallback(() => {
+    if (!isCurrentSource()) return
+    if (awaitingRenditionReloadRef.current) {
+      const video = videoElementRef.current
+      const mediaAtStart = !video || !Number.isFinite(video.currentTime) || video.currentTime <= 0.05
+      if (!mediaAtStart) return
+      awaitingRenditionReloadRef.current = false
+    }
+    dispatchLifecycle({ type: 'MEDIA_READY', sourceKey })
+    setHasNativeMediaReady(true)
+  }, [dispatchLifecycle, isCurrentSource, sourceKey])
+
+  useEffect(() => {
+    mediaReadyHandlerRef.current = notifyMediaReady
+  }, [notifyMediaReady])
+
+  const handleMediaLoadStart = useCallback(() => {
+    if (!isCurrentSource()) return
+    syncHlsHandle()
+  }, [isCurrentSource, syncHlsHandle])
+
+  const handleMediaLoadedMetadata = useCallback(() => {
+    if (!isCurrentSource()) return
+    noteProgress()
+    syncHlsHandle()
+    const video = videoElementRef.current
+    if (!video) return
+    // Native tracks of the new source only exist once its metadata is loaded.
+    refreshNativeTracks(video)
+    syncMediaMetrics(video)
+  }, [isCurrentSource, noteProgress, refreshNativeTracks, syncHlsHandle, syncMediaMetrics])
+
+  /** Readiness: `loadeddata`/`canplay` mean the element can render a frame of this source. */
+  const handleMediaBecameReady = useCallback(() => {
+    if (!isCurrentSource()) return
+    notifyMediaReady()
+    const video = videoElementRef.current
+    if (video) syncMediaMetrics(video)
+  }, [isCurrentSource, notifyMediaReady, syncMediaMetrics])
+
+  const handleMediaProgress = useCallback(() => {
+    if (!isCurrentSource()) return
+    noteProgress()
+    const video = videoElementRef.current
+    if (video) syncMediaMetrics(video)
+  }, [isCurrentSource, noteProgress, syncMediaMetrics])
+
+  const handleMediaPlaying = useCallback(() => {
+    if (!isCurrentSource()) return
+    const wasTerminal = isTerminalPlaybackStatus(lifecycleRef.current.status)
+    setHasNativeMediaReady(true)
+    dispatchLifecycle({ type: 'PLAYING', sourceKey })
+    dispatch({ type: 'SET_PLAYING', payload: true })
+    syncHlsHandle()
+    if (wasTerminal) clearPlayerError()
+    joinViewerPresence()
+    trackTelemetry('first_play')
+  }, [clearPlayerError, dispatch, dispatchLifecycle, isCurrentSource, joinViewerPresence, sourceKey, syncHlsHandle, trackTelemetry])
+
+  const handleMediaWaiting = useCallback(() => {
+    if (!isCurrentSource()) return
+    if (!hasStartedPlayback(lifecycleRef.current.status)) return
+    dispatchLifecycle({ type: 'BUFFERING_START', sourceKey })
+    trackTelemetry('buffering_start')
+  }, [dispatchLifecycle, isCurrentSource, sourceKey, trackTelemetry])
+
+  const handleMediaBufferingEnd = useCallback(() => {
+    if (!isCurrentSource()) return
+    if (lifecycleRef.current.status !== 'buffering') return
+    dispatchLifecycle({ type: 'BUFFERING_END', sourceKey })
+    trackTelemetry('buffering_end')
+  }, [dispatchLifecycle, isCurrentSource, sourceKey, trackTelemetry])
+
+  const handleMediaPaused = useCallback(() => {
+    if (!isCurrentSource()) return
+    dispatchLifecycle({ type: 'PAUSED', sourceKey })
+    dispatch({ type: 'SET_PLAYING', payload: false })
+  }, [dispatch, dispatchLifecycle, isCurrentSource, sourceKey])
+
+  const handleMediaEnded = useCallback(() => {
+    if (!isCurrentSource()) return
+    leaveViewerPresence()
+    trackTelemetry('ended')
+    dispatch({ type: 'SET_PLAYING', payload: false })
+  }, [dispatch, isCurrentSource, leaveViewerPresence, trackTelemetry])
+
+  const handleMediaError = useCallback(() => {
+    if (!isCurrentSource()) return
+    const failure = classifyMediaError(videoElementRef.current?.error)
+    if (!failure) return
+    const telemetryEvent = failure.kind === 'network' ? 'network_error' : failure.kind === 'media' || failure.kind === 'decoder' ? 'media_error' : 'fatal_error'
+    failureHandlerRef.current(failure, telemetryEvent)
+  }, [isCurrentSource])
+
+  useVideoLifecycle({
+    video: mediaElement,
+    sourceKey,
+    isCurrent: isCurrentSource,
+    onLoadStart: handleMediaLoadStart,
+    onLoadedMetadata: handleMediaLoadedMetadata,
+    onReady: handleMediaBecameReady,
+    onProgress: handleMediaProgress,
+    onPlaying: handleMediaPlaying,
+    onWaiting: handleMediaWaiting,
+    onStalled: handleMediaWaiting,
+    onSeeking: handleMediaWaiting,
+    onSeeked: handleMediaBufferingEnd,
+    onPause: handleMediaPaused,
+    onEnded: handleMediaEnded,
+    onError: handleMediaError,
+  })
 
   const syncNativeVolume = useCallback((nextVolume: number) => { // Changed to use useCallback
     const video = getVideoElement()
@@ -671,7 +1102,6 @@ export function CustomVideoPlayer({
     if (/\.m3u8(\?|$)/i.test(resolvedUrl)) return true
     return /\/stream\/proxy(\?|$)/i.test(resolvedUrl)
   }, [resolvedUrl])
-  const isLiveHlsSource = isHlsSource && (presenceType === 'channel' || liveWindow.isLive)
   const showSeekControls = Boolean(resolvedUrl) && !isHlsSource
 
   // Progressive highlights offer only the Cloudinary renditions their source can really deliver;
@@ -945,45 +1375,28 @@ export function CustomVideoPlayer({
     seekBy(10)
   }, [seekBy])
 
+  /**
+   * Manual recovery: the viewer asked for the current stream again.
+   *
+   * The retry chain is reset first, so the attempt starts from the source's own preferred transport
+   * (proxy primary), and the media element is recreated — which is also what releases a wedged MSE
+   * buffer or a decoder that gave up.
+   */
   const handleRetry = useCallback(() => {
-    if (retryInProgressRef.current) return
-    retryInProgressRef.current = true
-
-    if (isLiveHlsSource) {
-      stopPlayback()
-      terminatedRef.current = false
-      currentSourceKeyRef.current = sourceKey
-      clearQualityToast()
-      dispatch({ type: 'SET_ERROR', payload: null })
-      setIsSourceLoading(true)
-      refreshPlayer()
-      writeRef(proxyTriedRef, false)
-      writeRef(proxyFailedRef, false)
-      return
-    }
-
-    if (!retry()) {
-      retryInProgressRef.current = false
-      const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
-      dispatch({ type: 'SET_ERROR', payload: exhaustedMessage })
-      if (typeof onPlayerError === 'function') {
-        onPlayerError(exhaustedMessage)
-      }
-      return
-    }
-
-    suppressAutoplayOnSourceChangeRef.current = true
+    resetFallbackState()
+    fallbackRequestedUrlRef.current = null
+    awaitingRenditionReloadRef.current = false
+    suppressAutoplayOnSourceChangeRef.current = false
     stopPlayback()
     terminatedRef.current = false
     currentSourceKeyRef.current = sourceKey
     clearQualityToast()
-    dispatch({ type: 'SET_ERROR', payload: null });
-    dispatch({ type: 'SET_PLAYING', payload: false });
-    setIsSourceLoading(true)
+    clearPlayerError()
+    dispatch({ type: 'SET_PLAYING', payload: false })
+    dispatchLifecycle({ type: 'SOURCE_START', sourceKey })
+    trackTelemetry('playback_retry')
     refreshPlayer()
-    writeRef(proxyTriedRef, false)
-    writeRef(proxyFailedRef, false)
-  }, [clearQualityToast, isLiveHlsSource, refreshPlayer, retry, sourceKey, stopPlayback, onPlayerError])
+  }, [clearPlayerError, clearQualityToast, dispatch, dispatchLifecycle, refreshPlayer, resetFallbackState, sourceKey, stopPlayback, trackTelemetry])
 
   useEffect(() => {
     if (!resolvedUrl) return
@@ -992,7 +1405,7 @@ export function CustomVideoPlayer({
   }, [resolvedUrl, sourceKey, trackTelemetry])
 
   const syncDuration = useCallback(() => { // Changed to use useCallback
-    const nextDuration = playerRef.current?.getDuration?.()
+    const nextDuration = resolveMediaElement(playerRef.current)?.duration
     if (typeof nextDuration === 'number' && !Number.isNaN(nextDuration)) {
       dispatch({ type: 'SET_DURATION', payload: nextDuration });
     }
@@ -1000,179 +1413,31 @@ export function CustomVideoPlayer({
   
   const handleReady = useCallback(() => { // Changed to use useCallback
     if (terminatedRef.current || currentSourceKeyRef.current !== sourceKey) return
-    retryInProgressRef.current = false
 
     setHasNativeMediaReady(true)
 
-    const sourceGeneration = sourceGenerationRef.current
-    const internalPlayer = playerRef.current?.getInternalPlayer?.()
+    const internalPlayer = resolveMediaElement(playerRef.current)
     if (internalPlayer instanceof HTMLMediaElement) {
-      videoElementRef.current = internalPlayer as HTMLMediaElement
-      if (videoElementRef.current) {
-        const nativeVolume = Number.isFinite(videoElementRef.current.volume) ? videoElementRef.current.volume : volume
-        if (nativeVolume > 0) {
-          prevVolumeRef.current = nativeVolume
-        }
-        videoElementRef.current.volume = volume
-        videoElementRef.current.muted = isMuted
-        videoElementRef.current.playbackRate = playbackRate
-        videoElementRef.current.style.objectFit = 'contain'
-      }
-
-      mediaLifecycleCleanupRef.current?.()
       const media = internalPlayer
-      const isCurrentMedia = () => !terminatedRef.current && sourceGenerationRef.current === sourceGeneration && currentSourceKeyRef.current === sourceKey && videoElementRef.current === media
-      const handleMediaPlaying = () => {
-        if (!isCurrentMedia()) return
-        setHasNativeMediaReady(true)
-        setIsBuffering(false)
-        joinViewerPresence()
-        trackTelemetry('playing')
-        dispatch({ type: 'SET_PLAYING', payload: true })
+      videoElementRef.current = media
+      const nativeVolume = Number.isFinite(media.volume) ? media.volume : volume
+      if (nativeVolume > 0) {
+        prevVolumeRef.current = nativeVolume
       }
-      const handleMediaError = () => {
-        if (!isCurrentMedia()) return
-        setHasNativeMediaReady(false)
-        setIsBuffering(false)
-      }
-      const handlePause = () => {
-        if (!isCurrentMedia()) return
-        setIsBuffering(false)
-        dispatch({ type: 'SET_PLAYING', payload: false })
-      }
-      const handleBufferingStart = () => {
-        if (!isCurrentMedia()) return
-        setIsBuffering(true)
-      }
-      const handleBufferingEnd = () => {
-        if (!isCurrentMedia()) return
-        setIsBuffering(false)
-      }
-      media.addEventListener('playing', handleMediaPlaying)
-      media.addEventListener('error', handleMediaError)
-      media.addEventListener('pause', handlePause)
-      media.addEventListener('waiting', handleBufferingStart)
-      media.addEventListener('stalled', handleBufferingStart)
-      media.addEventListener('seeking', handleBufferingStart)
-      media.addEventListener('canplay', handleBufferingEnd)
-      media.addEventListener('seeked', handleBufferingEnd)
-      mediaLifecycleCleanupRef.current = () => {
-        media.removeEventListener('playing', handleMediaPlaying)
-        media.removeEventListener('error', handleMediaError)
-        media.removeEventListener('pause', handlePause)
-        media.removeEventListener('waiting', handleBufferingStart)
-        media.removeEventListener('stalled', handleBufferingStart)
-        media.removeEventListener('seeking', handleBufferingStart)
-        media.removeEventListener('canplay', handleBufferingEnd)
-        media.removeEventListener('seeked', handleBufferingEnd)
-      }
-      if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-        setHasNativeMediaReady(true)
-      }
-    }
+      media.volume = volume
+      media.muted = isMuted
+      media.playbackRate = playbackRate
+      media.style.objectFit = 'contain'
+      // react-player v3 does not forward a poster prop to the media element, so it is applied directly.
+      if (poster && 'poster' in media) (media as HTMLVideoElement).poster = poster
 
-    updateLiveWindow()
+      // The media element becomes explicit state so `useVideoLifecycle` owns exactly one set of
+      // listeners for it; source and rendition changes therefore cannot leave stale listeners behind.
+      startTransition(() => setMediaElement(media))
+      syncHlsHandle()
+      syncMediaMetrics(media)
 
-    syncDuration()
-    let hlsPlayer: unknown = undefined
-    try {
-      const maybeFn = playerRef.current?.getInternalPlayer
-      hlsPlayer = typeof maybeFn === 'function' ? maybeFn.call(playerRef.current) : playerRef.current
-    } catch {
-      hlsPlayer = playerRef.current
-    }
-
-    if (isHlsPlayer(hlsPlayer)) {
-      hlsRef.current = hlsPlayer
-      let activeLevels = normalizeQualityLevels(hlsPlayer.levels)
-      const syncQualityState = () => {
-        activeLevels = normalizeQualityLevels(hlsPlayer.levels)
-        setQualityLevels(activeLevels)
-        const nextCurrentLevel = getActualHlsCurrentLevel(hlsPlayer, activeLevels)
-        setCurrentLevel(nextCurrentLevel)
-        manualQualityRef.current = nextCurrentLevel >= 0 && !hlsPlayer.autoLevelEnabled
-      }
-      syncQualityState()
-
-      if (hlsLevelSwitchListenerRef.current && typeof hlsPlayer.off === 'function') {
-        try {
-          hlsPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
-          hlsPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
-          hlsPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
-          hlsPlayer.off('hlsBufferAppended', hlsLevelSwitchListenerRef.current)
-        } catch {
-          // ignore listener cleanup failures
-        }
-      }
-
-      try {
-        const handleQualityEvent = (event: string, data: HlsEventData) => {
-            if (sourceGenerationRef.current !== sourceGeneration || hlsRef.current !== hlsPlayer) return
-          if (event === 'hlsManifestParsed') {
-            retryInProgressRef.current = false
-            syncQualityState()
-            return
-          }
-          if (event === 'hlsBufferStalled') {
-            retryInProgressRef.current = false
-            setIsBuffering(true)
-            return
-          }
-          if (event === 'hlsBufferAppended') {
-            setIsBuffering(false)
-            return
-          }
-
-          const level = typeof data.level === 'number' ? data.level : -1
-          trackTelemetry('bitrate_switch', { level })
-          const nextCurrentLevel = getActualHlsCurrentLevel(hlsPlayer, activeLevels)
-          const resolvedLevel = typeof hlsPlayer.autoLevelEnabled === 'boolean'
-            ? (hlsPlayer.autoLevelEnabled ? -1 : level)
-            : (nextCurrentLevel === -1 ? -1 : level)
-
-          setCurrentLevel(resolvedLevel)
-          manualQualityRef.current = resolvedLevel >= 0 && !hlsPlayer.autoLevelEnabled
-          const actualLevel = activeLevels.find((item) => item.hlsIndex === resolvedLevel)
-          if (actualLevel) showQualityToast(`${manualQualityRef.current ? 'Quality set to' : 'Quality optimizing'} ${actualLevel.height}p`)
-        }
-
-        hlsLevelSwitchListenerRef.current = handleQualityEvent
-        hlsPlayer.on('hlsLevelSwitched', handleQualityEvent)
-        hlsPlayer.on('hlsManifestParsed', handleQualityEvent)
-        hlsPlayer.on('hlsBufferStalled', handleQualityEvent)
-        hlsPlayer.on('hlsBufferAppended', handleQualityEvent)
-      } catch {
-        // ignore listener attach failures
-      }
-
-      const handleHlsFatalError = (event: string, data: HlsEventData) => {
-        if (event !== 'hlsError' || !data.fatal) return
-        if (terminatedRef.current || sourceGenerationRef.current !== sourceGeneration || currentSourceKeyRef.current !== sourceKey) return
-        retryInProgressRef.current = false
-        const currentInternalPlayer = playerRef.current?.getInternalPlayer?.()
-        if (currentInternalPlayer !== hlsPlayer || hlsRef.current !== hlsPlayer) return
-
-        const message = errorMessage || 'Unable to load this stream. Please try again later.'
-        setError(message)
-        dispatch({ type: 'SET_ERROR', payload: message })
-        trackTelemetry('fatal_error', { details: data.details || 'hls_fatal_error' })
-        onPlayerError?.(message)
-      }
-
-      hlsPlayer.on('hlsError', handleHlsFatalError)
-      const previousHlsCleanup = hlsLifecycleCleanupRef.current
-      previousHlsCleanup?.()
-      hlsLifecycleCleanupRef.current = () => {
-        if (typeof hlsPlayer.off === 'function') {
-          hlsPlayer.off('hlsError', handleHlsFatalError)
-        }
-        if (hlsRef.current === hlsPlayer) hlsRef.current = null
-      }
-    }
-
-    const nativeVideo = internalPlayer instanceof HTMLMediaElement ? internalPlayer : null
-    if (nativeVideo) {
-      const nextSubtitleTracks = Array.from(nativeVideo.textTracks || []).map((track, index) => ({
+      const nextSubtitleTracks = Array.from(media.textTracks || []).map((track, index) => ({
         kind: (track.kind === 'captions' ? 'captions' : 'subtitles') as SubtitleTrack['kind'],
         src: track.label || `track-${index}`,
         srcLang: track.language || track.label || `lang-${index + 1}`,
@@ -1189,56 +1454,71 @@ export function CustomVideoPlayer({
       if (uniqueTracks.length > 0) {
         const defaultSubtitle = uniqueTracks.find((track) => track.default)
         const currentSelected = selectedSubtitleLanguage || defaultSubtitle?.srcLang || null
-        refreshNativeTracks(nativeVideo)
+        refreshNativeTracks(media)
         if (currentSelected) {
           applySubtitleLanguage(currentSelected)
         } else {
           applySubtitleLanguage(null)
         }
       } else {
-        refreshNativeTracks(nativeVideo)
-      }
-
-      const refreshTracks = () => refreshNativeTracks(nativeVideo)
-      nativeVideo.addEventListener('loadedmetadata', refreshTracks)
-      nativeVideo.textTracks.addEventListener('addtrack', refreshTracks)
-      nativeVideo.textTracks.addEventListener('removetrack', refreshTracks)
-      const previousCleanup = mediaLifecycleCleanupRef.current
-      mediaLifecycleCleanupRef.current = () => {
-        previousCleanup?.()
-        nativeVideo.removeEventListener('loadedmetadata', refreshTracks)
-        nativeVideo.textTracks.removeEventListener('addtrack', refreshTracks)
-        nativeVideo.textTracks.removeEventListener('removetrack', refreshTracks)
+        refreshNativeTracks(media)
       }
     }
-  }, [applySubtitleLanguage, errorMessage, isMuted, joinViewerPresence, onPlayerError, playbackRate, refreshNativeTracks, selectedSubtitleLanguage, setError, showQualityToast, sourceKey, subtitles, syncDuration, trackTelemetry, updateLiveWindow, volume])
+
+    updateLiveWindow()
+
+    syncDuration()
+    syncHlsHandle()
+  }, [applySubtitleLanguage, isMuted, playbackRate, poster, refreshNativeTracks, selectedSubtitleLanguage, sourceKey, subtitles, syncDuration, syncHlsHandle, syncMediaMetrics, updateLiveWindow, volume])
+
+  /**
+   * Runs the media setup as soon as the ref publishes an element.
+   *
+   * HLS sources never report react-player's `onReady`, so this is what applies the poster, the fit and
+   * the readiness flag for them. It runs once per element and both triggers are idempotent, so a
+   * progressive source that reports both is unaffected.
+   */
+  const mediaSetupElementRef = useRef<HTMLMediaElement | null>(null)
+  useEffect(() => {
+    if (!mediaElement || mediaSetupElementRef.current === mediaElement) return
+    mediaSetupElementRef.current = mediaElement
+    handleReady()
+  }, [handleReady, mediaElement])
   
   useEffect(() => { // Changed to use useEffect
     const tapTimeout = tapTimeoutRef
     return () => {
-      stopPlayback()
       detachVolumeDragListeners()
-      if (hlsLevelSwitchListenerRef.current) {
-        const currentPlayer = playerRef.current?.getInternalPlayer?.()
-        if (isHlsPlayer(currentPlayer) && typeof currentPlayer.off === 'function') {
-          try {
-            currentPlayer.off('hlsLevelSwitched', hlsLevelSwitchListenerRef.current)
-            currentPlayer.off('hlsManifestParsed', hlsLevelSwitchListenerRef.current)
-            currentPlayer.off('hlsBufferStalled', hlsLevelSwitchListenerRef.current)
-          } catch {
-            // ignore cleanup failures
-          }
-        }
-        hlsLevelSwitchListenerRef.current = null
-      }
       if (tapTimeout.current !== null) {
         window.clearTimeout(tapTimeout.current)
         writeRef(tapTimeout, null)
       }
     }
-  }, [detachVolumeDragListeners, stopPlayback])
+  }, [detachVolumeDragListeners])
+
+  // The playback teardown belongs to unmount alone. Keying it on a callback identity stopped a player
+  // that was still on screen and left it permanently terminated: `stopPlayback()` clears the source key
+  // and marks the element as released, and only a source change would have lifted that again.
+  useEffect(() => () => stopPlaybackRef.current(), [])
   
+  const initializedSourceKeyRef = useRef<string | null>(null)
   useEffect(() => { // Changed to use useEffect
+    // Everything below belongs to the source that is being replaced. A re-render of this component (a
+    // socket update, a presence or advertisement state change anywhere above it) must not run the reset
+    // again: it released the media element and restarted the lifecycle, which left the viewer watching an
+    // endless "Loading stream…" while the channel was already playing.
+    if (initializedSourceKeyRef.current === sourceKey) {
+      // Effects are remounted in development (StrictMode, Fast Refresh) and the unmount teardown above
+      // released the player, so the same source is re-armed instead of staying dead.
+      if (terminatedRef.current) {
+        terminatedRef.current = false
+        currentSourceKeyRef.current = sourceKey
+        refreshPlayer()
+      }
+      return
+    }
+    initializedSourceKeyRef.current = sourceKey
+
     if (previousSourceKeyRef.current !== sourceKey) {
       stopPlayback()
       terminatedRef.current = false
@@ -1247,16 +1527,19 @@ export function CustomVideoPlayer({
       refreshPlayer()
     }
 
-    writeRef(proxyTriedRef, false)
-    writeRef(proxyFailedRef, false)
     if (qualityToastTimeoutRef.current !== null) window.clearTimeout(qualityToastTimeoutRef.current)
     writeRef(qualityToastTimeoutRef, null)
     startTransition(() => setQualityToast(null))
     startTransition(() => setHasNativeMediaReady(false))
-    startTransition(() => setIsBuffering(false))
+    startTransition(() => setMediaElement(null))
+    fallbackRequestedUrlRef.current = null
+    awaitingRenditionReloadRef.current = false
     const shouldAutoPlay = autoPlay && !suppressAutoplayOnSourceChangeRef.current
     suppressAutoplayOnSourceChangeRef.current = false
     dispatch({ type: 'RESET_FOR_NEW_URL', payload: shouldAutoPlay })
+    // A new source starts a new lifecycle: loading, no error, no attempts, watchdog armed. The reducer
+    // drops every late event that still belongs to the previous source key.
+    dispatchLifecycle({ type: 'SOURCE_START', sourceKey })
     startTransition(() => {
       setQualityLevels([])
       setCurrentLevel(-1)
@@ -1265,31 +1548,27 @@ export function CustomVideoPlayer({
       setSourceVideoHeight(0)
       setBufferedAmount(0)
       setManualVideoHeight(null)
-      // The new source reports its own readiness, from its own media element.
-      setIsSourceLoading(true)
     })
     writeRef(pendingResumeRef, null)
     lastDurationRef.current = 0
     manualQualityRef.current = false
-  }, [autoPlay, clearQualityToast, refreshPlayer, resolvedUrl, sourceKey, stopPlayback])
-  
-  const handleSetQuality = (levelIndex: number) => { // Changed to use handleSetQuality
-    const internalPlayer: unknown = typeof playerRef.current?.getInternalPlayer === 'function'
-      ? playerRef.current.getInternalPlayer()
-      : playerRef.current;
+  }, [autoPlay, clearQualityToast, dispatchLifecycle, refreshPlayer, resolvedUrl, sourceKey, stopPlayback])
 
-    if (isHlsPlayer(internalPlayer)) {
+  const handleSetQuality = (levelIndex: number) => { // Changed to use handleSetQuality
+    const hlsHandle = getHlsHandle(videoElementRef.current) ?? getHlsHandle(playerRef.current)
+
+    if (hlsHandle) {
       try {
         const selectedLevel = qualityLevels.find((level) => level.hlsIndex === levelIndex)
         const nextIndex = levelIndex < 0 ? -1 : (selectedLevel && typeof selectedLevel.hlsIndex === 'number' ? selectedLevel.hlsIndex : -1)
 
         manualQualityRef.current = levelIndex >= 0 && Boolean(selectedLevel)
 
-        if (typeof internalPlayer.autoLevelEnabled === 'boolean') {
-          Object.assign(internalPlayer, { autoLevelEnabled: levelIndex < 0 })
+        if (typeof hlsHandle.autoLevelEnabled === 'boolean') {
+          Object.assign(hlsHandle, { autoLevelEnabled: levelIndex < 0 })
         }
 
-        Object.assign(internalPlayer, { currentLevel: nextIndex })
+        Object.assign(hlsHandle, { currentLevel: nextIndex })
         setCurrentLevel(levelIndex < 0 ? -1 : nextIndex)
         const selectedLabel = levelIndex < 0 ? 'Auto' : selectedLevel ? `${selectedLevel.height}p` : null
         if (selectedLabel) showQualityToast(`Quality set to ${selectedLabel}`)
@@ -1305,9 +1584,10 @@ export function CustomVideoPlayer({
       if (video && Number.isFinite(video.currentTime)) {
         writeRef(pendingResumeRef, { time: video.currentTime, wasPlaying: !video.paused })
       }
-      // The replacement rendition is a genuine media transition, so it shows the loading state until
-      // its own first frame is available; the saved position is restored independently of this flag.
-      setIsSourceLoading(true)
+      // The replacement rendition is a genuine media transition inside the same source, so it shows the
+      // loading state until its own first frame is available — and it is bounded by the same watchdog.
+      awaitingRenditionReloadRef.current = true
+      dispatchLifecycle({ type: 'RENDITION_START', sourceKey })
       setManualVideoHeight(selectedLevel ? selectedLevel.height : null)
       setCurrentLevel(selectedLevel ? selectedLevel.hlsIndex : -1)
       showQualityToast(selectedLevel ? `Quality set to ${selectedLevel.height}p` : 'Quality set to Auto')
@@ -1417,8 +1697,6 @@ export function CustomVideoPlayer({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleIncreaseSpeed, handleDecreaseSpeed, handlePlayPause, handleToggleFullscreen, handleToggleMute, handleTogglePictureInPicture, handleVolumeDown, handleVolumeUp, isLocked, seekBy])
   
-  const proxyTriedRef = useRef(false) // Changed to use useRef
-  const proxyFailedRef = useRef(false) // Changed to use useRef
 
   useEffect(() => { // Changed to use useEffect
     if (!resolvedUrl) return
@@ -1505,18 +1783,12 @@ export function CustomVideoPlayer({
     }
   }, [isLowPower, networkQuality, reducedMotion])
   
-  const playerConfig = useMemo<ReactPlayerProps['config']>(() => ({ // Changed to use useMemo
-    file: {
-      forceHLS: isHlsSource,
-      attributes: {
-        playsInline: true,
-        poster: poster || undefined,
-        crossOrigin: 'anonymous',
-      },
-      hlsOptions: isHlsSource ? hlsOptions : undefined,
-      tracks: subtitles || [],
-    },
-  }) as ReactPlayerProps['config'], [hlsOptions, isHlsSource, poster, subtitles])
+  const playerConfig = useMemo<ReactPlayerProps['config']>(() => ({
+    // react-player v3 keys the config by player (`config.hls`), and `hls-video-element` spreads it into
+    // its hls.js instance. The old `file`/`forceHLS`/`hlsOptions` shape belonged to v2 and was ignored,
+    // so the tuned buffer sizes never reached hls.js.
+    ...(isHlsSource ? { hls: hlsOptions } : {}),
+  }) as ReactPlayerProps['config'], [hlsOptions, isHlsSource])
 
   if (!resolvedUrl) {
     return (
@@ -1529,22 +1801,18 @@ export function CustomVideoPlayer({
     )
   }
 
-  // One status for the whole surface. Source loading wins over buffering, a stall while the viewer has
-  // intentionally paused is not shown as buffering, and a real error always yields to the error UI so
-  // the loader can never mask a failure or spin forever over one.
-  const mediaStatusVariant: SportZoneBDLoaderVariant | null = playerError
-    ? null
-    : isSourceLoading
-      ? 'loading'
-      : isBuffering && isPlaying
-        ? 'buffering'
-        : null
+  // One status for the whole surface, derived from the lifecycle: an initial load or a retry shows the
+  // loading variant (with the recovery wording), a stall after playback started shows the buffering
+  // variant, and a terminal error shows nothing at all so the error UI can never be covered by a loader.
+  const loaderVariant = playbackLoaderVariant(lifecycle)
+  const loaderLabel = playbackLoaderLabel(lifecycle)
+  const showAlternateStreamAction = Boolean(onStreamFallback) && lifecycle.status === 'exhausted'
 
   return (
     <TooltipProvider delayDuration={200}>
       <div
         ref={playerContainerRef}
-        aria-busy={Boolean(mediaStatusVariant)}
+        aria-busy={Boolean(loaderVariant)}
         aria-label={title ? `${title} video player` : 'Video player'}
         className={getPlayerContainerClass({ compact: compactControls, fullscreen: isFullscreen })}
         onDoubleClick={handleContainerDoubleClick}
@@ -1562,7 +1830,7 @@ export function CustomVideoPlayer({
       <React.Suspense fallback={<div className="absolute inset-0 z-20 bg-black/35" aria-hidden="true" />}>
           <LazyReactPlayer
             key={refreshKey}
-            ref={playerRef as unknown as React.Ref<HTMLVideoElement>}
+            ref={handlePlayerRef}
             src={playbackUrl}
             playing={isPlaying && !!resolvedUrl}
             config={playerConfig}
@@ -1578,91 +1846,40 @@ export function CustomVideoPlayer({
             }}
             onProgress={() => {
               updateTimelineDom()
-              // Any forward progress means playback resumed, so the indicator can never stick.
-              setIsBuffering((current) => (current ? false : current))
+              // Any forward progress means playback resumed, so the buffering indicator cannot stick.
+              if (lifecycleRef.current.status === 'buffering') handleMediaBufferingEnd()
             }}
             onEnded={() => {
-              if (terminatedRef.current || currentSourceKeyRef.current !== sourceKey) return
-              leaveViewerPresence()
-              trackTelemetry('ended')
-              dispatch({ type: 'SET_PLAYING', payload: false })
+              handleMediaEnded()
             }}
             playsInline={true}
             onError={(e: unknown) => {
               if (refreshKey !== refreshKeyRef.current) return
-              if (terminatedRef.current) return
-              if (currentSourceKeyRef.current !== sourceKey) return
-              retryInProgressRef.current = false
+              if (!isCurrentSource()) return
 
-              const playerError = e as { nativeEvent?: unknown; target?: { error?: MediaError | null } | null }
-              const nativeError = playerError.nativeEvent ?? e
-              const videoElement = playerError.target
+              const playerErrorEvent = e as { nativeEvent?: unknown; target?: { error?: MediaError | null } | null }
+              const nativeError = playerErrorEvent.nativeEvent ?? e
               const nativeTarget = nativeError as { target?: { error?: MediaError | null } | null }
-              const mediaError = videoElement?.error ?? nativeTarget.target?.error ?? null
-              const errorCode = typeof mediaError?.code === 'number' ? mediaError.code : null
-              const errorMessageFromMedia = typeof mediaError?.message === 'string' ? mediaError.message : ''
-              const decoderFailure = errorCode === 4 || /failed to init decoder|not suitable|media resource/i.test(errorMessageFromMedia)
+              const mediaError = playerErrorEvent.target?.error ?? nativeTarget.target?.error ?? videoElementRef.current?.error ?? null
 
-              if (decoderFailure) {
-                const friendly = 'This stream cannot be decoded by the current browser. Try another live channel or retry.'
-                leaveViewerPresence()
-                trackTelemetry('media_error', { code: errorCode ?? 0 })
-                trackTelemetry('fatal_error')
-                setError('This stream cannot be decoded by the current browser.')
-                dispatch({ type: 'SET_ERROR', payload: friendly });
-                if (typeof onPlayerError === 'function') {
-                  onPlayerError(friendly)
-                }
-                return
+              if (import.meta.env.DEV) {
+                console.warn('Player error event:', nativeError)
               }
 
-              if (process.env.NODE_ENV !== 'production') {
-                console.warn('Player Error:', nativeError)
-              }
-
-              if (proxyTriedRef.current && proxyFailedRef.current) {
-                const fallbackMessage = errorMessage || 'Unable to load this stream. Please try again later.'
-                leaveViewerPresence()
-                trackTelemetry('fatal_error')
-                setError(fallbackMessage)
-                dispatch({ type: 'SET_ERROR', payload: fallbackMessage });
-                if (typeof onPlayerError === 'function') {
-                  onPlayerError(fallbackMessage)
-                }
-                return
-              }
-
-              if (!proxyTriedRef.current && resolvedUrl) {
-                writeRef(proxyTriedRef, true)
-                writeRef(proxyFailedRef, true)
-                trackTelemetry('network_error')
-                if (!retry()) {
-                  const exhaustedMessage = 'No alternate stream source is available. Please try again later.'
-                  dispatch({ type: 'SET_ERROR', payload: exhaustedMessage })
-                  if (typeof onPlayerError === 'function') {
-                    onPlayerError(exhaustedMessage)
-                  }
-                  return
-                }
-                dispatch({ type: 'SET_ERROR', payload: null });
-                return;
-              } 
-
-              const generic = errorMessage || 'Unable to load this stream. Please try a different channel or retry the stream.'
-              leaveViewerPresence()
-              trackTelemetry('network_error')
-              setError(generic)
-              dispatch({ type: 'SET_ERROR', payload: generic });
-              if (typeof onPlayerError === 'function') {
-                onPlayerError(generic)
-              }
+              const failure = classifyMediaError(mediaError) ?? classifyPlaybackException(nativeError)
+              if (!failure) return
+              failureHandlerRef.current(
+                failure,
+                failure.kind === 'network' ? 'network_error' : failure.kind === 'decoder' || failure.kind === 'media' ? 'media_error' : 'fatal_error',
+              )
             }}
           />
         </React.Suspense>
 
-      {mediaStatusVariant && (
+      {loaderVariant && (
         <SportZoneBDLoader
-          variant={mediaStatusVariant}
+          variant={loaderVariant}
+          label={loaderLabel}
           // The compact mini surface has no centred transport control, so the loader stays centred there
           // and cannot be clipped by a very small player.
           className={compactControls ? 'translate-y-0 sm:translate-y-0' : undefined}
@@ -1690,16 +1907,39 @@ export function CustomVideoPlayer({
               <AlertCircle className="mx-auto mb-4 h-14 w-14 text-red-400" />
               <h3 className="text-xl font-bold text-white/95">Playback Error</h3>
               <p className="mt-2 max-w-xs text-center text-sm text-gray-300/80">{playerError}</p>
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="mt-6 inline-flex items-center gap-2 rounded-full bg-(--accent) px-5 py-2.5 text-sm font-semibold text-black transition-all hover:bg-(--accent-secondary) shadow-lg"
-                onClick={handleRetry}
-              >
-                <RotateCcw size={16} />
-                Retry stream
-              </motion.button>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="inline-flex items-center gap-2 rounded-full bg-(--accent) px-5 py-2.5 text-sm font-semibold text-black transition-all hover:bg-(--accent-secondary) shadow-lg"
+                  onClick={handleRetry}
+                >
+                  <RotateCcw size={16} />
+                  Retry stream
+                </motion.button>
+                {showAlternateStreamAction && (
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/10"
+                    onClick={() => {
+                      const failedUrl = typeof url === 'string' ? url.trim() : ''
+                      if (failedUrl && onStreamFallback?.(failedUrl)) {
+                        // The owner of the list applied another candidate; the new source key resets the lifecycle.
+                        fallbackRequestedUrlRef.current = failedUrl
+                        dispatchLifecycle({ type: 'AWAIT_CANDIDATE', sourceKey })
+                        return
+                      }
+                      handleRetry()
+                    }}
+                  >
+                    <Server size={16} />
+                    Try another stream
+                  </motion.button>
+                )}
+              </div>
             </motion.div>
           </motion.div>
         )}

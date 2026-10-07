@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSocket } from './useSocket'
 
-type TelemetryEventType = 'load_start' | 'playing' | 'buffering_start' | 'buffering_end' | 'stalled' | 'fatal_error' | 'network_error' | 'media_error' | 'bitrate_switch' | 'heartbeat' | 'ended' | 'player_destroyed'
+type TelemetryEventType = 'load_start' | 'manifest_ready' | 'media_ready' | 'first_play' | 'playing' | 'buffering_start' | 'buffering_end' | 'stalled' | 'fatal_error' | 'network_error' | 'media_error' | 'bitrate_switch' | 'heartbeat' | 'ended' | 'player_destroyed' | 'playback_timeout' | 'playback_invalid_stream' | 'playback_retry' | 'playback_fallback' | 'playback_exhausted'
 
 const HEARTBEAT_INTERVAL_MS = 90_000
 const TELEMETRY_FLUSH_INTERVAL_MS = 30_000

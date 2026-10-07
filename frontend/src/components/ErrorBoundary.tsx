@@ -42,7 +42,7 @@ class ErrorBoundary extends Component<Props, State> {
       : typeof reason === 'string'
         ? reason
         : ''
-    const expectedMediaInterruption = /play\(\) request was interrupted|play\(\) request was aborted|media resource.*aborted|the fetching process for the media resource was aborted|source.*changed|media source/i.test(reasonText)
+    const expectedMediaInterruption = /play\(\) request was interrupted|play\(\) request was aborted|play\(\) failed because the user didn't interact|media resource.*aborted|the fetching process for the media resource was aborted|source.*changed|media source/i.test(reasonText)
 
     if (expectedMediaInterruption) {
       event.preventDefault()

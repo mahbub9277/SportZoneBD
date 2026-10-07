@@ -66,6 +66,53 @@ export const getPreferredStreamUrl = (stream?: Partial<Stream> | null): string |
   return preferredUrl ?? null
 }
 
+/** One playable URL of one stream, in the order the player may try it. */
+export interface StreamCandidate {
+  streamId: string
+  streamName: string | null
+  url: string
+}
+
+/**
+ * The bounded candidate chain for a match: stream A primary → A backup → A backupUrls → stream B …,
+ * in the order the streams are already displayed. Repeated URLs (the same source listed under several
+ * streams, or a channel URL that is also a primary URL) appear once, so a failure can never bounce
+ * between two entries pointing at the same broken source.
+ */
+export const getStreamCandidateChain = (streams?: ReadonlyArray<Partial<Stream>> | null): StreamCandidate[] => {
+  if (!Array.isArray(streams)) return []
+
+  const seen = new Set<string>()
+  const chain: StreamCandidate[] = []
+
+  for (const stream of streams) {
+    if (!stream || typeof stream.id !== 'string' || !stream.id.trim()) continue
+    if (!isPlayableStream(stream)) continue
+
+    for (const url of getStreamUrlCandidates(stream)) {
+      if (seen.has(url)) continue
+      seen.add(url)
+      chain.push({ streamId: stream.id, streamName: stream.name ?? null, url })
+    }
+  }
+
+  return chain
+}
+
+/**
+ * The candidate to use after `failedUrl` failed: the next entry that has not been attempted yet.
+ * Returns null when the chain is exhausted, which is what makes automatic fallback bounded.
+ */
+export const findNextStreamCandidate = (
+  chain: ReadonlyArray<StreamCandidate>,
+  failedUrl: string | null | undefined,
+  attempted: ReadonlySet<string>,
+): StreamCandidate | null => {
+  const index = typeof failedUrl === 'string' ? chain.findIndex((candidate) => candidate.url === failedUrl) : -1
+  const remaining = index >= 0 ? chain.slice(index + 1) : chain
+  return remaining.find((candidate) => !attempted.has(candidate.url)) ?? null
+}
+
 export interface Highlight {
   id: string;
   title: string;

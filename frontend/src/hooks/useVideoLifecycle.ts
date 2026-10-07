@@ -12,6 +12,7 @@ interface UseVideoLifecycleOptions {
   onError?: () => void
   onPause?: () => void
   onLoadedMetadata?: () => void
+  onProgress?: () => void
   onSuspend?: () => void
   onEmptied?: () => void
   onSeeking?: () => void
@@ -28,6 +29,7 @@ type LifecycleCallbackName =
   | 'onError'
   | 'onPause'
   | 'onLoadedMetadata'
+  | 'onProgress'
   | 'onSuspend'
   | 'onEmptied'
   | 'onSeeking'
@@ -44,6 +46,7 @@ interface VideoLifecycleCallbacks {
   onError?: () => void
   onPause?: () => void
   onLoadedMetadata?: () => void
+  onProgress?: () => void
   onSuspend?: () => void
   onEmptied?: () => void
   onSeeking?: () => void
@@ -51,6 +54,17 @@ interface VideoLifecycleCallbacks {
   onEnded?: () => void
 }
 
+/**
+ * The single native-media event adapter for the player.
+ *
+ * It exists so that the playback lifecycle has exactly one source of media events: the listeners are
+ * attached to the media element of the current source and removed when the element or the source
+ * identity changes, and every callback is guarded by `isCurrent()` so a late event from a previous
+ * channel, highlight or rendition can never move the current source's state.
+ *
+ * Readiness is also checked once when the listeners attach, so an element that already has data (a
+ * cached source, or a re-attach after a quality change) reports ready without waiting for another event.
+ */
 export function useVideoLifecycle({
   video,
   sourceKey,
@@ -63,6 +77,7 @@ export function useVideoLifecycle({
   onError,
   onPause,
   onLoadedMetadata,
+  onProgress,
   onSuspend,
   onEmptied,
   onSeeking,
@@ -79,6 +94,7 @@ export function useVideoLifecycle({
     onError,
     onPause,
     onLoadedMetadata,
+    onProgress,
     onSuspend,
     onEmptied,
     onSeeking,
@@ -97,13 +113,14 @@ export function useVideoLifecycle({
       onError,
       onPause,
       onLoadedMetadata,
+      onProgress,
       onSuspend,
       onEmptied,
       onSeeking,
       onSeeked,
       onEnded,
     }
-  }, [isCurrent, onEmptied, onEnded, onError, onLoadStart, onLoadedMetadata, onPause, onPlaying, onReady, onSeeked, onSeeking, onStalled, onSuspend, onWaiting])
+  }, [isCurrent, onEmptied, onEnded, onError, onLoadStart, onLoadedMetadata, onPause, onPlaying, onProgress, onReady, onSeeked, onSeeking, onStalled, onSuspend, onWaiting])
 
   useEffect(() => {
     if (!video) return
@@ -116,6 +133,7 @@ export function useVideoLifecycle({
       ['loadeddata', 'onReady'],
       ['loadedmetadata', 'onLoadedMetadata'],
       ['canplaythrough', 'onReady'],
+      ['progress', 'onProgress'],
       ['stalled', 'onStalled'],
       ['suspend', 'onSuspend'],
       ['emptied', 'onEmptied'],
@@ -140,9 +158,30 @@ export function useVideoLifecycle({
       video.addEventListener(eventName, handler)
     }
 
+    // Level check: an element that already holds data for this source is ready right now.
+    const current = callbacksRef.current
+    if (current.isCurrent()) {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) current.onReady?.()
+
+      // `playing` is a one-shot event, so an element that started playing before these listeners existed
+      // reports nothing. Only a real `timeupdate` proves playback is running: an element whose play() was
+      // requested but that never received data also reports `paused === false`, and treating that as
+      // playback would hide the initial loader of a dead source for good.
+      if (!video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        const confirmPlaying = () => {
+          video.removeEventListener('timeupdate', confirmPlaying)
+          handlers.delete('timeupdate:confirm-playing')
+          current.onPlaying?.()
+        }
+        video.addEventListener('timeupdate', confirmPlaying)
+        handlers.set('timeupdate:confirm-playing', () => video.removeEventListener('timeupdate', confirmPlaying))
+      }
+    }
+
     return () => {
       for (const [eventName, handler] of handlers.entries()) {
-        video.removeEventListener(eventName, handler)
+        if (eventName === 'timeupdate:confirm-playing') handler()
+        else video.removeEventListener(eventName, handler)
       }
     }
   }, [sourceKey, video])

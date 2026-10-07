@@ -1,9 +1,9 @@
-import { startTransition, useState, useEffect, useMemo } from 'react'
+import { startTransition, useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { usePerformanceProfile } from '@/hooks/usePerformanceProfile'
 import { useGetMatchByIdQuery } from '../../features/matches/matches.api'
-import { getPreferredStreamUrl, getStreamUrlCandidates, isPlayableStream, type Match, type Stream } from '../../features/matches/matches.types'
+import { findNextStreamCandidate, getPreferredStreamUrl, getStreamCandidateChain, getStreamUrlCandidates, isPlayableStream, type Match, type Stream } from '../../features/matches/matches.types'
 import { useAppSelector } from '../../app/hooks'
 import { CustomVideoPlayer } from '../../components/player/CustomVideoPlayer'
 import { selectIsPremiumSubscriber } from '../../features/auth/authSlice'
@@ -81,6 +81,10 @@ export function MatchPage() {
     [match?.streams],
   )
   const initialStream = useMemo(() => getPreferredStreamUrl(availableStreams[0]) ?? undefined, [availableStreams])
+  // Every playable URL of the match, in display order and de-duplicated, is the bounded chain the player
+  // walks when a source fails: stream A primary → A backup → stream B → … → exhausted.
+  const candidateChain = useMemo(() => getStreamCandidateChain(availableStreams), [availableStreams])
+  const attemptedUrlsRef = useRef<Set<string>>(new Set())
   const matchStartTime = Date.parse(match?.kickoffAt ?? '')
   const preStartAt = Number.isFinite(matchStartTime)
     ? matchStartTime - effectivePreStartWindowMinutes * 60 * 1000
@@ -102,7 +106,40 @@ export function MatchPage() {
       setSelectedStreamId(undefined)
       setPreStartVideoFailed(false)
     })
+    attemptedUrlsRef.current = new Set()
   }, [id])
+
+  /**
+   * Moves to the next candidate after a source failure.
+   *
+   * Only URLs that have not been attempted yet are used, so the player can never bounce between two
+   * entries of the same broken source, and `false` tells the player the chain is exhausted so it can
+   * show the terminal error instead of waiting.
+   */
+  const handleStreamFallback = useCallback((failedUrl: string): boolean => {
+    const attempted = attemptedUrlsRef.current
+    attempted.add(failedUrl)
+    const next = findNextStreamCandidate(candidateChain, failedUrl, attempted)
+    if (!next) return false
+
+    attempted.add(next.url)
+    startTransition(() => {
+      setCurrentStreamUrl(next.url)
+      setSelectedStreamId(next.streamId)
+      setIsAutoMode(false)
+    })
+    return true
+  }, [candidateChain])
+
+  /** A manual stream choice always gets a fresh attempt, even if that URL failed automatically before. */
+  const selectStreamUrl = useCallback((streamId: string, nextUrl: string) => {
+    attemptedUrlsRef.current.delete(nextUrl)
+    startTransition(() => {
+      setCurrentStreamUrl(nextUrl)
+      setSelectedStreamId(streamId)
+      setIsAutoMode(false)
+    })
+  }, [])
 
   useEffect(() => {
     startTransition(() => setPreStartVideoFailed(false))
@@ -291,6 +328,7 @@ export function MatchPage() {
             <CustomVideoPlayer
               url={currentStreamUrl}
               streamId={selectedStreamId}
+              onStreamFallback={handleStreamFallback}
               presenceId={match.id}
               presenceType="match"
               matchId={match.id}
@@ -402,10 +440,10 @@ export function MatchPage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button type="button" variant="secondary" disabled={!primaryUrl} onClick={() => { setCurrentStreamUrl(primaryUrl); setSelectedStreamId(stream.id); setIsAutoMode(false) }} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === primaryUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
+                    <Button type="button" variant="secondary" disabled={!primaryUrl} onClick={() => selectStreamUrl(stream.id, primaryUrl)} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === primaryUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
                       <Server className="h-3.5 w-3.5" /> Primary
                     </Button>
-                    <Button type="button" variant="secondary" disabled={!backupUrl} onClick={() => { setCurrentStreamUrl(backupUrl); setSelectedStreamId(stream.id); setIsAutoMode(false) }} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === backupUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
+                    <Button type="button" variant="secondary" disabled={!backupUrl} onClick={() => selectStreamUrl(stream.id, backupUrl)} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === backupUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
                       <Server className="h-3.5 w-3.5" /> Backup
                     </Button>
                   </div>

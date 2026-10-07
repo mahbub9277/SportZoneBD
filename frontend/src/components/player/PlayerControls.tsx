@@ -87,7 +87,6 @@ const compactGlassClass = 'border border-white/12 bg-[#080B15]/65 shadow-[0_10px
 // The transport controls live over the video, so they stay deliberately light: a soft translucent
 // fill that reads clearly against both live video and bright highlight frames.
 const transportButtonClass = 'inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/35 text-white/90 shadow-[0_10px_26px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-white/30 hover:bg-black/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12'
-const transportPrimaryClass = 'inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/22 bg-black/45 text-white shadow-[0_14px_36px_rgba(0,0,0,0.4)] backdrop-blur-md transition hover:border-white/35 hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 motion-safe:hover:scale-105 motion-safe:active:scale-95 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16'
 // Only the transport buttons opt into pointer events, and only while the overlay is actually shown.
 const transportVisibilityClass = (visible: boolean) => visible
   ? 'opacity-100 [&_button]:pointer-events-auto'
@@ -145,6 +144,8 @@ export function PlayerControls({
         <RailButton label={isPiPActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} icon={<PictureInPicture2 className="h-4 w-4" />} onClick={onPiPToggle} disabled={!isPiPSupported} />
       </div>}
 
+      {/* The centre overlay now holds only the optional skip shortcuts: play/pause lives in the control
+          bar, so it is no longer duplicated over the video. */}
       <div
         className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-3 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 ${transportVisibilityClass(showTransportControls)}`}
         aria-hidden={!showTransportControls}
@@ -156,9 +157,6 @@ export function PlayerControls({
             <TransportGlyph icon={<RotateCcw className="h-6 w-6" aria-hidden="true" />} badge="5" />
           </button>
         )}
-        <button type="button" className={transportPrimaryClass} onClick={onPlayPause} tabIndex={showTransportControls ? 0 : -1} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'}>
-          {isPlaying ? <Pause className="h-6 w-6" aria-hidden="true" /> : <Play className="h-6 w-6 translate-x-0.5" aria-hidden="true" />}
-        </button>
         {showSeekControls && (
           <button type="button" className={transportButtonClass} onClick={onSeekForward} tabIndex={showTransportControls ? 0 : -1} aria-label="Skip forward 10 seconds" title="Skip forward 10 seconds">
             <TransportGlyph icon={<RotateCw className="h-6 w-6" aria-hidden="true" />} badge="10" />

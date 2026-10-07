@@ -18,9 +18,10 @@ import { createTelemetryRuntime } from './telemetryRuntime.js'
 export const TELEMETRY_SETTING_KEY = 'telemetry.enabled'
 
 export const TELEMETRY_EVENT_TYPES = [
-  'load_start', 'playing', 'buffering_start', 'buffering_end', 'stalled',
+  'load_start', 'manifest_ready', 'media_ready', 'first_play', 'playing', 'buffering_start', 'buffering_end', 'stalled',
   'fatal_error', 'network_error', 'media_error', 'bitrate_switch', 'heartbeat',
   'ended', 'player_destroyed',
+  'playback_timeout', 'playback_invalid_stream', 'playback_retry', 'playback_fallback', 'playback_exhausted',
 ] as const
 
 export type TelemetryEventType = typeof TELEMETRY_EVENT_TYPES[number]
@@ -56,7 +57,11 @@ const sessionKey = (id: string) => `sportzone:telemetry:session:${id}`
 const bucketKey = (minute: number) => `sportzone:telemetry:bucket:${minute}`
 const counterKey = (resource: string) => `sportzone:telemetry:counter:${resource}`
 
-const COUNTER_FIELDS = new Set(['buffering_events', 'stalled', 'network_error', 'media_error', 'fatal_error', 'bitrate_switch'])
+const COUNTER_FIELDS = new Set([
+  'buffering_events', 'stalled', 'network_error', 'media_error', 'fatal_error', 'bitrate_switch',
+  // Playback-lifecycle failures: counted so a dashboard can see how often a source had to be abandoned.
+  'playback_timeout', 'playback_invalid_stream', 'playback_retry', 'playback_fallback', 'playback_exhausted',
+])
 
 /**
  * Refreshes the three membership scores a live session needs in one round trip. The scores are what
@@ -168,8 +173,12 @@ function safeResource(event: { streamId?: string; channelId?: string; matchId?: 
 
 function nextState(type: TelemetryEventType, current: TelemetryPlaybackState): TelemetryPlaybackState {
   if (type === 'fatal_error' || type === 'network_error' || type === 'media_error') return 'ERROR'
+  // A source that timed out, was rejected or ran out of candidates is an errored playback, not a stall.
+  if (type === 'playback_timeout' || type === 'playback_invalid_stream' || type === 'playback_exhausted') return 'ERROR'
+  // Automatic recovery is still a viewer waiting for playback, so it stays in the buffering bucket.
+  if (type === 'playback_retry' || type === 'playback_fallback') return 'BUFFERING'
   if (type === 'buffering_start' || type === 'stalled') return 'BUFFERING'
-  if (type === 'playing' || type === 'buffering_end' || type === 'heartbeat') return 'HEALTHY'
+  if (type === 'playing' || type === 'first_play' || type === 'media_ready' || type === 'buffering_end' || type === 'heartbeat') return 'HEALTHY'
   if (type === 'ended' || type === 'player_destroyed') return 'STALE'
   return current
 }
