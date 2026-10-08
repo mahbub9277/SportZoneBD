@@ -6,10 +6,8 @@ import { z } from 'zod';
 import { getPaginatedData } from '../services/pagination.service.js';
 import { successResponse } from '../core/api-response.js';
 import { hasPremiumAccess } from '../core/premiumGuard.js';
-import { getUpcomingVisibilityBounds } from '../core/upcomingWindow.js';
+import { buildMatchListWhere } from '../modules/matches/matchListQuery.js';
 import type { Prisma } from '@prisma/client'
-
-const RECENT_MATCH_WINDOW_DAYS = 7
 
 const getAllMatchesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -50,28 +48,7 @@ export const getAllMatches = asyncHandler(async (req, res) => {
     }
   }
   sortBy ??= 'createdAt:desc'
-  const where: Prisma.MatchWhereInput = {
-    deletedAt: null,
-    // Automatic discovery stores matches as PENDING; they stay invisible to public callers until an
-    // admin accepts them. Expressing it as AND makes the exclusion impossible to override by the
-    // status/recent/active branches below, so ?status=PENDING cannot leak them either.
-    AND: [{ status: { not: 'PENDING' } }],
-    ...(recentOnly
-      ? {
-          sport: 'FOOTBALL',
-          status: 'FINISHED',
-          kickoffAt: { lte: now },
-          finishedAt: { gte: new Date(now.getTime() - RECENT_MATCH_WINDOW_DAYS * 24 * 60 * 60 * 1000), lte: now },
-        }
-      : status === 'UPCOMING'
-        ? { status, kickoffAt: getUpcomingVisibilityBounds(now) }
-        : status
-          ? { status }
-          : activeOnly
-            ? { OR: [{ status: 'LIVE' }, { status: 'UPCOMING', kickoffAt: getUpcomingVisibilityBounds(now) }] }
-            : {}),
-    ...(premium !== undefined ? { premium } : {}),
-  }
+  const where: Prisma.MatchWhereInput = buildMatchListWhere({ status, premium, activeOnly, recentOnly }, now)
   const { items, meta } = await getPaginatedData({
     model: 'match',
     query: { ...paginationQuery, sortBy },

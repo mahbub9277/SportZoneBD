@@ -170,6 +170,60 @@ test('normalizes real provider match response fields and preserves the requested
   }
 })
 
+test('stores the canonical competition name instead of the provider name for a known code', async (context) => {
+  const previousApiKey = process.env.FOOTBALL_API_KEY
+  process.env.FOOTBALL_API_KEY = 'test-api-key'
+  // football-data.org names PD "Primera Division"; the application's canonical name for the same
+  // competition is La Liga, and a stored match must never carry the provider's label.
+  const providerResponse = {
+    matches: [{
+      id: 999,
+      utcDate: '2026-10-04T18:00:00Z',
+      status: 'TIMED',
+      competition: { name: 'Primera Division' },
+      homeTeam: { name: 'Real Madrid', crest: null },
+      awayTeam: { name: 'Barcelona', crest: null },
+    }],
+  }
+
+  context.mock.method(axios, 'get', (async () => ({ data: providerResponse }) as AxiosResponse<unknown>) as typeof axios.get)
+
+  try {
+    const fixtures = await getCompetitionFixtures('PD', '2026-10-03', '2026-10-05')
+    assert.equal(fixtures[0].competitionCode, 'PD')
+    assert.equal(fixtures[0].competitionName, 'La Liga')
+  } finally {
+    if (previousApiKey === undefined) delete process.env.FOOTBALL_API_KEY
+    else process.env.FOOTBALL_API_KEY = previousApiKey
+  }
+})
+
+test('keeps the provider name for a competition the application does not define', async (context) => {
+  const previousApiKey = process.env.FOOTBALL_API_KEY
+  process.env.FOOTBALL_API_KEY = 'test-api-key'
+  const providerResponse = {
+    matches: [{
+      id: 1000,
+      utcDate: '2026-10-04T18:00:00Z',
+      status: 'TIMED',
+      competition: { name: 'Liga Profesional Argentina' },
+      homeTeam: { name: 'Boca Juniors', crest: null },
+      awayTeam: { name: 'River Plate', crest: null },
+    }],
+  }
+
+  context.mock.method(axios, 'get', (async () => ({ data: providerResponse }) as AxiosResponse<unknown>) as typeof axios.get)
+
+  try {
+    const fixtures = await getCompetitionFixtures('ARG', '2026-10-03', '2026-10-05')
+    // No canonical name exists for ARG, so the real provider name is kept rather than invented.
+    assert.equal(fixtures[0].competitionName, 'Liga Profesional Argentina')
+  } finally {
+    if (previousApiKey === undefined) delete process.env.FOOTBALL_API_KEY
+    else process.env.FOOTBALL_API_KEY = previousApiKey
+  }
+})
+
 test('reserves no more than six fixture and nine total provider requests per minute', async () => {
   const windowStart = Math.ceil(Date.now() / 60_000) * 60_000
 

@@ -10,12 +10,19 @@ import { cn } from '../../lib/utils'
 import { MatchCardDisplay } from '../../components/MatchCardDisplay'
 import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
-import { filterMatches, sortMatches } from '../../features/matches/matchOrdering'
+import { filterMatches, rankRecentMatches, sortMatches } from '../../features/matches/matchOrdering'
 import { getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
 import { useEffect, useMemo, useState, memo, useCallback } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
+/** How many recent matches the feed shows. */
 const RECENT_MATCH_LIMIT = 24
+/**
+ * The backend already bounds the recent candidates (live, imminent, just finished or just added), so
+ * the page asks for the candidate set itself and ranks it here. Fetching only the display limit would
+ * let a newly added fixture push a live match out of the response before it could be ranked.
+ */
+const RECENT_CANDIDATE_LIMIT = 100
 const emptyMatches: Match[] = []
 const statusFilters = [
   { value: 'Recent', label: 'Recent' },
@@ -67,11 +74,11 @@ export function AllMatchesPage() {
   const allQueryKey = JSON.stringify([debouncedFilters.search, premium])
   const matchQuery = useGetMatchesQuery({
     page: 1,
-    limit: isRecent ? RECENT_MATCH_LIMIT : 100,
+    limit: isRecent ? RECENT_CANDIDATE_LIMIT : 100,
     search: debouncedFilters.search,
     premium: premium,
     ...(isRecent
-      ? { recentOnly: true, status: 'FINISHED', sort: 'finishedAt:desc' }
+      ? { recentOnly: true }
       : normalizedStatus
         ? { status: normalizedStatus, ...(normalizedStatus === 'UPCOMING' ? { sort: 'date-asc' } : {}) }
         : {}),
@@ -118,7 +125,7 @@ export function AllMatchesPage() {
 
   const activeMatches = useMemo(() => {
     if (isRecent) {
-      return [...matches].sort((left, right) => Date.parse(right.finishedAt ?? '') - Date.parse(left.finishedAt ?? ''))
+      return rankRecentMatches(matches).slice(0, RECENT_MATCH_LIMIT)
     }
     if (status === 'UPCOMING') {
       const now = new Date()
@@ -205,7 +212,7 @@ export function AllMatchesPage() {
               </div>
               <h3 className="text-xl font-semibold text-(--text-primary) sm:text-2xl">No Matches Found</h3>
               <p className="max-w-xl text-sm leading-6 text-(--text-muted) sm:text-base">
-                {isError ? 'There was an error fetching matches.' : isRecent ? 'No recently completed matches from the last 7 days.' : 'Try adjusting your filters to find what you\'re looking for.'}
+                {isError ? 'There was an error fetching matches.' : isRecent ? 'No live, upcoming or recently finished matches right now.' : 'Try adjusting your filters to find what you\'re looking for.'}
               </p>
             </CardContent>
           </Card>

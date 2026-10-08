@@ -30,3 +30,16 @@ export type StandingsCompetitionCode = Extract<
   typeof FOOTBALL_DATA_COMPETITIONS[number],
   { standingsSupported: true }
 >['code']
+
+/**
+ * The competition name SportZoneBD stores and displays for a football-data.org competition.
+ *
+ * The provider names a competition itself ("Primera Division" for La Liga), so its payload must never
+ * be trusted for a code this application already defines: the canonical name above wins. A code that
+ * is not in the list (an operator-configured competition) keeps the provider's own name, because
+ * inventing a name for an unknown competition would mislabel it.
+ */
+export function getCanonicalCompetitionName(competitionCode: string | null | undefined, providerName: string): string {
+  const code = competitionCode?.trim().toUpperCase()
+  return FOOTBALL_DATA_COMPETITIONS.find((competition) => competition.code === code)?.name ?? providerName
+}

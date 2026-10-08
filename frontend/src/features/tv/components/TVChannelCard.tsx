@@ -1,3 +1,4 @@
+import { Lock, Play } from 'lucide-react'
 import { memo } from 'react'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { formatChannelNumber, type TVChannel } from '../tvChannels'
@@ -12,11 +13,15 @@ interface TVChannelCardProps {
 /**
  * One channel row in the TV list.
  *
- * Kept to a fixed, shallow DOM: number, logo, name, live state. It is memoised because the list is the
- * only part of the screen that re-renders while a stream plays — the player must not re-render when
- * focus moves or the search box changes.
+ * Sized to be read from a sofa rather than a desk: a big logo, a bold name and the category underneath,
+ * with only a few rows visible at once so the list stays scannable with a remote. The flags column stays
+ * narrow and carries the real state only — the playing marker for the tuned channel, the live dot the
+ * backend actually reports, and a lock for premium channels.
  */
 export const TVChannelCard = memo(function TVChannelCard({ channel, selected, locked, onSelect }: TVChannelCardProps) {
+  const poster = channel.logo ? buildCloudinaryUrl(channel.logo, { width: 128, height: 128, crop: 'fill' }) : null
+  const flagsVisible = selected || channel.isLive || locked
+
   return (
     <button
       type="button"
@@ -30,20 +35,23 @@ export const TVChannelCard = memo(function TVChannelCard({ channel, selected, lo
       <span className="tv-channel-number">{formatChannelNumber(channel.number)}</span>
 
       <span className="tv-channel-logo" aria-hidden="true">
-        {channel.logo
-          ? <img src={buildCloudinaryUrl(channel.logo, { width: 80, height: 80, crop: 'fill' })} alt="" loading="lazy" decoding="async" />
+        {poster
+          ? <img src={poster} alt="" loading="lazy" decoding="async" />
           : <span className="tv-channel-logo-fallback">{channel.name.slice(0, 1).toUpperCase()}</span>}
       </span>
 
       <span className="tv-channel-meta">
         <span className="tv-channel-name">{channel.name}</span>
-        <span className="tv-channel-state">
-          {channel.isLive
-            ? <span className="tv-channel-live"><span className="tv-channel-live-dot" aria-hidden="true" />LIVE</span>
-            : <span className="tv-channel-offline">Offline</span>}
-          {locked && <span className="tv-channel-locked">Premium</span>}
-        </span>
+        <span className="tv-channel-category">{channel.categoryName}</span>
       </span>
+
+      {flagsVisible && (
+        <span className="tv-channel-flags">
+          {selected && <Play className="tv-channel-playing" aria-hidden="true" />}
+          {channel.isLive && <span className="tv-channel-live-dot" aria-hidden="true" />}
+          {locked && <Lock className="tv-channel-lock" aria-hidden="true" />}
+        </span>
+      )}
     </button>
   )
 })

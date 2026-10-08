@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Loader2, Lock, Maximize2, Minimize2, Pause, Play } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CustomVideoPlayer } from '../../../components/player/CustomVideoPlayer'
 import { cn } from '../../../lib/utils'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
@@ -10,8 +10,11 @@ export interface TVTransport {
   isPlaying: boolean
 }
 
-/** How long the channel info and the control row stay on screen after the last interaction. */
+/** How long the channel popup and the control row stay on screen after the last interaction. */
 const CONTROLS_IDLE_MS = 4000
+
+/** The channel popup is intentionally brief: it is a reminder, not a permanent overlay. */
+const CHANNEL_INFO_MS = 1500
 
 interface TVPlayerStageProps {
   channel: TVChannel | null
@@ -45,11 +48,20 @@ export function TVPlayerStage({
 }: TVPlayerStageProps) {
   const [transport, setTransport] = useState<TVTransport | null>(null)
   const idleTimerRef = useRef<number | null>(null)
+  const infoTimerRef = useRef<number | null>(null)
   // The idle state belongs to the channel it was reached on, so a channel change reveals the controls
   // again without an effect having to reset state.
   const [idleChannelId, setIdleChannelId] = useState<string | null>(null)
   const channelId = channel?.id ?? null
   const isIdle = Boolean(channelId) && idleChannelId === channelId
+  /**
+   * The channel popup.
+   *
+   * It is deliberately transient: a single scoped timeout shows it and clears it again, and every new
+   * reveal clears the previous timeout instead of stacking another one. Choosing the channel that is
+   * already playing does not reload anything — the popup is simply revealed again.
+   */
+  const [isInfoVisible, setInfoVisible] = useState(false)
 
   // Publish the transport to the page, so the remote's play/pause key works without the page having to
   // reach into the player.
@@ -63,6 +75,22 @@ export function TVPlayerStage({
       idleTimerRef.current = null
     }
   }, [])
+
+  const clearInfoTimer = useCallback(() => {
+    if (infoTimerRef.current !== null) {
+      window.clearTimeout(infoTimerRef.current)
+      infoTimerRef.current = null
+    }
+  }, [])
+
+  const revealChannelInfo = useCallback(() => {
+    setInfoVisible(true)
+    clearInfoTimer()
+    infoTimerRef.current = window.setTimeout(() => {
+      infoTimerRef.current = null
+      setInfoVisible(false)
+    }, CHANNEL_INFO_MS)
+  }, [clearInfoTimer])
 
   // The control row fades out after a short idle period and any input brings it back. One timer, only
   // while the row is actually shown, cleared on unmount so nothing keeps running after TV Mode is left.
@@ -79,8 +107,57 @@ export function TVPlayerStage({
     return clearIdleTimer
   }, [channelId, clearIdleTimer])
 
+  /**
+   * Every channel change funnels through the selected channel, so this one effect gives the popup to
+   * D-pad zapping, OK/Enter, PageUp/PageDown, card clicks and the opening auto-tune alike.
+   *
+   * Marking the reveal as a transition keeps this low-priority visual update from delaying the player's
+   * own work, and the timer is the only thing that ever hides the popup again.
+   */
+  useEffect(() => {
+    if (!channelId) return
+    startTransition(revealChannelInfo)
+    return clearInfoTimer
+  }, [channelId, clearInfoTimer, revealChannelInfo])
+
+  useEffect(() => () => {
+    clearIdleTimer()
+    clearInfoTimer()
+  }, [clearIdleTimer, clearInfoTimer])
+
   const poster = channel?.logo ? buildCloudinaryUrl(channel.logo, { width: 1280, height: 720, crop: 'fill' }) : undefined
   const canPlay = Boolean(channel?.streamUrl) && !isPremiumLocked
+
+  /**
+   * The player element is memoised on its real inputs only.
+   *
+   * Popping the channel info or letting the control row idle out are TV-shell changes, so the player
+   * must not re-render (let alone remount) for them — it only reacts to a different channel's stream.
+   */
+  const playerElement = useMemo(() => (
+    <CustomVideoPlayer
+      url={channel?.streamUrl}
+      streamId={channel?.id}
+      presenceId={channel?.id}
+      channelId={channel?.id}
+      presenceType="channel"
+      title={channel?.name}
+      poster={poster}
+      autoPlay
+      globalShortcuts={false}
+      onTransportReady={setTransport}
+      // A failed stream is when a remote most needs the channel controls, so the row comes back the
+      // moment the player reports the error instead of staying idle-hidden.
+      onPlayerError={wake}
+    />
+  ), [channel?.id, channel?.name, channel?.streamUrl, poster, wake])
+
+  // A tap anywhere on the player surface reveals the channel identity again, without touching any player
+  // control: this handler never prevents the default or stops propagation.
+  const handleStagePointerDown = useCallback(() => {
+    wake()
+    if (canPlay) revealChannelInfo()
+  }, [canPlay, revealChannelInfo, wake])
 
   return (
     <section
@@ -91,28 +168,12 @@ export function TVPlayerStage({
       className="tv-stage"
       aria-label="TV player"
       onPointerMove={wake}
-      onPointerDown={wake}
+      onPointerDown={handleStagePointerDown}
       onFocus={wake}
       onKeyDown={wake}
     >
       {canPlay && channel ? (
-        <div className="tv-video">
-          <CustomVideoPlayer
-            url={channel.streamUrl}
-            streamId={channel.id}
-            presenceId={channel.id}
-            channelId={channel.id}
-            presenceType="channel"
-            title={channel.name}
-            poster={poster}
-            autoPlay
-            globalShortcuts={false}
-            onTransportReady={setTransport}
-            // A failed stream is when a remote most needs the channel controls, so the row comes back the
-            // moment the player reports the error instead of staying idle-hidden.
-            onPlayerError={wake}
-          />
-        </div>
+        <div className="tv-video">{playerElement}</div>
       ) : (
         <div className="tv-stage-message">
           {isPremiumLocked ? (
@@ -160,10 +221,22 @@ export function TVPlayerStage({
 
       {channel && canPlay && (
         <>
-          <div className={cn('tv-now-playing', isIdle && 'tv-hidden')} aria-live="polite">
-            <span className="tv-now-number">{formatChannelNumber(channel.number)}</span>
-            <span className="tv-now-name">{channel.name}</span>
-            {channel.isLive && <span className="tv-now-live">LIVE</span>}
+          {/* The channel identity is a transient popup, not a permanent label over the video. */}
+          <div
+            className={cn('tv-channel-info', isInfoVisible && 'tv-channel-info-visible')}
+            aria-live="polite"
+            aria-hidden={!isInfoVisible}
+          >
+            <span className="tv-info-number">{formatChannelNumber(channel.number)}</span>
+            <span className="tv-info-logo" aria-hidden="true">
+              {channel.logo
+                ? <img src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt="" loading="lazy" decoding="async" />
+                : <span className="tv-info-logo-fallback">{channel.name.slice(0, 1).toUpperCase()}</span>}
+            </span>
+            <span className="tv-info-meta">
+              <span className="tv-info-name">{channel.name}</span>
+              <span className="tv-info-category">{channel.categoryName}</span>
+            </span>
           </div>
 
           <div className={cn('tv-player-controls', isIdle && 'tv-hidden')}>
@@ -191,8 +264,8 @@ export function TVPlayerStage({
               data-tv-key="immersive"
               className="tv-control"
               onClick={onToggleImmersive}
-              aria-label={isImmersive ? 'Exit full screen player' : 'Full screen player'}
-              title={isImmersive ? 'Exit full screen player' : 'Full screen player'}
+              aria-label={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
+              title={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
             >
               {isImmersive ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
             </button>

@@ -26,6 +26,7 @@ const PREVIOUS_ROUTE_KEY = 'sportzone:user-previous-route'
  * rejected on most devices, so they are reached defensively and every failure is ignored.
  */
 interface LockableOrientation {
+  type?: string
   lock?: (orientation: 'landscape' | 'portrait' | 'any') => Promise<void>
   unlock?: () => void
 }
@@ -114,9 +115,24 @@ function TVModeExperience() {
     setSelectedChannelId((current) => stepChannelId(channels, current, direction) ?? current)
   }, [channels])
 
+  /** Exit leaves TV Mode: it releases any native fullscreen first, then navigates away. */
+  const handleExit = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined)
+    // Return to wherever the viewer came from, using the previous-route record the rest of the app
+    // already keeps, and never reloading the page.
+    const previous = window.sessionStorage.getItem(PREVIOUS_ROUTE_KEY)
+    if (previous && previous !== '/tv') navigate(previous)
+    else navigate('/')
+  }, [navigate])
+
+  /** The UI Back button hides the channel panel and gives the player the whole viewport, staying in TV Mode. */
+  const enterPlayerView = useCallback(() => setImmersive(true), [])
+
+  /**
+   * The browser/remote Back keeps its hardened priority: native fullscreen first, then the focused-player
+   * layout, and only when neither is active does Back leave TV Mode.
+   */
   const handleBack = useCallback(() => {
-    // Deterministic Back priority: a live native fullscreen (entered from the player's own button)
-    // owns Back first, then the TV focused-player layout, and only then does Back leave TV Mode.
     if (document.fullscreenElement) {
       void document.exitFullscreen?.().catch(() => undefined)
       return
@@ -125,12 +141,8 @@ function TVModeExperience() {
       setImmersive(false)
       return
     }
-    // Return to wherever the viewer came from, using the previous-route record the rest of the app
-    // already keeps, and never reloading the page.
-    const previous = window.sessionStorage.getItem(PREVIOUS_ROUTE_KEY)
-    if (previous && previous !== '/tv') navigate(previous)
-    else navigate('/')
-  }, [isImmersive, navigate])
+    handleExit()
+  }, [handleExit, isImmersive])
 
   const togglePlayback = useCallback(() => {
     transportRef.current?.playPause()
@@ -175,18 +187,31 @@ function TVModeExperience() {
     focusZone(isImmersive ? 'player' : 'channels', isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null)
   }, [focusZone, isImmersive, selectedChannelId])
 
-  // Landscape is requested once per visit and only where the browser supports it. A rejected or missing
-  // Screen Orientation API changes nothing: TV Mode works in portrait as well.
+  // Landscape is requested once, and only for the case the API exists for: a touch device that is
+  // actually in portrait. A rejected or missing Screen Orientation API (Chrome requires fullscreen for
+  // it, most desktop browsers refuse outright) is an expected browser limitation — TV Mode keeps working
+  // in portrait, nothing is retried, and no error is shown.
   useEffect(() => {
     if (orientationRequestedRef.current) return
     orientationRequestedRef.current = true
 
     const orientation = window.screen?.orientation as LockableOrientation | undefined
     if (!orientation || typeof orientation.lock !== 'function') return
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(pointer: coarse)').matches) return
+
+    const portrait = orientation.type
+      ? orientation.type.startsWith('portrait')
+      : window.innerHeight > window.innerWidth
+    if (!portrait) return
 
     void orientation.lock('landscape').catch(() => undefined)
     return () => {
-      void orientation.unlock?.()
+      // Releasing on the way out means the rest of the app is never left rotated by TV Mode.
+      try {
+        orientation.unlock?.()
+      } catch {
+        // Some browsers throw when nothing was locked; that is not worth surfacing.
+      }
     }
   }, [])
 
@@ -214,7 +239,8 @@ function TVModeExperience() {
         activeCategoryId={activeCategoryId}
         query={query}
         isPremiumSubscriber={isPremiumSubscriber}
-        onBack={handleBack}
+        onEnterPlayerView={enterPlayerView}
+        onExit={handleExit}
         onRefresh={handleRefresh}
         onSelectCategory={setActiveCategoryId}
         onQueryChange={setQuery}

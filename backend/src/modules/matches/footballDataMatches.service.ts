@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ServiceUnavailableError } from '../../core/errors.js'
 import logger from '../../core/logger.js'
-import { FOOTBALL_DATA_COMPETITIONS, type FootballDataCompetitionCode } from './footballDataCompetitions.js'
+import { FOOTBALL_DATA_COMPETITIONS, getCanonicalCompetitionName, type FootballDataCompetitionCode } from './footballDataCompetitions.js'
 import { acquireFootballDataRequestSlot } from './footballDataRequestLimiter.js'
 
 export const DEFAULT_FOOTBALL_DISCOVERY_COMPETITION = 'PL'
@@ -148,7 +148,7 @@ function normalizeCompetitionFixtures(value: unknown, competitionCode: string): 
       kickoffAt,
       status: requiredString(match.status, 'match status').toUpperCase(),
       competitionCode,
-      competitionName: requiredString(competition.name, 'competition name'),
+      competitionName: getCanonicalCompetitionName(competitionCode, requiredString(competition.name, 'competition name')),
       homeTeamName: requiredString(homeTeam.name, 'home team name'),
       awayTeamName: requiredString(awayTeam.name, 'away team name'),
       homeTeamCrest: nullableHttpUrl(homeTeam.crest),

@@ -7,9 +7,11 @@ import { Card, CardContent } from './ui/Card'
 import { cn } from '../lib/utils'
 import { buildCloudinaryUrl } from '../utils/cloudinary'
 import { getMatchStatus } from '../features/matches/matchOrdering'
+import { getMatchCompetitionLabel } from '../features/matches/matchCompetition'
 import { formatMatchKickoffDate, formatMatchKickoffTime } from '../utils/matchDateTime'
 import { useCountdown } from '../hooks/useCountdown'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
+import { MarqueeText } from './MarqueeText'
 import { VsIcon } from './VsIcon'
 
 interface MatchCardDisplayProps {
@@ -75,6 +77,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
   }
 
   const displayTitle = getMatchDisplayTitle(match)
+  const competitionLabel = getMatchCompetitionLabel(match)
   const streamCount = match.streams?.filter((stream) => stream.enabled !== false && stream.isEnabled !== false).length ?? 0
 
   const homeTeam = buildTeamVisual(match.homeTeamName ?? match.homeTeam?.name ?? '', 'Team 1', match.homeTeamLogo || match.homeTeam?.logoUrl)
@@ -89,14 +92,22 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
         tabIndex={0}
         aria-label={`Open ${displayTitle}`}
         className={cn(
-          'group relative flex h-full w-full min-h-0 cursor-pointer flex-col overflow-hidden rounded-2xl border border-(--border)/80 bg-(--surface)/95 p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)',
+          'group relative flex h-full w-full min-h-0 cursor-pointer flex-col overflow-hidden rounded-2xl border border-(--border)/50 bg-(--surface)/95 p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)',
           simplifyMatchCard ? 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-150' : 'shadow-[0_10px_28px_rgba(4,116,196,0.08)] transition-transform duration-200 hover:-translate-y-0.5',
         )}
       >
         <div className="relative overflow-hidden bg-(--surface-strong) px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
-          <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-(--border) pb-2 sm:mb-3 sm:gap-3 sm:pb-2.5">
-            <p className="min-w-0 truncate text-sm font-semibold text-(--text-primary) sm:text-base">{displayTitle}</p>
-            <time dateTime={match.kickoffAt} className="shrink-0 text-[10px] font-medium text-(--text-muted) sm:text-xs">
+          <div className="mb-2.5 flex items-center gap-2 border-b border-(--border) pb-2 sm:mb-3 sm:gap-3 sm:pb-2.5">
+            {/* The team logos and names below already show the fixture, so the top line carries the
+                competition context instead of repeating "Home vs Away". */}
+            {competitionLabel && (
+              <MarqueeText
+                text={competitionLabel}
+                animated={!simplifyMatchCard}
+                className="min-w-0 flex-1 text-[11px] font-medium tracking-wide text-(--text-muted) sm:text-xs"
+              />
+            )}
+            <time dateTime={match.kickoffAt} className="ml-auto shrink-0 text-[10px] font-medium text-(--text-muted) sm:text-xs">
               {matchStatus === 'LIVE' ? <span className="text-rose-500 dark:text-rose-300">{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
             </time>
           </div>
@@ -127,8 +138,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
           </div>
         </div>
 
-        <CardContent className={cn('space-y-2', compact ? 'p-1.5' : 'p-2 sm:p-2.5')}>
-          {(match.tournamentName?.trim() || match.competition?.name) && <p className="truncate text-[10px] font-medium text-(--text-muted) sm:text-xs">{match.tournamentName?.trim() || match.competition?.name}</p>}
+        <CardContent className={cn(compact ? 'p-1.5' : 'p-2 sm:p-2.5')}>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-(--border) pt-2 text-[10px] font-semibold sm:text-xs" aria-live="polite">
             <span className="min-w-0 truncate text-(--text-muted)">{streamCount} stream{streamCount === 1 ? '' : 's'} available</span>
             <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1', matchStatus === 'LIVE' ? 'bg-red-500/12 text-red-700 dark:text-red-300' : matchStatus === 'FINISHED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/12 text-amber-700 dark:text-amber-300')}>

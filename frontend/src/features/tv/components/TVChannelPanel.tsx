@@ -1,4 +1,4 @@
-import { ArrowLeft, Loader2, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, Loader2, LogOut, RefreshCw, Search } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
 import { cn } from '../../../lib/utils'
 import type { TVCategory, TVChannel } from '../tvChannels'
@@ -14,7 +14,10 @@ interface TVChannelPanelProps {
   activeCategoryId: string
   query: string
   isPremiumSubscriber: boolean
-  onBack: () => void
+  /** Hides the panel and hands the whole viewport to the player, staying inside TV Mode. */
+  onEnterPlayerView: () => void
+  /** Leaves TV Mode altogether. */
+  onExit: () => void
   onRefresh: () => void
   onSelectCategory: (categoryId: string) => void
   onQueryChange: (query: string) => void
@@ -25,6 +28,8 @@ interface TVChannelPanelProps {
  * The TV control panel: everything the viewer navigates is on this side, and the player keeps the rest.
  *
  * It owns no player state at all — refreshing, filtering and searching here can never restart playback.
+ * The top bar separates the two ways out of the experience: Back collapses the panel into the player
+ * view and stays in TV Mode, while Exit leaves the route entirely.
  */
 export const TVChannelPanel = memo(function TVChannelPanel({
   categories,
@@ -36,7 +41,8 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   activeCategoryId,
   query,
   isPremiumSubscriber,
-  onBack,
+  onEnterPlayerView,
+  onExit,
   onRefresh,
   onSelectCategory,
   onQueryChange,
@@ -61,9 +67,32 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   return (
     <aside data-tv-zone="panel" className="tv-panel" aria-label="TV channel controls">
       <div data-tv-zone="toolbar" className="tv-toolbar">
-        <button type="button" data-tv-item data-tv-key="back" className="tv-icon-button" onClick={onBack} aria-label="Back" title="Back">
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="back"
+          className="tv-icon-button"
+          onClick={onEnterPlayerView}
+          aria-label="Hide channel controls and show the player"
+          title="Hide channel controls"
+        >
           <ArrowLeft aria-hidden="true" />
           <span className="tv-button-label">Back</span>
+        </button>
+
+        <h1 className="tv-panel-title">Channels</h1>
+
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="search"
+          className="tv-icon-button"
+          onClick={() => setSearchOpen((open) => !open)}
+          aria-label={isSearchOpen ? 'Close search' : 'Search channels'}
+          aria-expanded={isSearchOpen}
+          title="Search channels"
+        >
+          <Search aria-hidden="true" />
         </button>
 
         <button
@@ -77,21 +106,18 @@ export const TVChannelPanel = memo(function TVChannelPanel({
           disabled={isRefreshing}
         >
           {isRefreshing ? <Loader2 className="tv-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-          <span className="tv-button-label">Refresh</span>
         </button>
 
         <button
           type="button"
           data-tv-item
-          data-tv-key="search"
-          className={cn('tv-icon-button', isSearchOpen && 'tv-icon-button-active')}
-          onClick={() => setSearchOpen((open) => !open)}
-          aria-label={isSearchOpen ? 'Close search' : 'Search channels'}
-          aria-expanded={isSearchOpen}
-          title="Search channels"
+          data-tv-key="exit"
+          className="tv-icon-button tv-icon-button-exit"
+          onClick={onExit}
+          aria-label="Exit TV Mode"
+          title="Exit TV Mode"
         >
-          <Search aria-hidden="true" />
-          <span className="tv-button-label">Search</span>
+          <LogOut aria-hidden="true" />
         </button>
       </div>
 

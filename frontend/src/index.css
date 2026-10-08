@@ -609,12 +609,13 @@ html.theme-switching * {
 
 .tv-icon-button {
   display: inline-flex;
-  flex: 1 1 0;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 0.35em;
+  gap: 0.3em;
+  min-width: 2.6em;
   min-height: 2.6em;
-  padding: 0 0.6em;
+  padding: 0 0.55em;
   border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
   border-radius: 0.6em;
   background: #1f2537;
@@ -626,8 +627,26 @@ html.theme-switching * {
 }
 
 .tv-icon-button svg {
-  width: 1.2em;
-  height: 1.2em;
+  width: 1.35em;
+  height: 1.35em;
+}
+
+/* The section title sits between the two exits so the bar reads left to right:
+   Back · Channels · Search · Refresh · Exit. */
+.tv-panel-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 1em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tv-text-strong);
+}
+
+.tv-icon-button-exit {
+  border-color: color-mix(in srgb, var(--tv-accent) 45%, transparent);
+  color: var(--tv-text-strong);
 }
 
 .tv-icon-button:hover:not([disabled]) {
@@ -713,11 +732,12 @@ html.theme-switching * {
   opacity: 0.7;
 }
 
-/* The list is the only scrolling area in TV Mode. */
+/* The list is the only scrolling area in TV Mode. Rows are sized from the same em scale as the rest of
+   the panel, so roughly six channel cards are visible whether the display is 720p, 1080p or 4K. */
 .tv-channel-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4em;
+  display: grid;
+  grid-auto-rows: minmax(8.4em, 1fr);
+  gap: 0.55em;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 0.2em;
@@ -726,13 +746,13 @@ html.theme-switching * {
 
 .tv-channel-card {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.65em;
-  min-height: 3.6em;
-  padding: 0.45em 0.6em;
+  gap: 0.8em;
+  min-height: 8.4em;
+  padding: 0.6em 0.8em;
   border: 1px solid color-mix(in srgb, var(--tv-border) 32%, transparent);
-  border-radius: 0.7em;
+  border-radius: 0.8em;
   background: var(--tv-surface-soft);
   color: var(--tv-text);
   text-align: left;
@@ -740,6 +760,7 @@ html.theme-switching * {
   transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
+/* The tuned channel is unmistakable without glowing: accent border, tinted fill and a playing marker. */
 .tv-channel-card[data-tv-selected='true'] {
   border-color: var(--tv-accent);
   background: color-mix(in srgb, var(--tv-accent) 20%, var(--tv-surface-soft));
@@ -747,22 +768,22 @@ html.theme-switching * {
 }
 
 .tv-channel-number {
-  font-size: 0.85em;
+  font-size: 1.3em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   color: var(--tv-text-strong);
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .tv-channel-logo {
   display: grid;
-  width: 2.6em;
-  height: 2.6em;
+  width: 4.4em;
+  height: 4.4em;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
-  border-radius: 0.5em;
+  border-radius: 0.6em;
   background: #1b2132;
 }
 
@@ -773,68 +794,71 @@ html.theme-switching * {
 }
 
 .tv-channel-logo-fallback {
-  font-size: 1em;
+  font-size: 1.7em;
   font-weight: 800;
   color: var(--tv-text);
 }
 
 .tv-channel-meta {
   display: grid;
-  gap: 0.15em;
+  gap: 0.2em;
 }
 
 .tv-channel-name {
   overflow: hidden;
-  font-size: 0.95em;
-  font-weight: 600;
+  font-size: 1.3em;
+  font-weight: 700;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tv-channel-state {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.tv-channel-category {
+  overflow: hidden;
+  font-size: 0.95em;
+  color: var(--tv-text);
+  opacity: 0.82;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tv-channel-live {
-  display: inline-flex;
-  align-items: center;
+/* Real state only: the playing marker, the live dot the backend reports, and a premium lock. */
+.tv-channel-flags {
+  display: grid;
+  justify-items: center;
   gap: 0.35em;
-  color: #34d399;
+  color: var(--tv-text);
+}
+
+.tv-channel-playing {
+  width: 1.3em;
+  height: 1.3em;
+  fill: var(--tv-accent);
+  color: var(--tv-accent);
 }
 
 .tv-channel-live-dot {
-  width: 0.5em;
-  height: 0.5em;
+  width: 0.55em;
+  height: 0.55em;
   border-radius: 999px;
-  background: currentColor;
+  background: #34d399;
 }
 
-.tv-channel-offline {
-  color: #8fa3c5;
-}
-
-.tv-channel-locked {
-  padding: 0 0.4em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 50%, transparent);
-  border-radius: 999px;
-  color: var(--tv-text);
+.tv-channel-lock {
+  width: 1em;
+  height: 1em;
+  opacity: 0.85;
 }
 
 /* A handful of placeholder rows, not an animated skeleton system. */
 .tv-channel-skeleton {
   display: grid;
-  gap: 0.4em;
+  gap: 0.55em;
 }
 
 .tv-channel-skeleton-row {
-  height: 3.6em;
-  border-radius: 0.7em;
+  height: 8.4em;
+  border-radius: 0.8em;
   background: color-mix(in srgb, var(--tv-border) 14%, transparent);
 }
 
@@ -928,36 +952,85 @@ html.theme-switching * {
   color: var(--tv-text-strong);
 }
 
-.tv-now-playing {
+/* ---------------------------------------------------------------- channel popup
+   The channel identity appears briefly over the video — on every channel change and on a tap on the
+   player — and then gets out of the way. It is pointer-transparent, so it can never block a control. */
+
+.tv-channel-info {
   position: absolute;
-  top: 0.9em;
-  left: 0.9em;
-  display: inline-flex;
+  top: 1em;
+  left: 1em;
+  display: flex;
   align-items: center;
-  gap: 0.6em;
-  padding: 0.45em 0.8em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 35%, transparent);
-  border-radius: 999px;
-  background: rgba(7, 20, 38, 0.82);
-  font-size: 0.9em;
-  transition: opacity 200ms ease;
+  gap: 0.75em;
+  max-width: min(70%, 34em);
+  padding: 0.6em 0.9em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+  border-radius: 0.8em;
+  background: rgba(7, 20, 38, 0.9);
+  opacity: 0;
+  transform: translateY(-0.4em);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.tv-now-number {
+.tv-channel-info-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tv-info-number {
+  font-size: 1.2em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--tv-text-strong);
+}
+
+.tv-info-logo {
+  display: grid;
+  width: 3em;
+  height: 3em;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  border-radius: 0.5em;
+  background: #1b2132;
+}
+
+.tv-info-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tv-info-logo-fallback {
+  font-size: 1.2em;
   font-weight: 800;
   color: var(--tv-text);
 }
 
-.tv-now-name {
-  font-weight: 600;
-  color: var(--tv-text-strong);
+.tv-info-meta {
+  display: grid;
+  min-width: 0;
 }
 
-.tv-now-live {
-  font-size: 0.75em;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: #34d399;
+.tv-info-name {
+  overflow: hidden;
+  font-size: 1.25em;
+  font-weight: 700;
+  color: var(--tv-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-info-category {
+  overflow: hidden;
+  font-size: 0.9em;
+  color: var(--tv-text);
+  opacity: 0.85;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tv-player-controls {
@@ -1065,6 +1138,28 @@ html.theme-switching * {
   }
 }
 
+/* A phone held sideways has very little height: the cards step down so more than a couple stay visible,
+   which still leaves a 64 px row with a 37 px logo on that screen. */
+@media (max-height: 520px) {
+  .tv-channel-list {
+    grid-auto-rows: minmax(5.6em, 1fr);
+  }
+
+  .tv-channel-card {
+    min-height: 5.6em;
+    padding: 0.45em 0.7em;
+  }
+
+  .tv-channel-logo {
+    width: 3.2em;
+    height: 3.2em;
+  }
+
+  .tv-channel-skeleton-row {
+    height: 5.6em;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tv-shell [data-tv-item]:focus,
   .tv-icon-button,
@@ -1073,7 +1168,7 @@ html.theme-switching * {
   .tv-control,
   .tv-primary-button,
   .tv-secondary-button,
-  .tv-now-playing,
+  .tv-channel-info,
   .tv-player-controls {
     transition: none;
   }
@@ -1086,12 +1181,46 @@ html.theme-switching * {
 .tv-lite .tv-control,
 .tv-lite .tv-primary-button,
 .tv-lite .tv-secondary-button,
-.tv-lite .tv-now-playing,
+.tv-lite .tv-channel-info,
 .tv-lite .tv-player-controls {
   transition: none;
 }
 
 .tv-lite .tv-spin {
   animation: none;
+}
+
+/* ------------------------------------------------------------------ match card ticker
+   The competition context line stays still until it genuinely overflows its column, then becomes a
+   seamless ticker: two identical copies of the text sit side by side and the track slides by exactly
+   one copy, so the loop has no gap or flicker. Only transform is animated. */
+.szb-marquee {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.szb-marquee-track {
+  display: inline-flex;
+  max-width: none;
+  will-change: transform;
+  animation: szb-marquee-slide 16s linear infinite;
+}
+
+.szb-marquee-item {
+  display: inline-block;
+  padding-right: 2.5rem;
+  white-space: nowrap;
+}
+
+@keyframes szb-marquee-slide {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+/* Reduced motion keeps the real text and drops the movement: clipped, never scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  .szb-marquee-track {
+    animation: none;
+  }
 }
 

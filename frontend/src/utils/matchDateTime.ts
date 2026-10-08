@@ -69,4 +69,10 @@ export const formatMatchKickoffDate = (value?: string | null): string => {
 
 export const formatMatchKickoff = (value?: string | null): string => `${formatMatchKickoffTime(value)} · ${formatMatchKickoffDate(value)}`
 
+/** Calendar year of a match instant in the app's match timezone (used for year-based competition names). */
+export const getMatchCalendarYear = (value?: string | null): number | null => {
+  const parts = value ? getParts(new Date(value)) : null
+  return parts ? parts.year : null
+}
+
 export const getMatchTimeZone = () => MATCH_TIME_ZONE
