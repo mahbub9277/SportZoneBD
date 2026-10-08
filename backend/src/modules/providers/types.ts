@@ -37,6 +37,11 @@ export interface CanonicalFixture {
   kickoffAt: string
   competitionCode: string
   competitionName: string
+  /**
+   * Season label exactly as the provider states it ("2026/2027" from football-data.org's season span,
+   * API-Football's season year). Null when the provider does not publish one, so nothing is invented.
+   */
+  season: string | null
   homeTeamName: string
   awayTeamName: string
   homeTeamCrest: string | null

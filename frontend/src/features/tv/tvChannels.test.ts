@@ -5,7 +5,9 @@ import {
   buildTVCategories,
   buildTVChannels,
   filterTVChannels,
+  findChannelByNumber,
   formatChannelNumber,
+  nextPlayableChannelId,
   pickInitialChannelId,
   stepChannelId,
   TV_ALL_CATEGORY_ID,
@@ -127,6 +129,35 @@ test('premium channels are flagged but never invented', () => {
   const channels = buildTVChannels([category('prem', 'Premium', [{ id: 'p', name: 'Gold TV', isPremium: true }])])
   assert.equal(channels[0].isPremium, true)
   assert.equal(channels[0].isLive, true)
+})
+
+test('a typed channel number resolves through the catalogue numbering, never an index or id', () => {
+  const channels = buildTVChannels(catalogue)
+  assert.equal(findChannelByNumber(channels, '3')?.id, 'c')
+  assert.equal(findChannelByNumber(channels, '03')?.id, 'c', 'leading zeros are not significant')
+  assert.equal(findChannelByNumber(channels, ' 5 ')?.id, 'e', 'the typed value is trimmed')
+  assert.equal(findChannelByNumber(channels, '2')?.id, 'b')
+  assert.equal(findChannelByNumber(channels, '99'), null, 'a number no channel holds resolves to nothing')
+  assert.equal(findChannelByNumber(channels, '0'), null)
+  assert.equal(findChannelByNumber(channels, ''), null)
+  assert.equal(findChannelByNumber(channels, 'abc'), null)
+  assert.equal(findChannelByNumber([], '1'), null)
+})
+
+test('the recovery channel wraps past the failed one and skips ineligible channels', () => {
+  const channels = buildTVChannels(catalogue)
+  // Playable order is a → b → c; 'd' and 'e' have no working stream.
+  assert.equal(nextPlayableChannelId(channels, 'a'), 'b')
+  assert.equal(nextPlayableChannelId(channels, 'c'), 'a', 'wraps at the end of the catalogue')
+  assert.equal(nextPlayableChannelId(channels, null), 'a')
+  assert.equal(
+    nextPlayableChannelId(channels, 'a', (channel) => channel.id !== 'b'),
+    'c',
+    'a channel the viewer may not watch is skipped',
+  )
+  assert.equal(nextPlayableChannelId(channels, 'a', (channel) => channel.id === 'a'), null, 'never re-tunes the failure')
+  assert.equal(nextPlayableChannelId(channels, 'a', () => false), null, 'no eligible channel means no switch')
+  assert.equal(nextPlayableChannelId([], 'a'), null)
 })
 
 test('an empty or missing catalogue produces no channels and no categories', () => {

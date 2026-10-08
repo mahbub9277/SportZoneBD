@@ -126,7 +126,9 @@ export interface Highlight {
 export interface Match {
   id: string;
   title: string;
-  tournamentName?: string | null;
+  tournamentName?: string | null
+  /** Season label exactly as the provider states it (e.g. "2026/2027"); absent when unknown. */
+  season?: string | null;
   kickoffAt: string; // ISO date string
   status: 'LIVE' | 'UPCOMING' | 'FINISHED';
   sport?: 'CRICKET' | 'FOOTBALL' | 'BASKETBALL' | 'TENNIS' | 'MOTORSPORTS' | 'WWE' | string;

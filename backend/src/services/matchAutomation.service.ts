@@ -17,6 +17,13 @@ import { getFootballDataFixtures } from '../modules/providers/footballData.adapt
 import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixtures.js'
 import { getCricketFixtures } from '../modules/providers/cricketData.fixtures.js'
 import { PROVIDER_KEY_PREFIX, PROVIDER_LABEL, providerFixtureKey, type CanonicalFixture, type ProviderFetchResult, type ProviderId } from '../modules/providers/types.js'
+import {
+  buildRejectedFixtureLookup,
+  getTeamsIdentity,
+  isFixtureRejected,
+  normalizeFixtureName,
+  resolveExistingFixture,
+} from '../modules/providers/fixtureIdentity.js'
 import { resolveDiscoveryStatus, summarizeDiscoveryResult } from './automationResult.js'
 import {
   StreamHealthFailureMirror,
@@ -43,6 +50,12 @@ const FINISHED_MATCH_CLEANUP_BATCH_SIZE = 25
 const STREAM_HEALTH_FAILURE_THRESHOLD = Number(process.env.STREAM_HEALTH_FAILURE_THRESHOLD ?? 3)
 const STREAM_HEALTH_CHECK_INTERVAL_MINUTES = 2
 const AUTOMATION_LOCK_TTL_SECONDS = 55
+/**
+ * How far a kickoff may move before the same two teams stop describing the same fixture. Providers
+ * postpone fixtures by hours and re-issue fixture ids, so identity has to tolerate that; no team plays
+ * the same opponent twice inside two days, which keeps the window safe against merging real fixtures.
+ */
+const FIXTURE_IDENTITY_WINDOW_MS = 48 * 60 * 60 * 1000
 // Stream health checks and the weekly Cloudinary sweep can run well past the lock TTL,
 // so the lock is renewed at a third of its TTL (~one EXPIRE every 18s while running).
 const AUTOMATION_LOCK_RENEWAL_INTERVAL_MS = Math.floor((AUTOMATION_LOCK_TTL_SECONDS * 1000) / 3)
@@ -73,16 +86,8 @@ async function readHealthResponsePrefix(response: Response, maxBytes: number): P
   }
 }
 
-function normalizeTeamName(value: string | null | undefined): string {
-  return (value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9\s]/g, ' ')
-    .replace(/\b(?:fc|cf|sc|ac|afc|cfc)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
-}
+/** Fixture identity and review state live in `modules/providers/fixtureIdentity.ts` so they are testable. */
+const normalizeTeamName = normalizeFixtureName
 
 function normalizeProviderMatchStatus(status: string): 'UPCOMING' | 'LIVE' | 'FINISHED' | null {
   switch (status) {
@@ -110,10 +115,6 @@ function normalizeProviderMatchStatus(status: string): 'UPCOMING' | 'LIVE' | 'FI
 
 function normalizeApprovedMatchTitle(home: string, away: string): string {
   return `${normalizeTeamName(home)} vs ${normalizeTeamName(away)}`
-}
-
-function isInCloseKickoffWindow(candidate: Date, target: Date, maxDeltaMs: number): boolean {
-  return Math.abs(candidate.getTime() - target.getTime()) <= maxDeltaMs
 }
 
 function getFixtureIdentityKey(fixture: Pick<CanonicalFixture, 'competitionCode' | 'competitionName' | 'homeTeamName' | 'awayTeamName' | 'kickoffAt'>): string {
@@ -164,22 +165,6 @@ const PROVIDER_PRIORITY: Record<ProviderId, number> = {
 function getCanonicalOwnerRank(match: { providerFixtureKey: string | null }): number {
   const provider = providerFromFixtureKey(match.providerFixtureKey)
   return provider ? PROVIDER_PRIORITY[provider] : Number.MAX_SAFE_INTEGER
-}
-
-function getMatchIdentityKey(match: {
-  kickoffAt: Date | null
-  tournamentName?: string | null
-  homeTeamName?: string | null
-  awayTeamName?: string | null
-}): string | null {
-  if (!match.kickoffAt) return null
-
-  return [
-    normalizeTeamName(match.tournamentName ?? ''),
-    normalizeTeamName(match.homeTeamName ?? ''),
-    normalizeTeamName(match.awayTeamName ?? ''),
-    match.kickoffAt.toISOString(),
-  ].join('|')
 }
 
 export interface MatchAutomationJobOptions {
@@ -599,34 +584,34 @@ export class MatchAutomationService {
           status: true,
           finishedAt: true,
           tournamentName: true,
+          season: true,
         },
       })
 
-      // Rejected fixtures stay in the table as soft-deleted matches so their unique providerFixtureKey can
-      // never be re-created. Reading them once per cycle lets the loop skip them before any create attempt,
-      // while the unique index still blocks a re-creation if the fixture moves outside this window.
+      // Reviewed rejections are read once per cycle, padded around the fixture window so a reschedule
+      // cannot hide them: the lookup matches on the provider key and, as a backstop, on the two teams,
+      // which is what makes the rejection survive a kickoff move or a re-issued provider fixture id.
       const rejectedMatches = await prisma.match.findMany({
         where: {
-          deletedAt: { not: null },
-          providerFixtureKey: { not: null },
           kickoffAt: {
-            gte: fixtureWindowStart,
-            lt: fixtureWindowEndExclusive,
+            gte: new Date(fixtureWindowStart.getTime() - FIXTURE_IDENTITY_WINDOW_MS),
+            lt: new Date(fixtureWindowEndExclusive.getTime() + FIXTURE_IDENTITY_WINDOW_MS),
           },
+          OR: [
+            { status: 'REJECTED' },
+            // The shape a rejection had before the explicit REJECTED state existed.
+            { status: 'PENDING', deletedAt: { not: null } },
+          ],
         },
-        select: { providerFixtureKey: true },
+        select: {
+          providerFixtureKey: true,
+          homeTeamName: true,
+          awayTeamName: true,
+          status: true,
+          deletedAt: true,
+        },
       })
-      const rejectedFixtureKeys = new Set(
-        rejectedMatches
-          .map((match) => match.providerFixtureKey)
-          .filter((key): key is string => Boolean(key)),
-      )
-
-      const existingMatchLookup = new Map<string, (typeof existingMatches)[number]>()
-      for (const match of existingMatches) {
-        const lookupKey = getMatchIdentityKey(match)
-        if (lookupKey) existingMatchLookup.set(lookupKey, match)
-      }
+      const rejectedFixtures = buildRejectedFixtureLookup(rejectedMatches)
 
       // Matches created earlier in this same cycle have to be visible to the providers that are
       // processed after them. Without this, two providers describing the same real fixture would
@@ -648,8 +633,9 @@ export class MatchAutomationService {
         const normalizedAway = normalizeTeamName(awayName)
         const desiredTitle = normalizeApprovedMatchTitle(homeName, awayName)
         const providerFixtureKey = buildProviderFixtureKey(fixture)
+        const teamsIdentity = getTeamsIdentity(homeName, awayName)
 
-        if (rejectedFixtureKeys.has(providerFixtureKey)) {
+        if (isFixtureRejected(rejectedFixtures, providerFixtureKey, teamsIdentity)) {
           skippedCount++
           logger.info(
             { provider: fixture.provider, title: desiredTitle, providerFixtureKey },
@@ -657,19 +643,13 @@ export class MatchAutomationService {
           )
           continue
         }
-        const matchWindow = 4 * 60 * 60 * 1000
-        const existingMatch = existingMatchLookup.get(getFixtureIdentityKey(fixture)) ?? [...existingMatches, ...matchesCreatedThisCycle]
-          .filter((match) => {
-            if (!match.kickoffAt) return false
-            if (!isInCloseKickoffWindow(match.kickoffAt, kickoffAt, matchWindow)) return false
 
-            const existingHome = normalizeTeamName(match.homeTeamName ?? match.title.split(' vs ')[0] ?? '')
-            const existingAway = normalizeTeamName(match.awayTeamName ?? match.title.split(' vs ')[1] ?? '')
-            return existingHome === normalizedHome && existingAway === normalizedAway
-          })
-          // When several providers describe the same fixture, the highest-priority provider owns
-          // the canonical match, so provider ownership never depends on row order.
-          .sort((left, right) => getCanonicalOwnerRank(left) - getCanonicalOwnerRank(right))[0]
+        // The provider's own fixture key wins; the team identity inside the identity window catches a
+        // rescheduled or re-identified fixture so an approved match is updated instead of duplicated.
+        const existingMatch = resolveExistingFixture(fixture, providerFixtureKey, [...existingMatches, ...matchesCreatedThisCycle], {
+          identityWindowMs: FIXTURE_IDENTITY_WINDOW_MS,
+          rankOwner: getCanonicalOwnerRank,
+        })
 
         // Cross-provider duplicate protection: never let a lower-priority provider overwrite a
         // canonical match that a higher-priority provider owns.
@@ -689,10 +669,21 @@ export class MatchAutomationService {
         const awayTeam = await prisma.team.findFirst({ where: { deletedAt: null, normalizedName: normalizedAway } })
 
         if (existingMatch) {
+          // Defence in depth: a rejected row is a review decision, so provider data never revives it.
+          if (existingMatch.status === 'REJECTED') {
+            skippedCount++
+            logger.info(
+              { provider: fixture.provider, title: desiredTitle, matchId: existingMatch.id },
+              'Fixture skipped because its stored match is rejected',
+            )
+            continue
+          }
           const homeTeamId = homeTeam?.id ?? existingMatch.homeTeamId ?? null
           const awayTeamId = awayTeam?.id ?? existingMatch.awayTeamId ?? null
           const homeTeamLogo = homeTeam?.logoUrl?.trim() || existingMatch.homeTeamLogo?.trim() || fixture.homeTeamCrest || null
           const awayTeamLogo = awayTeam?.logoUrl?.trim() || existingMatch.awayTeamLogo?.trim() || fixture.awayTeamCrest || null
+          // A provider that publishes no season must never blank a season that is already stored.
+          const season = fixture.season?.trim() || existingMatch.season || null
             const status = existingMatch.status === 'FINISHED'
               ? 'FINISHED'
               : existingMatch.status === 'PENDING'
@@ -708,6 +699,7 @@ export class MatchAutomationService {
             existingMatch.awayTeamName !== awayName ||
             existingMatch.kickoffAt.getTime() !== kickoffAt.getTime() ||
             existingMatch.tournamentName !== fixture.competitionName ||
+            existingMatch.season !== season ||
             existingMatch.homeTeamId !== homeTeamId ||
             existingMatch.awayTeamId !== awayTeamId ||
             existingMatch.homeTeamLogo !== homeTeamLogo ||
@@ -730,6 +722,7 @@ export class MatchAutomationService {
                 awayTeamLogo,
                 sport: fixture.sport,
                 tournamentName: fixture.competitionName || existingMatch.tournamentName || null,
+                season,
                 status,
                 finishedAt,
               },
@@ -776,6 +769,7 @@ export class MatchAutomationService {
               awayTeamLogo: awayTeam?.logoUrl?.trim() || fixture.awayTeamCrest || null,
               sport: fixture.sport,
               tournamentName: fixture.competitionName,
+              season: fixture.season?.trim() || null,
               status: 'PENDING',
               finishedAt: null,
               premium: false,

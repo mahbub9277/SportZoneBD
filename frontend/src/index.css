@@ -549,7 +549,12 @@ html.theme-switching * {
   --tv-border: #5379ae;
   --tv-text: #a8c4ec;
   --tv-text-strong: #f4f7ff;
+  /* The deep navy of the selected channel, the keypad and the floating overlays. */
+  --tv-navy: #0b2038;
+  --tv-navy-strong: #071628;
 
+  /* Positioned so a full-shell overlay (Auto Tune) can be laid over everything TV Mode owns. */
+  position: relative;
   display: grid;
   grid-template-columns: clamp(20em, 27vw, 34em) minmax(0, 1fr);
   height: 100vh;
@@ -687,8 +692,22 @@ html.theme-switching * {
   color: color-mix(in srgb, var(--tv-text) 65%, transparent);
 }
 
-/* One line that scrolls sideways, never a wrapping block of rows. Scrolling is instant on purpose:
-   an animated scroll on a remote keypress is the kind of continuous re-paint weak TV GPUs drop. */
+/* One labelled row that scrolls sideways, never a wrapping block of rows. Scrolling is instant on
+   purpose: an animated scroll on a remote keypress is the kind of continuous re-paint weak TV GPUs drop. */
+.tv-categories-zone {
+  display: grid;
+  gap: 0.35em;
+}
+
+.tv-categories-label {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tv-text);
+  opacity: 0.75;
+}
+
 .tv-categories {
   display: flex;
   gap: 0.4em;
@@ -723,7 +742,7 @@ html.theme-switching * {
 
 .tv-category-active {
   border-color: var(--tv-accent);
-  background: color-mix(in srgb, var(--tv-accent) 22%, transparent);
+  background: var(--tv-navy);
   color: var(--tv-text-strong);
 }
 
@@ -760,31 +779,32 @@ html.theme-switching * {
   transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
-/* The tuned channel is unmistakable without glowing: accent border, tinted fill and a playing marker. */
+/* The tuned channel is unmistakable without glowing: accent border, a deep navy fill that reads as
+   "selected" on its own, and a playing marker, so the state never depends on colour alone. */
 .tv-channel-card[data-tv-selected='true'] {
   border-color: var(--tv-accent);
-  background: color-mix(in srgb, var(--tv-accent) 20%, var(--tv-surface-soft));
+  background: var(--tv-navy);
   color: var(--tv-text-strong);
 }
 
 .tv-channel-number {
-  font-size: 1.3em;
+  font-size: 1.4em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   color: var(--tv-text-strong);
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .tv-channel-logo {
   display: grid;
-  width: 4.4em;
-  height: 4.4em;
+  width: 4.8em;
+  height: 4.8em;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
   border-radius: 0.6em;
-  background: #1b2132;
+  background: var(--tv-navy-strong);
 }
 
 .tv-channel-logo img {
@@ -806,7 +826,7 @@ html.theme-switching * {
 
 .tv-channel-name {
   overflow: hidden;
-  font-size: 1.3em;
+  font-size: 1.35em;
   font-weight: 700;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -888,7 +908,51 @@ html.theme-switching * {
   height: 100%;
 }
 
+/* ---------------------------------------------------------------- no signal
+   A channel the catalogue says has no playable stream. The static sits behind the message — never over
+   the error, retry or channel controls — and it is a texture plus one transform animation, so a weak TV
+   GPU has almost nothing to repaint. */
+
+.tv-no-signal {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #0a1120;
+}
+
+.tv-no-signal__effect {
+  position: absolute;
+  inset: -50%;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23s)' opacity='0.55'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 160px 160px;
+  opacity: 0.22;
+  mix-blend-mode: screen;
+  animation: tv-no-signal-shift 1.6s steps(4) infinite;
+}
+
+.tv-no-signal__scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--tv-border) 30%, transparent) 0,
+    color-mix(in srgb, var(--tv-border) 30%, transparent) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+  opacity: 0.18;
+}
+
+@keyframes tv-no-signal-shift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-1.5%, 1.2%, 0); }
+}
+
 .tv-stage-message {
+  position: relative;
+  z-index: 1;
   display: grid;
   justify-items: center;
   gap: 0.6em;
@@ -960,14 +1024,15 @@ html.theme-switching * {
   position: absolute;
   top: 1em;
   left: 1em;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 0.75em;
-  max-width: min(70%, 34em);
-  padding: 0.6em 0.9em;
+  gap: 0.9em;
+  max-width: min(74%, 40em);
+  padding: 0.75em 1.1em;
   border: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
   border-radius: 0.8em;
-  background: rgba(7, 20, 38, 0.9);
+  background: color-mix(in srgb, var(--tv-navy-strong) 90%, transparent);
   opacity: 0;
   transform: translateY(-0.4em);
   pointer-events: none;
@@ -980,7 +1045,7 @@ html.theme-switching * {
 }
 
 .tv-info-number {
-  font-size: 1.2em;
+  font-size: 1.45em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--tv-text-strong);
@@ -988,14 +1053,14 @@ html.theme-switching * {
 
 .tv-info-logo {
   display: grid;
-  width: 3em;
-  height: 3em;
+  width: 3.8em;
+  height: 3.8em;
   flex: 0 0 auto;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
   border-radius: 0.5em;
-  background: #1b2132;
+  background: var(--tv-navy);
 }
 
 .tv-info-logo img {
@@ -1005,7 +1070,7 @@ html.theme-switching * {
 }
 
 .tv-info-logo-fallback {
-  font-size: 1.2em;
+  font-size: 1.5em;
   font-weight: 800;
   color: var(--tv-text);
 }
@@ -1017,7 +1082,7 @@ html.theme-switching * {
 
 .tv-info-name {
   overflow: hidden;
-  font-size: 1.25em;
+  font-size: 1.5em;
   font-weight: 700;
   color: var(--tv-text-strong);
   text-overflow: ellipsis;
@@ -1026,11 +1091,28 @@ html.theme-switching * {
 
 .tv-info-category {
   overflow: hidden;
-  font-size: 0.9em;
+  font-size: 1em;
   color: var(--tv-text);
   opacity: 0.85;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The floating control group in the upper-right of the player: the numeric keypad and the channel-panel
+   visibility toggle. It keeps roughly a 15% inset from the right edge on a wide player and falls back to
+   a plain safe margin where the width cannot afford that, so it is never clipped or unreachable. */
+.tv-stage-controls {
+  position: absolute;
+  top: 0.9em;
+  right: 15%;
+  z-index: 3;
+  display: flex;
+  gap: 0.4em;
+  padding: 0.3em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tv-navy-strong) 82%, transparent);
+  transition: opacity 200ms ease;
 }
 
 .tv-player-controls {
@@ -1042,7 +1124,7 @@ html.theme-switching * {
   padding: 0.45em;
   border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
   border-radius: 999px;
-  background: rgba(7, 20, 38, 0.82);
+  background: color-mix(in srgb, var(--tv-navy-strong) 82%, transparent);
   transform: translateX(-50%);
   transition: opacity 200ms ease;
 }
@@ -1078,8 +1160,48 @@ html.theme-switching * {
   border-color: color-mix(in srgb, var(--tv-accent) 65%, transparent);
 }
 
-/* Hidden means hidden: the row stops taking pointer events and leaves the tab order. Focus inside the
-   row always brings it back, so a remote can never end up focused on an invisible control. */
+/* Modifiers come after the base control, so they are the ones that win the cascade. */
+.tv-control-active {
+  border-color: var(--tv-accent);
+  background: color-mix(in srgb, var(--tv-accent) 25%, transparent);
+}
+
+/* The labelled control is the one that has to explain itself from a sofa, so it carries words rather
+   than a bare icon and stays inside the same pill as the round controls. */
+.tv-control-labelled {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  width: auto;
+  padding: 0 0.9em;
+  border-color: color-mix(in srgb, var(--tv-border) 35%, transparent);
+}
+
+.tv-control-label {
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* While a scan runs, the control says so and sweeps a highlight across its background. Only the
+   background position moves, so a weak TV GPU has almost nothing to repaint. */
+.tv-control[data-state='scanning'] {
+  background-image: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--tv-accent) 45%, transparent) 50%, transparent 80%);
+  background-size: 220% 100%;
+  animation: tv-control-scan 2.4s linear infinite;
+}
+
+@keyframes tv-control-scan {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+/* Hidden means hidden: the rows stop taking pointer events and leave the tab order. Focus inside a row
+   always brings it back, so a remote can never end up focused on an invisible control. */
 .tv-hidden {
   opacity: 0;
   pointer-events: none;
@@ -1087,7 +1209,9 @@ html.theme-switching * {
 }
 
 .tv-player-controls:focus-within,
-.tv-player-controls:has([data-tv-item]:focus) {
+.tv-player-controls:has([data-tv-item]:focus),
+.tv-stage-controls:focus-within,
+.tv-stage-controls:has([data-tv-item]:focus) {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -1105,6 +1229,342 @@ html.theme-switching * {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------------------------------------------------------------- numeric keypad
+   A compact deep-navy panel of the stage, entered by number and confirmed with OK. It is a UI surface
+   only: it never touches the stream, so opening and closing it cannot interrupt playback. */
+
+.tv-keypad {
+  position: absolute;
+  top: 4.4em;
+  right: 15%;
+  z-index: 6;
+  display: grid;
+  gap: 0.5em;
+  width: min(17em, 78%);
+  padding: 0.8em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  border-radius: 0.9em;
+  background: color-mix(in srgb, var(--tv-navy-strong) 94%, transparent);
+  box-shadow: 0 0.6em 1.6em rgb(2 8 18 / 0.55);
+}
+
+.tv-keypad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+.tv-keypad-title {
+  font-size: 0.9em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tv-text);
+}
+
+.tv-keypad-close {
+  display: grid;
+  width: 2em;
+  height: 2em;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+  border-radius: 0.5em;
+  background: transparent;
+  color: var(--tv-text);
+  cursor: pointer;
+}
+
+.tv-keypad-close svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.tv-keypad-display {
+  display: block;
+  padding: 0.3em 0.5em;
+  border: 1px solid color-mix(in srgb, var(--tv-accent) 40%, transparent);
+  border-radius: 0.5em;
+  background: var(--tv-navy);
+  font-size: 1.5em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--tv-text-strong);
+}
+
+.tv-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+.tv-keypad-key {
+  display: grid;
+  min-height: 2.5em;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 35%, transparent);
+  border-radius: 0.55em;
+  background: var(--tv-navy);
+  color: var(--tv-text-strong);
+  font-size: 1.05em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.tv-keypad-key svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.tv-keypad-key-utility {
+  color: var(--tv-text);
+}
+
+.tv-keypad-key-tune {
+  border-color: var(--tv-accent);
+  background: var(--tv-accent-strong);
+  font-size: 0.95em;
+  letter-spacing: 0.08em;
+}
+
+.tv-keypad-key:hover {
+  border-color: var(--tv-border);
+}
+
+/* The keyboard focus ring has to be visible on its own: the shell's global rule deliberately removes the
+   default outline, and a remote needs to see which key would be pressed. */
+.tv-keypad-key:focus,
+.tv-keypad-close:focus {
+  outline: none;
+  border-color: var(--tv-accent);
+  box-shadow: 0 0 0 0.15em rgba(4, 116, 196, 0.55);
+}
+
+.tv-keypad-message {
+  min-height: 1.2em;
+  font-size: 0.85em;
+  text-align: center;
+  color: var(--tv-text);
+}
+
+/* ---------------------------------------------------------------- auto tune
+   A user-started scan, shown as one centred card over the whole shell. The card carries only what the
+   scan really knows: how far through the catalogue it is, which entry it is on, and which channels the
+   viewer could watch. No signal bars, no invented quality. */
+
+.tv-autotune-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 1.2em;
+  background: color-mix(in srgb, var(--tv-navy-strong) 78%, transparent);
+}
+
+.tv-autotune {
+  display: grid;
+  gap: 0.9em;
+  width: min(44em, 94%);
+  max-height: 94%;
+  padding: 1.5em 1.6em 1.3em;
+  border: 1px solid color-mix(in srgb, var(--tv-accent) 55%, transparent);
+  border-radius: 1em;
+  background: color-mix(in srgb, var(--tv-navy) 96%, transparent);
+  box-shadow: 0 1.2em 3em rgb(2 8 18 / 0.6);
+  text-align: center;
+}
+
+.tv-autotune-header {
+  display: grid;
+  gap: 0.25em;
+}
+
+.tv-autotune-title {
+  font-size: 2em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tv-text-strong);
+}
+
+.tv-autotune-subtitle {
+  font-size: 1em;
+  color: var(--tv-text);
+}
+
+/* The bar is the progress readout: width only, plus one slow highlight, so it costs a weak TV GPU
+   almost nothing to keep on screen. */
+.tv-autotune-progress {
+  position: relative;
+  height: 0.6em;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  border-radius: 999px;
+  background: var(--tv-navy-strong);
+}
+
+.tv-autotune-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-image: linear-gradient(100deg, var(--tv-accent-strong), var(--tv-accent) 45%, var(--tv-accent-strong) 90%);
+  background-size: 220% 100%;
+  animation: tv-autotune-sweep 2.2s linear infinite;
+  transition: width 160ms linear;
+}
+
+@keyframes tv-autotune-sweep {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+.tv-autotune-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5em 1em;
+}
+
+.tv-autotune-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.6em;
+  font-size: 1.1em;
+  color: var(--tv-text);
+}
+
+.tv-autotune-count strong {
+  font-size: 1.35em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--tv-text-strong);
+}
+
+.tv-autotune-current {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+  min-width: 0;
+  font-size: 1.05em;
+  color: var(--tv-text);
+}
+
+.tv-autotune-current-number {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--tv-accent);
+}
+
+.tv-autotune-current-name {
+  overflow: hidden;
+  color: var(--tv-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A bounded preview of the result — the full list already lives in the channel panel. */
+.tv-autotune-results {
+  display: grid;
+  gap: 0.2em;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.tv-autotune-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.7em;
+  min-height: 2.2em;
+  padding: 0.25em 0.6em;
+  border-radius: 0.5em;
+  background: color-mix(in srgb, var(--tv-navy-strong) 60%, transparent);
+}
+
+.tv-autotune-result-number {
+  font-size: 1.05em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--tv-accent);
+}
+
+.tv-autotune-result-name {
+  overflow: hidden;
+  font-size: 1.1em;
+  font-weight: 700;
+  color: var(--tv-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-autotune-result-category {
+  overflow: hidden;
+  font-size: 0.9em;
+  color: var(--tv-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-autotune-more {
+  padding: 0.3em 0.6em;
+  font-size: 0.95em;
+  color: var(--tv-text);
+  opacity: 0.85;
+}
+
+.tv-autotune-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.7em;
+  margin-top: 0.2em;
+}
+
+.tv-autotune-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.1em;
+  padding: 0 1.7em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 55%, transparent);
+  border-radius: 0.7em;
+  background: transparent;
+  color: var(--tv-text-strong);
+  font-size: 1.05em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.tv-autotune-button:hover {
+  border-color: var(--tv-border);
+}
+
+.tv-autotune-button-primary {
+  border-color: var(--tv-accent);
+  background: var(--tv-accent);
+  color: #04121f;
+}
+
+.tv-autotune-button-primary:hover {
+  background: color-mix(in srgb, var(--tv-accent) 85%, #ffffff);
+}
+
+/* The overlay owns the keyboard, so its ring has to be visible on its own. */
+.tv-autotune-button:focus {
+  outline: none;
+  border-color: var(--tv-accent);
+  box-shadow: 0 0 0 0.15em rgba(4, 116, 196, 0.55);
 }
 
 /* ---------------------------------------------------------------- immersive player */
@@ -1135,6 +1595,65 @@ html.theme-switching * {
   .tv-immersive {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+/* A player that is not wide enough for the 15% inset gets a plain safe margin instead, so neither the
+   keypad nor the floating controls can be pushed off the edge. */
+@media (max-width: 1100px) {
+  .tv-stage-controls,
+  .tv-keypad {
+    right: 0.9em;
+  }
+}
+
+/* A short viewport is where the keypad has to stay fully usable, so it shrinks its keys and slides up
+   rather than overflowing the player. */
+@media (max-height: 520px) {
+  .tv-keypad {
+    top: 3.4em;
+    gap: 0.35em;
+    padding: 0.6em;
+    width: min(15em, 82%);
+  }
+
+  .tv-keypad-key {
+    min-height: 2.1em;
+    font-size: 0.95em;
+  }
+
+  .tv-keypad-display {
+    font-size: 1.2em;
+  }
+
+  .tv-autotune {
+    gap: 0.6em;
+    padding: 1em 1.1em;
+  }
+
+  .tv-autotune-title {
+    font-size: 1.5em;
+  }
+
+  .tv-autotune-result {
+    min-height: 1.9em;
+  }
+
+  .tv-autotune-button {
+    min-height: 2.6em;
+  }
+}
+
+/* A phone-sized player cannot carry the label and the round controls side by side, so the label steps
+   aside and the icon keeps its accessible name. */
+@media (max-width: 520px) {
+  .tv-control-label {
+    display: none;
+  }
+
+  .tv-control-labelled {
+    width: 2.9em;
+    padding: 0;
   }
 }
 
@@ -1169,12 +1688,22 @@ html.theme-switching * {
   .tv-primary-button,
   .tv-secondary-button,
   .tv-channel-info,
-  .tv-player-controls {
+  .tv-player-controls,
+  .tv-stage-controls,
+  .tv-keypad-key,
+  .tv-autotune-button {
     transition: none;
+  }
+
+  .tv-no-signal__effect,
+  .tv-autotune-progress-fill,
+  .tv-control[data-state='scanning'] {
+    animation: none;
   }
 }
 
-/* Fewer effects on constrained devices: no focus scaling, no animated spinner, no transitions. */
+/* Fewer effects on constrained devices: no focus scaling, no animated spinner, no static, no sweeping
+   progress, no transitions. Every one of these still reports its state — it simply does not move. */
 .tv-lite .tv-icon-button,
 .tv-lite .tv-category,
 .tv-lite .tv-channel-card,
@@ -1182,12 +1711,23 @@ html.theme-switching * {
 .tv-lite .tv-primary-button,
 .tv-lite .tv-secondary-button,
 .tv-lite .tv-channel-info,
-.tv-lite .tv-player-controls {
+.tv-lite .tv-player-controls,
+.tv-lite .tv-stage-controls,
+.tv-lite .tv-keypad-key,
+.tv-lite .tv-autotune-button {
   transition: none;
 }
 
-.tv-lite .tv-spin {
+.tv-lite .tv-spin,
+.tv-lite .tv-no-signal__effect,
+.tv-lite .tv-autotune-progress-fill,
+.tv-lite .tv-control[data-state='scanning'] {
   animation: none;
+}
+
+.tv-lite .tv-autotune-progress-fill {
+  background-image: none;
+  background-color: var(--tv-accent);
 }
 
 /* ------------------------------------------------------------------ match card ticker

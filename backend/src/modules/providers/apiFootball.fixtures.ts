@@ -235,6 +235,8 @@ export function normalizeApiFootballFixtures(value: unknown): CanonicalFixture[]
       kickoffAt: requiredUtcIso(fixture.date, 'kickoff time'),
       competitionCode: providerIdentifier(league.id) ?? requiredString(league.name, 'competition name'),
       competitionName: requiredString(league.name, 'competition name'),
+      // API-Football states the season as its year (for example 2026); nothing is derived from it.
+      season: typeof league.season === 'number' && Number.isInteger(league.season) ? String(league.season) : null,
       homeTeamName: requiredString(home.name, 'home team name'),
       awayTeamName: requiredString(away.name, 'away team name'),
       homeTeamCrest: nullableHttpUrl(home.logo),

@@ -128,6 +128,7 @@ export function MatchManagementPage() {
     resolver: matchFormResolver,
     defaultValues: {
       title: '',
+      season: '',
       homeTeamName: '',
       awayTeamName: '',
       homeTeamId: null,
@@ -172,6 +173,7 @@ export function MatchManagementPage() {
     const kickoff = new Date(match.kickoffAt)
     return {
       title: match.title,
+      season: match.season ?? '',
       homeTeamName: match.homeTeamName ?? '',
       awayTeamName: match.awayTeamName ?? '',
       homeTeamId: match.homeTeamId ?? match.homeTeam?.id ?? null,
@@ -244,6 +246,7 @@ export function MatchManagementPage() {
       return {
         title: values.title.trim(),
         tournamentName: values.title.trim(),
+        season: values.season?.trim() || null,
         homeTeamName: values.homeTeamName ?? null,
         awayTeamName: values.awayTeamName ?? null,
         homeTeamId: values.homeTeamId || null,

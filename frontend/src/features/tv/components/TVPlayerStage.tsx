@@ -1,9 +1,11 @@
-import { ChevronLeft, ChevronRight, Loader2, Lock, Maximize2, Minimize2, Pause, Play } from 'lucide-react'
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, Hash, Loader2, Lock, PanelLeftClose, PanelLeftOpen, Pause, Play, Radar } from 'lucide-react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { CustomVideoPlayer } from '../../../components/player/CustomVideoPlayer'
 import { cn } from '../../../lib/utils'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { formatChannelNumber, type TVChannel } from '../tvChannels'
+import type { AutoTuneStatus } from '../useAutoTune'
+import { TVChannelKeypad } from './TVChannelKeypad'
 
 export interface TVTransport {
   playPause: () => void
@@ -14,13 +16,30 @@ export interface TVTransport {
 const CONTROLS_IDLE_MS = 4000
 
 /** The channel popup is intentionally brief: it is a reminder, not a permanent overlay. */
-const CHANNEL_INFO_MS = 1500
+const CHANNEL_INFO_MS = 2000
 
 interface TVPlayerStageProps {
   channel: TVChannel | null
   isPremiumLocked: boolean
   isImmersive: boolean
+  isKeypadOpen: boolean
+  /** Auto Tune's state, only so the floating control can report it: the scan itself lives on the page. */
+  autoTuneStatus: AutoTuneStatus
+  /**
+   * Bumped whenever the viewer asks for the channel identity again — including on the channel that is
+   * already playing, where no source change happens and the popup would otherwise stay hidden.
+   */
+  infoRequest: number
   onToggleImmersive: () => void
+  onToggleKeypad: () => void
+  onToggleAutoTune: () => void
+  onCloseKeypad: () => void
+  /** Tunes to a channel the keypad resolved, through the page's existing selection path. */
+  onTuneChannel: (channel: TVChannel) => void
+  /** Resolves a typed channel number against the real catalogue; null when no channel holds it. */
+  resolveChannelNumber: (digits: string) => TVChannel | null
+  /** Reports a confirmed terminal playback failure for the channel that produced it. */
+  onChannelPlaybackError: (channelId: string) => void
   onStepChannel: (direction: 1 | -1) => void
   onTransportReady: (transport: TVTransport | null) => void
   onUpgrade: () => void
@@ -32,15 +51,26 @@ interface TVPlayerStageProps {
  * The player side of TV Mode.
  *
  * The stream itself is the existing `CustomVideoPlayer` — this only frames it, adds the few TV controls
- * a remote needs (channel up/down, play/pause, full screen) and keeps them out of the way while
- * watching. Playback state, HLS handling, retry, fallback and error recovery all stay inside the player,
- * and switching channels is a source change on the same player instance rather than a remount.
+ * a remote needs (channel up/down, play/pause, Auto Tune, the numeric keypad and the channel-panel
+ * toggle) and keeps them out of the way while watching. Playback state, HLS handling, retry, fallback
+ * and error recovery all stay inside the player, and switching channels is a source change on the same
+ * player instance rather than a remount — including opening and closing the overlays, which sit on this
+ * stage without touching the player.
  */
 export function TVPlayerStage({
   channel,
   isPremiumLocked,
   isImmersive,
+  isKeypadOpen,
+  autoTuneStatus,
+  infoRequest,
   onToggleImmersive,
+  onToggleKeypad,
+  onToggleAutoTune,
+  onCloseKeypad,
+  onTuneChannel,
+  resolveChannelNumber,
+  onChannelPlaybackError,
   onStepChannel,
   onTransportReady,
   onUpgrade,
@@ -120,6 +150,18 @@ export function TVPlayerStage({
     return clearInfoTimer
   }, [channelId, clearInfoTimer, revealChannelInfo])
 
+  /**
+   * A viewer asking for the channel again — tuning to the number that is already playing, or tapping the
+   * player after the popup has faded — gets the popup back with nothing reloaded. Only a real bump of the
+   * request counts, so this never fires as a duplicate of the channel change above.
+   */
+  const lastInfoRequestRef = useRef(infoRequest)
+  useEffect(() => {
+    if (infoRequest === lastInfoRequestRef.current) return
+    lastInfoRequestRef.current = infoRequest
+    startTransition(revealChannelInfo)
+  }, [infoRequest, revealChannelInfo])
+
   useEffect(() => () => {
     clearIdleTimer()
     clearInfoTimer()
@@ -127,6 +169,20 @@ export function TVPlayerStage({
 
   const poster = channel?.logo ? buildCloudinaryUrl(channel.logo, { width: 1280, height: 720, crop: 'fill' }) : undefined
   const canPlay = Boolean(channel?.streamUrl) && !isPremiumLocked
+  /**
+   * A channel the catalogue itself says cannot play: it carries no stream url at all. That is a confirmed
+   * no-signal condition, unlike anything the player reports while it is loading or buffering, and it is
+   * the same condition the "Channel unavailable" message describes.
+   */
+  const isNoSignal = Boolean(channel) && !isPremiumLocked && !channel?.streamUrl
+
+  const handlePlayerError = useCallback(() => {
+    // A failed stream is when a remote most needs the channel controls, so the row comes back the moment
+    // the player reports the error — and the failure is reported together with the channel that produced
+    // it, so a late report can never move the viewer away from a channel they have since chosen.
+    wake()
+    if (channelId) onChannelPlaybackError(channelId)
+  }, [channelId, onChannelPlaybackError, wake])
 
   /**
    * The player element is memoised on its real inputs only.
@@ -146,17 +202,19 @@ export function TVPlayerStage({
       autoPlay
       globalShortcuts={false}
       onTransportReady={setTransport}
-      // A failed stream is when a remote most needs the channel controls, so the row comes back the
-      // moment the player reports the error instead of staying idle-hidden.
-      onPlayerError={wake}
+      onPlayerError={handlePlayerError}
     />
-  ), [channel?.id, channel?.name, channel?.streamUrl, poster, wake])
+  ), [channel?.id, channel?.name, channel?.streamUrl, handlePlayerError, poster])
 
   // A tap anywhere on the player surface reveals the channel identity again, without touching any player
-  // control: this handler never prevents the default or stops propagation.
-  const handleStagePointerDown = useCallback(() => {
+  // control: this handler never prevents the default or stops propagation. Taps on TV Mode's own buttons
+  // are excluded — the keypad is the viewer answering that popup, and the control rows are not the video.
+  const handleStagePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     wake()
-    if (canPlay) revealChannelInfo()
+    const target = event.target
+    const onTvControl = target instanceof HTMLElement
+      && Boolean(target.closest('.tv-keypad, .tv-stage-controls, .tv-player-controls'))
+    if (canPlay && !onTvControl) revealChannelInfo()
   }, [canPlay, revealChannelInfo, wake])
 
   return (
@@ -175,49 +233,105 @@ export function TVPlayerStage({
       {canPlay && channel ? (
         <div className="tv-video">{playerElement}</div>
       ) : (
-        <div className="tv-stage-message">
-          {isPremiumLocked ? (
-            <>
-              <Lock aria-hidden="true" className="tv-stage-message-icon" />
-              <h2 className="tv-stage-message-title">Premium channel</h2>
-              <p className="tv-stage-message-text">
-                {channel ? `${formatChannelNumber(channel.number)} ${channel.name}` : 'This channel'} is part of the premium
-                line-up. Access is checked by the existing subscription rules.
-              </p>
-              <div className="tv-stage-message-actions">
-                <button type="button" data-tv-item data-tv-key="upgrade" className="tv-primary-button" onClick={onUpgrade}>
-                  View plans
-                </button>
-                <button type="button" data-tv-item data-tv-key="next-live" className="tv-secondary-button" onClick={() => onStepChannel(1)}>
-                  Next channel
-                </button>
-              </div>
-            </>
-          ) : channel ? (
-            <>
-              <Loader2 aria-hidden="true" className="tv-stage-message-icon" />
-              <h2 className="tv-stage-message-title">Channel unavailable</h2>
-              <p className="tv-stage-message-text">
-                {formatChannelNumber(channel.number)} {channel.name} has no working stream right now.
-              </p>
-              <div className="tv-stage-message-actions">
-                <button type="button" data-tv-item data-tv-key="next-live" className="tv-primary-button" onClick={() => onStepChannel(1)}>
-                  Next channel
-                </button>
-                <button type="button" data-tv-item data-tv-key="back-to-channels" className="tv-secondary-button" onClick={onBackToChannels}>
-                  Back to channels
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <Loader2 aria-hidden="true" className="tv-stage-message-icon tv-spin" />
-              <h2 className="tv-stage-message-title">Tuning in</h2>
-              <p className="tv-stage-message-text">Looking for the first live channel.</p>
-            </>
+        <>
+          {/* A confirmed no-signal channel gets the restrained static treatment behind its message. It
+              never appears while the player is loading or buffering, and it never covers the message or
+              the recovery buttons, which stay the actionable layer. */}
+          {isNoSignal && (
+            <div className="tv-no-signal" aria-hidden="true">
+              <span className="tv-no-signal__effect" />
+              <span className="tv-no-signal__scanlines" />
+            </div>
           )}
-        </div>
+          <div className="tv-stage-message">
+            {isPremiumLocked ? (
+              <>
+                <Lock aria-hidden="true" className="tv-stage-message-icon" />
+                <h2 className="tv-stage-message-title">Premium channel</h2>
+                <p className="tv-stage-message-text">
+                  {channel ? `${formatChannelNumber(channel.number)} ${channel.name}` : 'This channel'} is part of the premium
+                  line-up. Access is checked by the existing subscription rules.
+                </p>
+                <div className="tv-stage-message-actions">
+                  <button type="button" data-tv-item data-tv-key="upgrade" className="tv-primary-button" onClick={onUpgrade}>
+                    View plans
+                  </button>
+                  <button type="button" data-tv-item data-tv-key="next-live" className="tv-secondary-button" onClick={() => onStepChannel(1)}>
+                    Next channel
+                  </button>
+                </div>
+              </>
+            ) : channel ? (
+              <>
+                <Loader2 aria-hidden="true" className="tv-stage-message-icon" />
+                <h2 className="tv-stage-message-title">Channel unavailable</h2>
+                <p className="tv-stage-message-text">
+                  {formatChannelNumber(channel.number)} {channel.name} has no working stream right now.
+                </p>
+                <div className="tv-stage-message-actions">
+                  <button type="button" data-tv-item data-tv-key="next-live" className="tv-primary-button" onClick={() => onStepChannel(1)}>
+                    Next channel
+                  </button>
+                  <button type="button" data-tv-item data-tv-key="back-to-channels" className="tv-secondary-button" onClick={onBackToChannels}>
+                    Back to channels
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Loader2 aria-hidden="true" className="tv-stage-message-icon tv-spin" />
+                <h2 className="tv-stage-message-title">Tuning in</h2>
+                <p className="tv-stage-message-text">Looking for the first live channel.</p>
+              </>
+            )}
+          </div>
+        </>
       )}
+
+      {/* Always reachable, whatever the stage is showing: tuning by number, scanning the catalogue and
+          hiding the panel are not playback actions, and a channel that will not play is exactly when a
+          viewer needs them. It sits before the transport row in the document so one arrow press from the
+          player surface reaches it. */}
+      <div className={cn('tv-stage-controls', isIdle && 'tv-hidden')}>
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="auto-tune"
+          data-state={autoTuneStatus === 'scanning' ? 'scanning' : 'idle'}
+          className={cn('tv-control tv-control-labelled', autoTuneStatus === 'scanning' && 'tv-control-active')}
+          onClick={onToggleAutoTune}
+          aria-label={autoTuneStatus === 'scanning' ? 'Auto Tune is scanning' : 'Start Auto Tune'}
+          title="Scan the catalogue for channels you can watch"
+        >
+          <Radar aria-hidden="true" />
+          <span className="tv-control-label">
+            {autoTuneStatus === 'scanning' ? 'Scanning…' : 'Auto Tune'}
+          </span>
+        </button>
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="keypad"
+          className={cn('tv-control', isKeypadOpen && 'tv-control-active')}
+          onClick={onToggleKeypad}
+          aria-label={isKeypadOpen ? 'Close the channel number keypad' : 'Open the channel number keypad'}
+          aria-expanded={isKeypadOpen}
+          title="Channel number keypad"
+        >
+          <Hash aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="panel-visibility"
+          className="tv-control"
+          onClick={onToggleImmersive}
+          aria-label={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
+          title={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
+        >
+          {isImmersive ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+        </button>
+      </div>
 
       {channel && canPlay && (
         <>
@@ -258,19 +372,17 @@ export function TVPlayerStage({
             <button type="button" data-tv-item data-tv-key="next-channel" className="tv-control" onClick={() => onStepChannel(1)} aria-label="Next channel" title="Next channel">
               <ChevronRight aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              data-tv-item
-              data-tv-key="immersive"
-              className="tv-control"
-              onClick={onToggleImmersive}
-              aria-label={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
-              title={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
-            >
-              {isImmersive ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-            </button>
           </div>
         </>
+      )}
+
+      {/* The keypad is an overlay of the same stage, so opening it never touches the player. */}
+      {isKeypadOpen && (
+        <TVChannelKeypad
+          resolveChannelNumber={resolveChannelNumber}
+          onTune={onTuneChannel}
+          onClose={onCloseKeypad}
+        />
       )}
     </section>
   )

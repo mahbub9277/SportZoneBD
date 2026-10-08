@@ -9,6 +9,7 @@ let getCompetitionCodesForCycle: MatchesService['getCompetitionCodesForCycle']
 let getConfiguredCompetitionCodes: MatchesService['getConfiguredCompetitionCodes']
 let getConfiguredCompetitionFixtures: MatchesService['getConfiguredCompetitionFixtures']
 let defaultCompetitionCodes: MatchesService['DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS']
+let formatProviderSeason: MatchesService['formatProviderSeason']
 let acquireFootballDataRequestSlot: typeof import('./footballDataRequestLimiter.js')['acquireFootballDataRequestSlot']
 
 before(async () => {
@@ -25,6 +26,7 @@ before(async () => {
   getConfiguredCompetitionCodes = matchesModule.getConfiguredCompetitionCodes
   getConfiguredCompetitionFixtures = matchesModule.getConfiguredCompetitionFixtures
   defaultCompetitionCodes = matchesModule.DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS
+  formatProviderSeason = matchesModule.formatProviderSeason
   acquireFootballDataRequestSlot = limiterModule.acquireFootballDataRequestSlot
 })
 
@@ -69,6 +71,7 @@ test('isolates one competition fixture failure from the other configured competi
     status: 'TIMED',
     competitionCode,
     competitionName: competitionCode,
+    season: null,
     homeTeamName: 'Home Team',
     awayTeamName: 'Away Team',
   })
@@ -222,6 +225,64 @@ test('keeps the provider name for a competition the application does not define'
     if (previousApiKey === undefined) delete process.env.FOOTBALL_API_KEY
     else process.env.FOOTBALL_API_KEY = previousApiKey
   }
+})
+
+test('reads the real season label from the provider season object', async (context) => {
+  const previousApiKey = process.env.FOOTBALL_API_KEY
+  process.env.FOOTBALL_API_KEY = 'test-api-key'
+  const providerResponse = {
+    matches: [
+      {
+        id: 2001,
+        utcDate: '2026-10-04T18:00:00Z',
+        status: 'TIMED',
+        competition: { name: 'Premier League' },
+        season: { id: 2026, startDate: '2026-08-14', endDate: '2027-05-23', currentMatchday: 7 },
+        homeTeam: { name: 'Liverpool FC', crest: null },
+        awayTeam: { name: 'Manchester City FC', crest: null },
+      },
+      {
+        id: 2002,
+        utcDate: '2026-10-05T18:00:00Z',
+        status: 'TIMED',
+        competition: { name: 'Premier League' },
+        season: { id: 2026, startDate: '2026-03-01', endDate: '2026-11-30', currentMatchday: 3 },
+        homeTeam: { name: 'Boca Juniors', crest: null },
+        awayTeam: { name: 'River Plate', crest: null },
+      },
+      {
+        id: 2003,
+        utcDate: '2026-10-06T18:00:00Z',
+        status: 'TIMED',
+        competition: { name: 'Premier League' },
+        homeTeam: { name: 'No Season FC', crest: null },
+        awayTeam: { name: 'Absent United', crest: null },
+      },
+    ],
+  }
+
+  context.mock.method(axios, 'get', (async () => ({ data: providerResponse }) as AxiosResponse<unknown>) as typeof axios.get)
+
+  try {
+    const fixtures = await getCompetitionFixtures('PL', '2026-10-03', '2026-10-07')
+    assert.equal(fixtures[0].season, '2026/2027')
+    assert.equal(fixtures[1].season, '2026')
+    assert.equal(fixtures[2].season, null)
+  } finally {
+    if (previousApiKey === undefined) delete process.env.FOOTBALL_API_KEY
+    else process.env.FOOTBALL_API_KEY = previousApiKey
+  }
+})
+
+test('season formatting uses the provider span or its season id and never invents one', () => {
+  assert.equal(formatProviderSeason({ startDate: '2026-08-14', endDate: '2027-05-23' }), '2026/2027')
+  assert.equal(formatProviderSeason({ startDate: '2026-03-01', endDate: '2026-11-30' }), '2026')
+  assert.equal(formatProviderSeason({ id: 2026 }), '2026')
+  assert.equal(formatProviderSeason({ id: '2025' }), '2025')
+  assert.equal(formatProviderSeason({ startDate: '2026-08-14' }), '2026')
+  assert.equal(formatProviderSeason({}), null)
+  assert.equal(formatProviderSeason(null), null)
+  assert.equal(formatProviderSeason('2026'), null)
 })
 
 test('reserves no more than six fixture and nine total provider requests per minute', async () => {

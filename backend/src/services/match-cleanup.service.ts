@@ -25,6 +25,7 @@ export async function cleanupMatch(id: string, reason: MatchCleanupReason): Prom
     where: { id },
     select: {
       id: true,
+      status: true,
       homeTeamLogo: true,
       awayTeamLogo: true,
       streams: { select: { id: true, logo: true } },
@@ -33,6 +34,13 @@ export async function cleanupMatch(id: string, reason: MatchCleanupReason): Prom
 
   if (!match) {
     logger.info({ matchId: id, reason }, 'Match cleanup skipped because it was already deleted')
+    return { deleted: false, streamCount: 0, assetCount: 0 }
+  }
+
+  // A rejection is a durable review decision, not a public record: purging the row would drop its
+  // unique provider key and let automatic discovery publish the fixture again as a new pending match.
+  if (match.status === 'REJECTED') {
+    logger.warn({ matchId: id, reason }, 'Match cleanup skipped because an admin rejection must survive')
     return { deleted: false, streamCount: 0, assetCount: 0 }
   }
 

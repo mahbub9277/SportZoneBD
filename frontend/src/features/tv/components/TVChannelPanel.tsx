@@ -145,25 +145,28 @@ export const TVChannelPanel = memo(function TVChannelPanel({
         </div>
       )}
 
-      <div data-tv-zone="categories" className="tv-categories" aria-label="Channel categories">
-        {categories.map((category) => {
-          const isActive = category.id === activeCategoryId
-          return (
-            <button
-              key={category.id}
-              type="button"
-              data-tv-item
-              data-tv-key={`category:${category.id}`}
-              data-tv-selected={isActive}
-              aria-pressed={isActive}
-              onClick={() => onSelectCategory(category.id)}
-              className={cn('tv-category', isActive && 'tv-category-active')}
-            >
-              {category.name}
-              <span className="tv-category-count">{category.count}</span>
-            </button>
-          )
-        })}
+      <div data-tv-zone="categories" className="tv-categories-zone" role="group" aria-label="Channel categories">
+        <span className="tv-categories-label">Categories</span>
+        <div className="tv-categories">
+          {categories.map((category) => {
+            const isActive = category.id === activeCategoryId
+            return (
+              <button
+                key={category.id}
+                type="button"
+                data-tv-item
+                data-tv-key={`category:${category.id}`}
+                data-tv-selected={isActive}
+                aria-pressed={isActive}
+                onClick={() => onSelectCategory(category.id)}
+                className={cn('tv-category', isActive && 'tv-category-active')}
+              >
+                {category.name}
+                <span className="tv-category-count">{category.count}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div ref={listRef} data-tv-zone="channels" className="tv-channel-list" aria-label="Channels" role="list">

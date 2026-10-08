@@ -9,6 +9,8 @@ import {
   buildTVCategories,
   buildTVChannels,
   filterTVChannels,
+  findChannelByNumber,
+  nextPlayableChannelId,
   pickInitialChannelId,
   stepChannelId,
   TV_ALL_CATEGORY_ID,
@@ -16,10 +18,28 @@ import {
 } from './tvChannels'
 import { readLastTVChannelId, writeLastTVChannelId } from './tvStorage'
 import { useTVFocus } from './useTVFocus'
+import { useAutoTune } from './useAutoTune'
 import { TVChannelPanel } from './components/TVChannelPanel'
+import { TVAutoTuneOverlay } from './components/TVAutoTuneOverlay'
 import { TVPlayerStage, type TVTransport } from './components/TVPlayerStage'
 
 const PREVIOUS_ROUTE_KEY = 'sportzone:user-previous-route'
+
+/**
+ * How long the viewer waits before TV Mode takes over a channel that reported a confirmed terminal
+ * playback failure. It sits in the 3–5 second band, long enough for the player's own retry to be seen
+ * and for the viewer to start reacting.
+ */
+const PLAYBACK_FAILURE_RECOVERY_MS = 4000
+
+/** A channel the catalogue itself says cannot play gets the longer no-signal budget. */
+const NO_SIGNAL_RECOVERY_MS = 5000
+
+/**
+ * Automatic switches allowed per failure burst. Repeated failures have to stop somewhere, and leaving the
+ * viewer with the error UI and the channel list beats hopping through a provider outage forever.
+ */
+const MAX_AUTO_SWITCHES = 3
 
 /**
  * The Screen Orientation API's lock/unlock are not in the DOM typings, and they are unsupported or
@@ -56,11 +76,40 @@ function TVModeExperience() {
   const [activeCategoryId, setActiveCategoryId] = useState<string>(TV_ALL_CATEGORY_ID)
   const [query, setQuery] = useState('')
   const [isImmersive, setImmersive] = useState(false)
+  const [isKeypadOpen, setKeypadOpen] = useState(false)
+  const [isAutoTuneOpen, setAutoTuneOpen] = useState(false)
+  /** Bumped to ask the player stage to show the channel popup again, including for the same channel. */
+  const [infoRequest, setInfoRequest] = useState(0)
+
+  /** Either overlay takes focus for as long as it is open; the shell stops managing it until it closes. */
+  const isOverlayOpen = isKeypadOpen || isAutoTuneOpen
 
   const shellRef = useRef<HTMLDivElement | null>(null)
   const transportRef = useRef<TVTransport | null>(null)
   const initialisedRef = useRef(false)
   const orientationRequestedRef = useRef(false)
+
+  // The automatic-recovery scheduling is deliberately ref-based: it must read the selection, the
+  // catalogue and the subscription state as they are when its timeout fires, never as they were when it
+  // was scheduled, so a stale callback can never switch a channel the viewer has already left.
+  const selectedChannelIdRef = useRef<string | null>(null)
+  const channelsRef = useRef<TVChannel[]>([])
+  const premiumSubscriberRef = useRef(isPremiumSubscriber)
+  const recoveryTimerRef = useRef<number | null>(null)
+  /** Channels that already failed in this session, and the automatic switches spent on them. */
+  const recoveryRef = useRef<{ failedIds: Set<string>; switches: number } | null>(null)
+
+  useEffect(() => {
+    selectedChannelIdRef.current = selectedChannelId
+  }, [selectedChannelId])
+
+  useEffect(() => {
+    channelsRef.current = channels
+  }, [channels])
+
+  useEffect(() => {
+    premiumSubscriberRef.current = isPremiumSubscriber
+  }, [isPremiumSubscriber])
 
   const channelsInCategory = useMemo(
     () => filterTVChannels(channels, { categoryId: activeCategoryId }),
@@ -105,15 +154,111 @@ function TVModeExperience() {
     }
   }, [channels, isLoading, selectedChannelId])
 
-  const selectChannel = useCallback((channel: TVChannel) => {
-    // Selecting the channel that is already playing is a no-op, so pressing OK on it never interrupts
-    // playback.
-    setSelectedChannelId((current) => (current === channel.id ? current : channel.id))
+  /**
+   * Automatic recovery.
+   *
+   * The player already owns retrying a source: it re-tries the same transport, then the alternate ones,
+   * and only calls back when it is genuinely out of options. So a callback here is a *confirmed terminal*
+   * failure, never a stall or a buffering hiccup, and the only decision left is which channel to try next.
+   *
+   * It is bounded three ways, so a provider outage cannot turn into a channel-hopping loop: the timer is
+   * single and cleared before replacement, channels that already failed are remembered and never
+   * revisited, and the number of automatic switches per burst is capped.
+   */
+  const clearRecoveryTimer = useCallback(() => {
+    if (recoveryTimerRef.current !== null) {
+      window.clearTimeout(recoveryTimerRef.current)
+      recoveryTimerRef.current = null
+    }
   }, [])
 
+  /** Ends the cycle: for a manual selection, recovered playback, or leaving TV Mode. */
+  const cancelRecovery = useCallback(() => {
+    clearRecoveryTimer()
+    recoveryRef.current = null
+  }, [clearRecoveryTimer])
+
+  const scheduleRecovery = useCallback((failedChannelId: string, delayMs: number) => {
+    const cycle = recoveryRef.current ?? { failedIds: new Set<string>(), switches: 0 }
+    cycle.failedIds.add(failedChannelId)
+    recoveryRef.current = cycle
+
+    clearRecoveryTimer()
+    if (cycle.switches >= MAX_AUTO_SWITCHES) return
+
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null
+      // Re-checked when it fires: the viewer may have moved on, or playback may have come back.
+      if (selectedChannelIdRef.current !== failedChannelId) return
+
+      const attempted = recoveryRef.current
+      const nextId = nextPlayableChannelId(
+        channelsRef.current,
+        failedChannelId,
+        (channel) =>
+          (!channel.isPremium || premiumSubscriberRef.current)
+          && !(attempted?.failedIds.has(channel.id) ?? false),
+      )
+      // No eligible alternative leaves the error UI and the channel list in charge.
+      if (!nextId) return
+
+      if (attempted) attempted.switches += 1
+      setSelectedChannelId(nextId)
+    }, delayMs)
+  }, [clearRecoveryTimer])
+
+  /** The player reports a confirmed terminal failure, named with the channel that produced it. */
+  const handleChannelPlaybackError = useCallback((channelId: string) => {
+    if (channelId !== selectedChannelIdRef.current) return
+    scheduleRecovery(channelId, PLAYBACK_FAILURE_RECOVERY_MS)
+  }, [scheduleRecovery])
+
+  /**
+   * A channel the catalogue itself says cannot play is the other confirmed no-signal case, and it runs on
+   * the longer budget. A locked premium channel is restricted rather than broken, so it is left alone —
+   * that decision belongs to the existing subscription gate, not to a recovery timer.
+   */
+  useEffect(() => {
+    const channel = channels.find((candidate) => candidate.id === selectedChannelId)
+    if (!channel) return
+    if (channel.isPremium && !isPremiumSubscriber) return
+    if (channel.isLive && channel.streamUrl) return
+    scheduleRecovery(channel.id, NO_SIGNAL_RECOVERY_MS)
+  }, [channels, isPremiumSubscriber, scheduleRecovery, selectedChannelId])
+
+  // Nothing may keep running after TV Mode is left.
+  useEffect(() => () => clearRecoveryTimer(), [clearRecoveryTimer])
+
+  const selectChannel = useCallback((channel: TVChannel) => {
+    // A deliberate selection ends whatever recovery was pending: the viewer's choice always wins over a
+    // scheduled switch, and the failure cycle starts again from here.
+    cancelRecovery()
+    // Selecting the channel that is already playing is a no-op, so pressing OK on it never interrupts
+    // playback — the popup is simply asked for again.
+    setInfoRequest((request) => request + 1)
+    setSelectedChannelId((current) => (current === channel.id ? current : channel.id))
+  }, [cancelRecovery])
+
   const stepChannel = useCallback((direction: 1 | -1) => {
-    setSelectedChannelId((current) => stepChannelId(channels, current, direction) ?? current)
-  }, [channels])
+    cancelRecovery()
+    setInfoRequest((request) => request + 1)
+    setSelectedChannelId((current) => stepChannelId(channelsRef.current, current, direction) ?? current)
+  }, [cancelRecovery])
+
+  /**
+   * Auto Tune.
+   *
+   * Accepting a scan tunes through the same selection function every other path uses, so access rules
+   * are identical, and starting one stops any automatic recovery that was pending: while the viewer is
+   * scanning, TV Mode must not switch channels behind them.
+   */
+  const autoTune = useAutoTune({
+    channels,
+    isPremiumSubscriber,
+    selectedChannelId,
+    onAccept: selectChannel,
+    onScanStart: cancelRecovery,
+  })
 
   /** Exit leaves TV Mode: it releases any native fullscreen first, then navigates away. */
   const handleExit = useCallback(() => {
@@ -150,7 +295,14 @@ function TVModeExperience() {
 
   const handleTransportReady = useCallback((transport: TVTransport | null) => {
     transportRef.current = transport
-  }, [])
+    // Real playback again means the failure is over: nothing pending is still worth doing, and the
+    // automatic-switch budget is renewed for whatever fails next. The failed channels stay remembered,
+    // which is what makes re-trying one impossible for the rest of the session.
+    if (transport?.isPlaying) {
+      clearRecoveryTimer()
+      if (recoveryRef.current) recoveryRef.current.switches = 0
+    }
+  }, [clearRecoveryTimer])
 
   const { handleKeyDown, focusZone } = useTVFocus(shellRef, {
     onBack: handleBack,
@@ -158,6 +310,8 @@ function TVModeExperience() {
     onTogglePlayback: togglePlayback,
     preferredKey: selectedChannelId ? `channel:${selectedChannelId}` : null,
     listVersion: `${activeCategoryId}|${query}|${visibleChannels.length}`,
+    // An open overlay owns focus; the shell must not pull it back on a channel change underneath.
+    suspendAutoFocus: isOverlayOpen,
   })
 
   // Hardware Back leaves the focused player first, exactly like the in-app Back button: the immersive
@@ -186,6 +340,71 @@ function TVModeExperience() {
   useEffect(() => {
     focusZone(isImmersive ? 'player' : 'channels', isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null)
   }, [focusZone, isImmersive, selectedChannelId])
+
+  /**
+   * Focus follows the layout.
+   *
+   * Immersive mode hides the panel, which would otherwise blur whatever was focused and leave focus
+   * nowhere at all, so focus moves to the player's controls; leaving immersive hands it back to the
+   * channel that is playing. Both directions are plain DOM focus, not state.
+   *
+   * While an overlay is open it owns focus, so nothing behind it — a channel change, a scheduled
+   * recovery, a filtered list — can pull the viewer out of what they are doing; closing the overlay
+   * hands focus back through this same effect.
+   */
+  useEffect(() => {
+    if (isOverlayOpen) return
+    focusZone(isImmersive ? 'player' : 'channels', isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null)
+  }, [focusZone, isImmersive, isOverlayOpen, selectedChannelId])
+
+  /**
+   * The keypad is an overlay of the stage.
+   *
+   * Opening it only suspends the shell's own focus restore — the player, the stream and the layout are
+   * untouched — and every key it handles stops travelling to the shell, so typing a number can never
+   * also zap a channel behind it.
+   */
+  const toggleKeypad = useCallback(() => {
+    // The two overlays are mutually exclusive: whichever the viewer opens takes the stage, so neither
+    // can end up typing into the other.
+    setAutoTuneOpen(false)
+    setKeypadOpen((open) => !open)
+  }, [])
+
+  const closeKeypad = useCallback(() => setKeypadOpen(false), [])
+
+  /** A tuned number goes through the same selection path as a channel card, so access rules are unchanged. */
+  const tuneFromKeypad = useCallback((channel: TVChannel) => {
+    setKeypadOpen(false)
+    selectChannel(channel)
+  }, [selectChannel])
+
+  /** Auto Tune is the same deal in the other direction: it takes focus, and the keypad steps aside. */
+  const openAutoTune = useCallback(() => {
+    setKeypadOpen(false)
+    setAutoTuneOpen(true)
+    autoTune.start()
+  }, [autoTune])
+
+  const closeAutoTune = useCallback(() => {
+    autoTune.cancel()
+    setAutoTuneOpen(false)
+  }, [autoTune])
+
+  /** Retry from the empty and failed states without leaving the overlay. */
+  const retryAutoTune = useCallback(() => autoTune.start(), [autoTune])
+
+  /** The viewer accepts the result: tune, close, and let the existing channel popup confirm it. */
+  const acceptAutoTune = useCallback(() => {
+    setAutoTuneOpen(false)
+    autoTune.accept()
+  }, [autoTune])
+
+  /** Resolution reads the catalogue as it is now, so a refresh is reflected without re-creating the keypad. */
+  const resolveChannelNumber = useCallback(
+    (digits: string) => findChannelByNumber(channelsRef.current, digits),
+    [],
+  )
 
   // Landscape is requested once, and only for the case the API exists for: a touch device that is
   // actually in portrait. A rejected or missing Screen Orientation API (Chrome requires fullscreen for
@@ -251,12 +470,38 @@ function TVModeExperience() {
         channel={selectedChannel}
         isPremiumLocked={Boolean(selectedChannel?.isPremium) && !isPremiumSubscriber}
         isImmersive={isImmersive}
+        isKeypadOpen={isKeypadOpen}
+        autoTuneStatus={autoTune.status}
+        infoRequest={infoRequest}
         onToggleImmersive={() => setImmersive((immersive) => !immersive)}
+        onToggleKeypad={toggleKeypad}
+        onToggleAutoTune={openAutoTune}
+        onCloseKeypad={closeKeypad}
+        onTuneChannel={tuneFromKeypad}
+        resolveChannelNumber={resolveChannelNumber}
+        onChannelPlaybackError={handleChannelPlaybackError}
         onStepChannel={stepChannel}
         onTransportReady={handleTransportReady}
         onUpgrade={handleUpgrade}
         onBackToChannels={focusChannels}
       />
+
+      {/* Auto Tune sits above the whole shell: it is a modal scan, so nothing behind it takes focus or a
+          click while it runs. Closing it — by finishing, cancelling or Escape — returns the viewer to
+          exactly the layout and channel they left. */}
+      {isAutoTuneOpen && autoTune.status !== 'idle' && (
+        <TVAutoTuneOverlay
+          status={autoTune.status}
+          scanned={autoTune.scanned}
+          total={autoTune.total}
+          currentChannel={autoTune.currentChannel}
+          found={autoTune.found}
+          onCancel={closeAutoTune}
+          onRetry={retryAutoTune}
+          onStartWatching={acceptAutoTune}
+          onClose={closeAutoTune}
+        />
+      )}
     </div>
   )
 }

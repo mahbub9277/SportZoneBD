@@ -117,9 +117,40 @@ export function filterTVChannels(channels: TVChannel[], { categoryId = TV_ALL_CA
     return false
   })
 }
+/** A channel the backend reports as live and that carries a stream to play. */
+export function isChannelPlayable(channel: TVChannel): boolean {
+  return channel.isLive && Boolean(channel.streamUrl)
+}
+
 /** The channels a viewer can actually start watching right now. */
 export function playableChannels(channels: TVChannel[]): TVChannel[] {
-  return channels.filter((channel) => channel.isLive && Boolean(channel.streamUrl))
+  return channels.filter(isChannelPlayable)
+}
+
+/**
+ * The single rule for "this viewer may watch this channel": it has to be playable and, when it is a
+ * premium channel, the viewer has to be entitled to it. Channel zapping, the failure recovery and
+ * Auto Tune all ask this one question, so none of them can drift into a different answer.
+ */
+export function isChannelWatchable(channel: TVChannel, isPremiumSubscriber: boolean): boolean {
+  return isChannelPlayable(channel) && (!channel.isPremium || isPremiumSubscriber)
+}
+
+/**
+ * Resolves a typed channel number against the real catalogue numbering.
+ *
+ * Only digits address a channel — the number a viewer types is the same number the list shows, not an
+ * array index and not a database id — and leading zeros are not significant (`03` and `3` are channel
+ * three). A number that no channel holds returns null, so the caller can report it instead of tuning.
+ */
+export function findChannelByNumber(channels: TVChannel[], digits: string): TVChannel | null {
+  const trimmed = digits.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+
+  const number = Number(trimmed)
+  if (!Number.isSafeInteger(number) || number < 1) return null
+
+  return channels.find((channel) => channel.number === number) ?? null
 }
 
 /**
@@ -145,4 +176,24 @@ export function stepChannelId(channels: TVChannel[], currentId: string | null, d
   if (index === -1) return playable[0].id
 
   return playable[(index + direction + playable.length) % playable.length].id
+}
+
+/**
+ * The channel an automatic recovery should move to after `failedId` would not play.
+ *
+ * It walks the same playable catalogue as zapping, wrapping at the end, but it only ever returns a
+ * channel the caller still considers eligible, and it returns null rather than the failed channel:
+ * a recovery that re-tunes the source that just failed is worse than leaving the error UI in place.
+ */
+export function nextPlayableChannelId(
+  channels: TVChannel[],
+  failedId: string | null,
+  isEligible: (channel: TVChannel) => boolean = () => true,
+): string | null {
+  const candidates = playableChannels(channels).filter(isEligible)
+  if (candidates.length === 0) return null
+
+  const index = candidates.findIndex((channel) => channel.id === failedId)
+  const next = candidates[index === -1 ? 0 : (index + 1) % candidates.length]
+  return next.id === failedId ? null : next.id
 }

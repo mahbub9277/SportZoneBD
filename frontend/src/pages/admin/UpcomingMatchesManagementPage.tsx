@@ -29,6 +29,7 @@ export function UpcomingMatchesManagementPage() {
   const form = useForm<CreateMatchFormValues>({
     defaultValues: {
       title: '',
+      season: '',
       kickoffDate: '', // New field
       kickoffTime: '', // New field
       sport: 'CRICKET',

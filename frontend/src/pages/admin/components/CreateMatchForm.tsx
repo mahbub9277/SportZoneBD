@@ -20,6 +20,8 @@ import { useDebounce } from '../../../hooks/useDebounce'
 // This type is now comprehensive, matching MatchManagementPage.tsx's schema
 export type CreateMatchFormValues = {
   title: string
+  /** Optional season label as the competition states it, for example "2026/2027". */
+  season?: string | null
   homeTeamName?: string | null
   awayTeamName?: string | null
   homeTeamId?: string | null
@@ -573,6 +575,10 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
         {showAiAutofill && <MatchAutofill form={form} append={append} disabled={isLoading} />}
         <FormField control={form.control} name="title" render={({ field }) => (
           <FormItem className={flatFormItemClass}><FormLabel className="text-base font-semibold">Match title / competition</FormLabel><FormControl><Input placeholder="e.g., La Liga or UEFA Champions League" className={inputClass} {...field} /></FormControl><p className="text-xs text-text-muted">Use the competition name when known; otherwise enter a clear match title.</p><FormMessage /></FormItem>
+        )} />
+
+        <FormField control={form.control} name="season" render={({ field }) => (
+          <FormItem className={flatFormItemClass}><FormLabel className="text-base font-semibold">Season (optional)</FormLabel><FormControl><Input placeholder="e.g., 2026/2027" className={inputClass} {...field} value={field.value ?? ''} /></FormControl><p className="text-xs text-text-muted">Shown next to the competition on the match card. Leave empty when the provider or the competition does not publish a season.</p><FormMessage /></FormItem>
         )} />
 
         <section className={sectionClass}>

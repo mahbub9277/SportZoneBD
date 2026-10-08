@@ -41,15 +41,13 @@ export function buildMatchListWhere(filters: MatchListFilters, now: Date = new D
 
   return {
     deletedAt: null,
-    // Automatic discovery stores matches as PENDING; they stay invisible to public callers until an
-    // admin accepts them. Expressing it as AND makes the exclusion impossible to override by the
-    // status/recent/active branches below, so ?status=PENDING cannot leak them either.
-    //
-    // The recent branch is nested inside the same AND for the same reason: the pagination service
-    // replaces a top-level OR with its search clause, so a top-level recent OR would quietly stop
-    // filtering as soon as somebody typed in the search box.
+    // Two exclusions belong in the AND group so no later branch can weaken them:
+    //  * PENDING matches await review and REJECTED matches were declined by an admin — neither is public,
+    //    and expressing it as AND means ?status=PENDING cannot leak them either;
+    //  * the recent candidate OR, because the pagination service replaces a top-level OR with its search
+    //    clause, so a top-level recent OR would quietly stop filtering as soon as somebody searched.
     AND: [
-      { status: { not: 'PENDING' } },
+      { status: { notIn: ['PENDING', 'REJECTED'] } },
       ...(recentCandidates ? [{ OR: recentCandidates }] : []),
     ],
     ...(recentOnly

@@ -50,10 +50,11 @@ test('the recent feed is not restricted to one sport or to finished matches', ()
   assert.equal(where.OR, undefined)
 })
 
-test('pending matches can never become recent', () => {
+test('pending and rejected matches can never become public', () => {
   const where = buildMatchListWhere({ recentOnly: true }, NOW)
-  // The PENDING exclusion is ANDed in, so no OR branch can re-admit a pending match.
-  assert.deepEqual((where.AND as unknown[])[0], { status: { not: 'PENDING' } })
+  // The exclusion is ANDed in, so no OR branch can re-admit a pending or rejected match.
+  assert.deepEqual((where.AND as unknown[])[0], { status: { notIn: ['PENDING', 'REJECTED'] } })
+  assert.deepEqual((normalizedWhere({}) as { AND: unknown[] }).AND, [{ status: { notIn: ['PENDING', 'REJECTED'] } }])
 })
 
 test('a newly added upcoming match stays recent even when its kickoff is far away', () => {
@@ -67,22 +68,22 @@ test('a newly added upcoming match stays recent even when its kickoff is far awa
 test('live and upcoming tabs keep their own unchanged filters', () => {
   assert.deepEqual(normalizedWhere({ status: 'LIVE' }), {
     deletedAt: null,
-    AND: [{ status: { not: 'PENDING' } }],
+    AND: [{ status: { notIn: ['PENDING', 'REJECTED'] } }],
     status: 'LIVE',
   })
   assert.deepEqual(normalizedWhere({ status: 'UPCOMING' }), {
     deletedAt: null,
-    AND: [{ status: { not: 'PENDING' } }],
+    AND: [{ status: { notIn: ['PENDING', 'REJECTED'] } }],
     status: 'UPCOMING',
     kickoffAt: { gte: iso(0), lte: iso(24 * HOUR) },
   })
 })
 
 test('the all tab and activeOnly keep their own unchanged filters', () => {
-  assert.deepEqual(normalizedWhere({}), { deletedAt: null, AND: [{ status: { not: 'PENDING' } }] })
+  assert.deepEqual(normalizedWhere({}), { deletedAt: null, AND: [{ status: { notIn: ['PENDING', 'REJECTED'] } }] })
   assert.deepEqual(normalizedWhere({ activeOnly: true }), {
     deletedAt: null,
-    AND: [{ status: { not: 'PENDING' } }],
+    AND: [{ status: { notIn: ['PENDING', 'REJECTED'] } }],
     OR: [{ status: 'LIVE' }, { status: 'UPCOMING', kickoffAt: { gte: iso(0), lte: iso(24 * HOUR) } }],
   })
 })

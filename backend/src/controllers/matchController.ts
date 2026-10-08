@@ -111,7 +111,7 @@ export const getMatchById = asyncHandler(async (req, res) => {
     },
   });
 
-  if (!match || match.deletedAt || match.status === 'PENDING') {
+  if (!match || match.deletedAt || match.status === 'PENDING' || match.status === 'REJECTED') {
     // This error will be caught by your central errorHandler
     // Pending matches (awaiting admin review) and rejected/soft-deleted ones are never public.
     throw new NotFoundError(`Match not found with id of ${id}`);

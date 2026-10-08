@@ -40,6 +40,11 @@ export interface UseTVFocusOptions {
   preferredKey?: string | null
   /** Changes whenever the visible list changes (category, search, refresh), so focus can be restored. */
   listVersion?: string
+  /**
+   * True while an overlay (the channel keypad) owns focus. Automatic focus restoration is suspended so
+   * a channel change behind the overlay cannot pull focus out of what the viewer is typing into.
+   */
+  suspendAutoFocus?: boolean
 }
 
 export interface TVFocusApi {
@@ -74,7 +79,7 @@ function currentZoneItem(root: HTMLElement): { zone: TVZone | null; element: HTM
 }
 
 export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseTVFocusOptions): TVFocusApi {
-  const { onBack, onChannelStep, onTogglePlayback, preferredKey, listVersion = '' } = options
+  const { onBack, onChannelStep, onTogglePlayback, preferredKey, listVersion = '', suspendAutoFocus = false } = options
   const lastKeyRef = useRef<string | null>(null)
 
   const focusItem = useCallback((item: HTMLElement | null) => {
@@ -227,6 +232,7 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
   // removes the focused channel) the focused element is gone, so focus is restored to the remembered
   // key, then to the selected channel, then to the first stop of that zone.
   useEffect(() => {
+    if (suspendAutoFocus) return
     const root = rootRef.current
     if (!root) return
 
@@ -236,14 +242,15 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
 
     const { zone } = currentZoneItem(root)
     focusZoneRef.current(zone === 'player' ? 'player' : 'channels', preferredKey ?? lastKeyRef.current)
-  }, [listVersion, preferredKey, rootRef])
+  }, [listVersion, preferredKey, rootRef, suspendAutoFocus])
 
   // Entering TV Mode puts focus on the channel that is playing, so the first arrow key already works.
   useEffect(() => {
+    if (suspendAutoFocus) return
     const root = rootRef.current
     if (!root) return
     focusZoneRef.current('channels', preferredKey ?? null)
-  }, [preferredKey, rootRef])
+  }, [preferredKey, rootRef, suspendAutoFocus])
 
   return { handleKeyDown, focusZone }
 }

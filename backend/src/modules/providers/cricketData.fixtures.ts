@@ -75,6 +75,8 @@ export function normalizeCricketMatch(entry: Record<string, unknown>): Canonical
     kickoffAt: parseCricketUtc(entry.dateTimeGMT ?? entry.date, 'kickoff time'),
     competitionCode: providerIdentifier(entry.series_id) ?? series,
     competitionName: series,
+    // CricketData publishes the series, not a season, so no season label is invented here.
+    season: null,
     homeTeamName: homeName,
     awayTeamName: awayName,
     homeTeamCrest: teamInfo[0]?.crest ?? null,

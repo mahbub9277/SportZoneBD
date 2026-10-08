@@ -34,6 +34,7 @@ export function toCanonicalFootballFixtures(fixtures: FootballDataFixture[]): Ca
     kickoffAt: fixture.kickoffAt,
     competitionCode: fixture.competitionCode,
     competitionName: fixture.competitionName,
+    season: fixture.season ?? null,
     homeTeamName: fixture.homeTeamName,
     awayTeamName: fixture.awayTeamName,
     homeTeamCrest: fixture.homeTeamCrest ?? null,

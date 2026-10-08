@@ -5,6 +5,8 @@ const truthyStrings = ['true', '1', 'on', 'yes']
 export const matchSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters.'),
   tournamentName: z.string().trim().max(255).nullable().optional(),
+  /** Season label as the competition states it (for example "2026/2027"); optional and never invented. */
+  season: z.string().trim().max(32).nullable().optional(),
   homeTeamName: z.string().trim().max(255).nullable().optional(),
   awayTeamName: z.string().trim().max(255).nullable().optional(),
   homeTeamId: z.string().uuid().nullable().optional().or(z.literal('')),

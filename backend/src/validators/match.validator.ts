@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const createMatchSchema = z.object({
   body: z.object({
     title: z.string().trim().min(2, 'Match title must be at least 2 characters.'),
+    /** Optional season label supplied by an admin (for example "2026/2027"). */
+    season: z.string().trim().max(32).nullable().optional(),
     kickoffAt: z.coerce.date({ invalid_type_error: 'kickoffAt must be a valid date string' }),
     status: z.enum(['UPCOMING', 'LIVE', 'FINISHED']).optional(),
     premium: z.preprocess((val) => {

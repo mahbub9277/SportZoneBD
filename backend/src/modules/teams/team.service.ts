@@ -29,6 +29,8 @@ export async function searchTeams(query: string) {
   const legacyMatches = await prisma.match.findMany({
     where: {
       deletedAt: null,
+      // Team suggestions must not surface a fixture that is still awaiting review.
+      status: { notIn: ['PENDING', 'REJECTED'] },
       OR: [
         { homeTeamName: { contains: normalizedQuery, mode: 'insensitive' } },
         { awayTeamName: { contains: normalizedQuery, mode: 'insensitive' } },

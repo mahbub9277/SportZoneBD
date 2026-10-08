@@ -380,25 +380,27 @@ export const getPendingMatches = asyncHandler(async (req: Request, res: Response
 export const acceptPendingMatch = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
 
-  const pendingMatch = await prisma.match.findFirst({
+  // One conditional update decides the outcome, so a double click or an accept racing a reject can
+  // only ever be applied once: the row must still be PENDING and still not deleted.
+  const accepted = await prisma.match.updateMany({
     where: { id, status: 'PENDING', deletedAt: null },
-    select: { id: true, providerFixtureKey: true, kickoffAt: true },
+    data: { status: 'UPCOMING' },
   })
-  if (!pendingMatch) {
+  if (accepted.count === 0) {
     return res.status(404).json(errorResponse('Pending match not found.'))
   }
 
   // The same row is published: provider identity, teams and the scheduled kickoff are kept as
   // discovered, only the review state changes. Automatic LIVE/FINISHED transitions take it from here.
-  const acceptedMatch = await prisma.match.update({
-    where: { id },
-    data: { status: 'UPCOMING' },
-  })
+  const acceptedMatch = await prisma.match.findUnique({ where: { id } })
+  if (!acceptedMatch) {
+    return res.status(404).json(errorResponse('Pending match not found.'))
+  }
 
   await writeAuditLog('Pending match accepted', {
     matchId: id,
-    providerFixtureKey: pendingMatch.providerFixtureKey,
-    kickoffAt: pendingMatch.kickoffAt,
+    providerFixtureKey: acceptedMatch.providerFixtureKey,
+    kickoffAt: acceptedMatch.kickoffAt,
   })
   await invalidateTags(['matches', 'AdminStats'])
   emitAdminResourceUpdated('Match', id, { status: acceptedMatch.status })
@@ -409,26 +411,24 @@ export const acceptPendingMatch = asyncHandler(async (req: Request, res: Respons
 export const rejectPendingMatch = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
 
-  const pendingMatch = await prisma.match.findFirst({
+  // Rejecting records a durable review decision: the row keeps its unique providerFixtureKey and its
+  // REJECTED status, is soft-deleted so every existing public query keeps excluding it, and is skipped
+  // by automatic discovery for good (see the rejected-fixture lookup in the automation service).
+  // The conditional update makes a repeated click idempotent instead of re-deciding the fixture.
+  const rejected = await prisma.match.updateMany({
     where: { id, status: 'PENDING', deletedAt: null },
-    select: { id: true, providerFixtureKey: true, kickoffAt: true },
+    data: { status: 'REJECTED', deletedAt: new Date() },
   })
-  if (!pendingMatch) {
+  if (rejected.count === 0) {
     return res.status(404).json(errorResponse('Pending match not found.'))
   }
 
-  // Rejecting is a soft delete: the row keeps its unique providerFixtureKey, so automatic discovery
-  // recognises this fixture as already reviewed and can never recreate it, while every public query
-  // keeps excluding deletedAt rows. status stays PENDING so it also never enters a public list branch.
-  await prisma.match.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  })
+  const rejectedMatch = await prisma.match.findUnique({ where: { id }, select: { providerFixtureKey: true, kickoffAt: true } })
 
   await writeAuditLog('Pending match rejected', {
     matchId: id,
-    providerFixtureKey: pendingMatch.providerFixtureKey,
-    kickoffAt: pendingMatch.kickoffAt,
+    providerFixtureKey: rejectedMatch?.providerFixtureKey ?? null,
+    kickoffAt: rejectedMatch?.kickoffAt ?? null,
   })
   await invalidateTags(['matches', 'AdminStats'])
   emitAdminResourceDeleted('Match', id)
@@ -454,6 +454,11 @@ export const updateMatchStatus = asyncHandler(async (req: Request, res: Response
   })
   if (!existingMatch) {
     return res.status(404).json({ success: false, message: 'Match not found.' })
+  }
+
+  // A rejection is a durable review decision: an explicit status change must not silently revive it.
+  if (existingMatch.status === 'REJECTED') {
+    return res.status(409).json({ success: false, message: 'This fixture was rejected and cannot be reactivated from here.' })
   }
 
   const updateData: {

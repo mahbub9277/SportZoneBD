@@ -17,10 +17,41 @@ export interface FootballDataFixture {
   status: string
   competitionCode: string
   competitionName: string
+  /** Season as the provider states it: "2026/2027" from the season span, or the provider's season year. */
+  season: string | null
   homeTeamName: string
   awayTeamName: string
   homeTeamCrest?: string | null
   awayTeamCrest?: string | null
+}
+
+const SEASON_YEAR_PATTERN = /^(\d{4})/
+
+function seasonYear(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const year = Number(SEASON_YEAR_PATTERN.exec(value.trim())?.[1])
+  return Number.isInteger(year) && year > 1900 ? year : null
+}
+
+/**
+ * The season label football-data.org's own season object states. A span that crosses a year boundary
+ * ("2026/2027") is reported as the provider means it, a single-year season as that year, and when only
+ * the season id exists that id is used. Returns null when the provider published no season at all.
+ */
+export function formatProviderSeason(season: unknown): string | null {
+  if (!season || typeof season !== 'object' || Array.isArray(season)) return null
+  const record = season as Record<string, unknown>
+
+  const startYear = seasonYear(record.startDate)
+  const endYear = seasonYear(record.endDate)
+  if (startYear && endYear) return startYear === endYear ? String(startYear) : `${startYear}/${endYear}`
+  if (startYear) return String(startYear)
+
+  const id = record.id
+  if (typeof id === 'number' && Number.isInteger(id) && id > 1900) return String(id)
+  if (typeof id === 'string' && /^\d{4}$/.test(id.trim())) return id.trim()
+
+  return null
 }
 
 const FOOTBALL_DATA_API_URL = 'https://api.football-data.org/v4/competitions'
@@ -149,6 +180,7 @@ function normalizeCompetitionFixtures(value: unknown, competitionCode: string): 
       status: requiredString(match.status, 'match status').toUpperCase(),
       competitionCode,
       competitionName: getCanonicalCompetitionName(competitionCode, requiredString(competition.name, 'competition name')),
+      season: formatProviderSeason(match.season),
       homeTeamName: requiredString(homeTeam.name, 'home team name'),
       awayTeamName: requiredString(awayTeam.name, 'away team name'),
       homeTeamCrest: nullableHttpUrl(homeTeam.crest),

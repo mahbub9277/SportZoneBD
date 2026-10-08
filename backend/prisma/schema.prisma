@@ -293,6 +293,8 @@ model Match {
   status             MatchStatus @default(UPCOMING)
   sport              SportType   @default(CRICKET)
   tournamentName     String?     @db.VarChar(255)
+  /** Season label as the provider states it (for example "2026/2027"); null when no provider data exists. */
+  season             String?     @db.VarChar(32)
   homeTeamName       String?     @db.VarChar(255)
   awayTeamName       String?     @db.VarChar(255)
   homeTeamLogo       String?
@@ -741,6 +743,7 @@ enum MatchStatus {
   UPCOMING
   LIVE
   FINISHED
+  REJECTED
 }
 
 model AutomationJob {
