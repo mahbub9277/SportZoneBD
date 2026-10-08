@@ -82,6 +82,15 @@ export interface CustomVideoPlayerProps {
   onStreamFallback?: (failedUrl: string) => boolean
   subtitles?: SubtitleTrack[];
   matchMetadata?: MatchPlayerMetadata
+  /**
+   * Whether the player installs its document-level keyboard shortcuts (Space, arrows, F, M, P).
+   *
+   * TV Mode owns the arrow keys for D-pad navigation, so it switches these off and drives playback
+   * through `onTransportReady` instead. Every other surface keeps them, which is why this defaults to on.
+   */
+  globalShortcuts?: boolean
+  /** Publishes the transport controls so a host (TV Mode) can drive play/pause from outside the player. */
+  onTransportReady?: (transport: { playPause: () => void; isPlaying: boolean } | null) => void
 }
 
 type ReactPlayerModule = typeof import('react-player')
@@ -239,6 +248,8 @@ export function CustomVideoPlayer({
   matchId,
   channelId,
   matchMetadata,
+  globalShortcuts = true,
+  onTransportReady,
 }: CustomVideoPlayerProps) {
   const { socket } = useSocket()
   const { deviceTier, networkQuality, shouldReduceEffects, isSmartTV, reducedMotion } = usePerformanceProfile()
@@ -1297,6 +1308,16 @@ export function CustomVideoPlayer({
     }
   }, [getVideoElement])
 
+  // Publishes play/pause for hosts that own the keyboard (TV Mode) instead of the player's shortcuts.
+  useEffect(() => {
+    if (!onTransportReady) return
+
+    onTransportReady({ playPause: handlePlayPause, isPlaying })
+    return () => {
+      onTransportReady(null)
+    }
+  }, [handlePlayPause, isPlaying, onTransportReady])
+
   const handleToggleMute = useCallback(() => {
     const video = getVideoElement()
     const currentVolume = getCurrentMediaVolume()
@@ -1857,6 +1878,9 @@ export function CustomVideoPlayer({
   
   // Effect for handling keyboard shortcuts // Changed to use useEffect
   useEffect(() => { // Changed to use useEffect
+    // TV Mode turns these off: there the arrows belong to D-pad navigation, not to seek/volume.
+    if (!globalShortcuts) return
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isLocked) return
 
@@ -1911,7 +1935,7 @@ export function CustomVideoPlayer({
     window.addEventListener('keydown', handleKeyDown)
 
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleIncreaseSpeed, handleDecreaseSpeed, handlePlayPause, handleToggleFullscreen, handleToggleMute, handleTogglePictureInPicture, handleVolumeDown, handleVolumeUp, isLocked, seekBy])
+  }, [globalShortcuts, handleIncreaseSpeed, handleDecreaseSpeed, handlePlayPause, handleToggleFullscreen, handleToggleMute, handleTogglePictureInPicture, handleVolumeDown, handleVolumeUp, isLocked, seekBy])
   
 
   useEffect(() => { // Changed to use useEffect

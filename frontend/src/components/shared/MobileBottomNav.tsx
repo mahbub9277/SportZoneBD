@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Crown, Home, LayoutGrid, Radio, Swords } from 'lucide-react'
+import { Home, LayoutGrid, Radio, Swords, Tv } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
@@ -12,10 +12,10 @@ interface MobileNavItem {
 
 const navItems: MobileNavItem[] = [
   { label: 'Home', href: '/', icon: Home, end: true },
+  { label: 'TV Mode', href: '/tv', icon: Tv },
   { label: 'Matches', href: '/matches', icon: Swords },
   { label: 'Channels', href: '/channels', icon: Radio },
   { label: 'Categories', href: '/categories', icon: LayoutGrid },
-  { label: 'Premium', href: '/subscriptions', icon: Crown },
 ]
 
 export function MobileBottomNav() {

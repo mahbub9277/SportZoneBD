@@ -531,3 +531,567 @@ html.theme-switching * {
   }
 }
 
+/* =====================================================================================
+   TV Mode
+   A separate, deliberately plain shell: the channel list on the left, the player on the
+   right. Everything scales from one variable so 720p, 1080p, 1440p and 4K all look
+   proportionate without a device detector, and only transform/opacity/border/background
+   are animated so weak TV GPUs stay happy.
+   ===================================================================================== */
+
+.tv-shell {
+  /* One unit of TV UI: about 11.5px at 720p, 16.7px at 1080p, 22px at 1440p, 33px at 4K. */
+  --tv-u: clamp(1.15rem, 1.55vmin, 3.4rem);
+  --tv-accent: #0474c4;
+  --tv-accent-strong: #06457f;
+  --tv-surface: #262b40;
+  --tv-surface-soft: #2c444c;
+  --tv-border: #5379ae;
+  --tv-text: #a8c4ec;
+  --tv-text-strong: #f4f7ff;
+
+  display: grid;
+  grid-template-columns: clamp(20em, 27vw, 34em) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #071426;
+  color: var(--tv-text-strong);
+  font-size: var(--tv-u);
+  line-height: 1.35;
+}
+
+/* The shell owns the whole viewport: no site chrome, no page scrolling, ever. */
+.tv-shell * {
+  min-width: 0;
+}
+
+.tv-shell :focus-visible {
+  outline: none;
+}
+
+/* Focus is the primary interaction: it is drawn with a border plus a single cheap shadow, and it is
+   never removed — the focused control always looks focused. */
+.tv-shell [data-tv-item]:focus {
+  border-color: var(--tv-accent);
+  box-shadow: 0 0 0 0.15em rgba(4, 116, 196, 0.55);
+  transform: scale(1.02);
+}
+
+/* Category pills sit in a horizontally scrolling row: their border and fill already read as focused, and
+   dropping the scale keeps a focused pill from clipping its own edge against the scroll container. */
+.tv-shell .tv-category:focus {
+  transform: none;
+}
+
+.tv-lite [data-tv-item]:focus {
+  box-shadow: none;
+  transform: none;
+  background: var(--tv-accent-strong);
+}
+
+/* ---------------------------------------------------------------- left panel */
+
+.tv-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 0.6em;
+  padding: 0.9em;
+  overflow: hidden;
+  border-right: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+  background: var(--tv-surface);
+}
+
+.tv-toolbar {
+  display: flex;
+  gap: 0.5em;
+}
+
+.tv-icon-button {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  min-height: 2.6em;
+  padding: 0 0.6em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  border-radius: 0.6em;
+  background: #1f2537;
+  color: var(--tv-text);
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.tv-icon-button svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.tv-icon-button:hover:not([disabled]) {
+  border-color: var(--tv-border);
+  color: var(--tv-text-strong);
+}
+
+.tv-icon-button[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.tv-icon-button-active {
+  border-color: var(--tv-accent);
+  color: var(--tv-text-strong);
+}
+
+.tv-button-label {
+  font-size: 0.85em;
+}
+
+.tv-search {
+  display: flex;
+}
+
+.tv-search-input {
+  width: 100%;
+  min-height: 2.6em;
+  padding: 0 0.7em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  border-radius: 0.6em;
+  background: #1b2132;
+  color: var(--tv-text-strong);
+  font-size: 0.9em;
+}
+
+.tv-search-input::placeholder {
+  color: color-mix(in srgb, var(--tv-text) 65%, transparent);
+}
+
+/* One line that scrolls sideways, never a wrapping block of rows. Scrolling is instant on purpose:
+   an animated scroll on a remote keypress is the kind of continuous re-paint weak TV GPUs drop. */
+.tv-categories {
+  display: flex;
+  gap: 0.4em;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-behavior: auto;
+  padding-bottom: 0.15em;
+  scrollbar-width: none;
+}
+
+.tv-categories::-webkit-scrollbar {
+  display: none;
+}
+
+.tv-category {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35em;
+  min-height: 2.2em;
+  padding: 0 0.7em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tv-text);
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.tv-category-active {
+  border-color: var(--tv-accent);
+  background: color-mix(in srgb, var(--tv-accent) 22%, transparent);
+  color: var(--tv-text-strong);
+}
+
+.tv-category-count {
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+/* The list is the only scrolling area in TV Mode. */
+.tv-channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.2em;
+  scroll-behavior: auto;
+}
+
+.tv-channel-card {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65em;
+  min-height: 3.6em;
+  padding: 0.45em 0.6em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 32%, transparent);
+  border-radius: 0.7em;
+  background: var(--tv-surface-soft);
+  color: var(--tv-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.tv-channel-card[data-tv-selected='true'] {
+  border-color: var(--tv-accent);
+  background: color-mix(in srgb, var(--tv-accent) 20%, var(--tv-surface-soft));
+  color: var(--tv-text-strong);
+}
+
+.tv-channel-number {
+  font-size: 0.85em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--tv-text-strong);
+  opacity: 0.85;
+}
+
+.tv-channel-logo {
+  display: grid;
+  width: 2.6em;
+  height: 2.6em;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  border-radius: 0.5em;
+  background: #1b2132;
+}
+
+.tv-channel-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tv-channel-logo-fallback {
+  font-size: 1em;
+  font-weight: 800;
+  color: var(--tv-text);
+}
+
+.tv-channel-meta {
+  display: grid;
+  gap: 0.15em;
+}
+
+.tv-channel-name {
+  overflow: hidden;
+  font-size: 0.95em;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-channel-state {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tv-channel-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  color: #34d399;
+}
+
+.tv-channel-live-dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.tv-channel-offline {
+  color: #8fa3c5;
+}
+
+.tv-channel-locked {
+  padding: 0 0.4em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 50%, transparent);
+  border-radius: 999px;
+  color: var(--tv-text);
+}
+
+/* A handful of placeholder rows, not an animated skeleton system. */
+.tv-channel-skeleton {
+  display: grid;
+  gap: 0.4em;
+}
+
+.tv-channel-skeleton-row {
+  height: 3.6em;
+  border-radius: 0.7em;
+  background: color-mix(in srgb, var(--tv-border) 14%, transparent);
+}
+
+.tv-empty {
+  padding: 1em 0.4em;
+  font-size: 0.9em;
+  color: var(--tv-text);
+}
+
+/* ---------------------------------------------------------------- player side */
+
+.tv-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  background: #000;
+}
+
+.tv-video {
+  position: absolute;
+  inset: 0;
+}
+
+.tv-video > * {
+  width: 100%;
+  height: 100%;
+}
+
+.tv-stage-message {
+  display: grid;
+  justify-items: center;
+  gap: 0.6em;
+  max-width: 26em;
+  padding: 1.5em;
+  text-align: center;
+}
+
+.tv-stage-message-icon {
+  width: 2.4em;
+  height: 2.4em;
+  color: var(--tv-text);
+}
+
+.tv-stage-message-title {
+  font-size: 1.25em;
+  font-weight: 700;
+  color: var(--tv-text-strong);
+}
+
+.tv-stage-message-text {
+  font-size: 0.95em;
+  color: var(--tv-text);
+}
+
+.tv-stage-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6em;
+  margin-top: 0.4em;
+}
+
+.tv-primary-button,
+.tv-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 2.8em;
+  padding: 0 1.1em;
+  border-radius: 0.6em;
+  font-size: 0.95em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.tv-primary-button {
+  border: 1px solid var(--tv-accent);
+  background: var(--tv-accent);
+  color: #04121f;
+}
+
+.tv-primary-button:hover {
+  background: color-mix(in srgb, var(--tv-accent) 85%, #ffffff);
+}
+
+.tv-secondary-button {
+  border: 1px solid color-mix(in srgb, var(--tv-border) 55%, transparent);
+  background: transparent;
+  color: var(--tv-text-strong);
+}
+
+.tv-now-playing {
+  position: absolute;
+  top: 0.9em;
+  left: 0.9em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.45em 0.8em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 35%, transparent);
+  border-radius: 999px;
+  background: rgba(7, 20, 38, 0.82);
+  font-size: 0.9em;
+  transition: opacity 200ms ease;
+}
+
+.tv-now-number {
+  font-weight: 800;
+  color: var(--tv-text);
+}
+
+.tv-now-name {
+  font-weight: 600;
+  color: var(--tv-text-strong);
+}
+
+.tv-now-live {
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #34d399;
+}
+
+.tv-player-controls {
+  position: absolute;
+  bottom: 1.2em;
+  left: 50%;
+  display: flex;
+  gap: 0.5em;
+  padding: 0.45em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  border-radius: 999px;
+  background: rgba(7, 20, 38, 0.82);
+  transform: translateX(-50%);
+  transition: opacity 200ms ease;
+}
+
+.tv-control {
+  display: grid;
+  width: 2.9em;
+  height: 2.9em;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tv-text-strong);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.tv-control svg {
+  width: 1.4em;
+  height: 1.4em;
+}
+
+.tv-control:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--tv-border) 30%, transparent);
+}
+
+.tv-control[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tv-control-primary {
+  border-color: color-mix(in srgb, var(--tv-accent) 65%, transparent);
+}
+
+/* Hidden means hidden: the row stops taking pointer events and leaves the tab order. Focus inside the
+   row always brings it back, so a remote can never end up focused on an invisible control. */
+.tv-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.tv-player-controls:focus-within,
+.tv-player-controls:has([data-tv-item]:focus) {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.tv-spin {
+  animation: tv-spin 1.2s linear infinite;
+}
+
+.tv-lite .tv-spin {
+  animation: none;
+}
+
+@keyframes tv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- immersive player */
+
+/* The panel is hidden, so the player takes the single remaining track. */
+.tv-immersive {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tv-immersive .tv-panel {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- narrow screens */
+
+@media (max-width: 800px) {
+  .tv-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .tv-panel {
+    max-height: 55vh;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+  }
+
+  .tv-immersive {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-shell [data-tv-item]:focus,
+  .tv-icon-button,
+  .tv-category,
+  .tv-channel-card,
+  .tv-control,
+  .tv-primary-button,
+  .tv-secondary-button,
+  .tv-now-playing,
+  .tv-player-controls {
+    transition: none;
+  }
+}
+
+/* Fewer effects on constrained devices: no focus scaling, no animated spinner, no transitions. */
+.tv-lite .tv-icon-button,
+.tv-lite .tv-category,
+.tv-lite .tv-channel-card,
+.tv-lite .tv-control,
+.tv-lite .tv-primary-button,
+.tv-lite .tv-secondary-button,
+.tv-lite .tv-now-playing,
+.tv-lite .tv-player-controls {
+  transition: none;
+}
+
+.tv-lite .tv-spin {
+  animation: none;
+}
+

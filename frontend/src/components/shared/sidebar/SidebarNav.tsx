@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Swords, Radio, PlayCircle, BarChart3, User, LogOut, Sparkles, AlertTriangle, Heart, LayoutGrid, Info, Settings, type LucideIcon } from 'lucide-react'
+import { Home, Swords, Radio, PlayCircle, BarChart3, User, LogOut, Sparkles, AlertTriangle, Heart, LayoutGrid, Info, Settings, Tv, type LucideIcon } from 'lucide-react'
 import { cva } from 'class-variance-authority'
 import { cn } from '../../../lib/utils'
 import { useGetSidebarEventsQuery } from '../../../features/events/events.api'
@@ -26,6 +26,7 @@ export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNav
     <nav className="mt-4 grid items-start gap-1.5 text-sm font-medium">
       <h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">Main</h3>
       <NavItem href="/" label="Home" icon={Home} end onClick={onNavigate} />
+      <NavItem href="/tv" label="TV Mode" icon={Tv} onClick={onNavigate} />
       <NavItem href="/matches" label="All Matches" icon={Swords} onClick={onNavigate} />
       <NavItem href="/channels" label="TV Channels" icon={Radio} onClick={onNavigate} />
       <NavItem href="/categories" label="Categories" icon={LayoutGrid} onClick={onNavigate} />

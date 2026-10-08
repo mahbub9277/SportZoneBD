@@ -97,6 +97,7 @@ const CategoriesPage = lazyRoute(() => import('@/pages/explore/CategoriesPage'),
 const CategoryChannelsPage = lazyRoute(() => import('@/pages/explore/CategoryChannelsPage'), 'CategoryChannelsPage')
 const FavoritesPage = lazyRoute(() => import('@/pages/FavoritesPage'), 'FavoritesPage')
 const WatchChannelPage = lazyRoute(() => import('@/pages/explore/WatchChannelPage'), 'WatchChannelPage')
+const TVModePage = lazyRoute(() => import('@/features/tv/TVModePage'), 'TVModePage')
 const HighlightsPage = lazyRoute(() => import('@/pages/explore/HighlightsPage'), 'HighlightsPage')
 const StandingsPage = lazyRoute(() => import('@/pages/explore/StandingsPage'), 'StandingsPage')
 const SubscriptionsPage = lazyRoute(() => import('@/pages/SubscriptionsPage'), 'SubscriptionsPage')
@@ -210,6 +211,9 @@ export const router = createBrowserRouter([
   {
     element: <RootLayout />, // This will render GlobalLoadingIndicator and then its children
     children: [
+      // TV Mode is a separate experience: it renders its own full-viewport shell and therefore sits
+      // beside UserLayout instead of inside it, so no header, sidebar, footer or bottom navigation.
+      { path: 'tv', element: <TVModePage /> },
       {
         element: <UserLayout />, // User-facing layout — public and authenticated pages
         children: [
