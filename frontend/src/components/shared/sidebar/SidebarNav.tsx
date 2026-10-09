@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useState } from 'react'
 import { Home, Swords, Radio, PlayCircle, BarChart3, User, LogOut, Sparkles, AlertTriangle, Heart, LayoutGrid, Info, Settings, Tv, type LucideIcon } from 'lucide-react'
 import { cva } from 'class-variance-authority'
 import { cn } from '../../../lib/utils'
@@ -22,6 +23,12 @@ const NavItem = ({ href, label, icon: Icon, isLast, end, onClick }: NavItemProps
 export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNavProps) {
   const { data: sidebarEvents } = useGetSidebarEventsQuery()
   const events = sidebarEvents ?? []
+  /**
+   * Event logos are stored URLs: when the asset behind one has been removed from Cloudinary the request
+   * 404s (verified directly against the CDN) and the sidebar would otherwise show a broken image. The
+   * failed URL is remembered so the event keeps the same icon fallback as an event without a logo.
+   */
+  const [failedLogoUrls, setFailedLogoUrls] = useState<Record<string, true>>({})
   return (
     <nav className="mt-4 grid items-start gap-1.5 text-sm font-medium">
       <h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">Main</h3>
@@ -36,7 +43,19 @@ export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNav
       <NavItem href="/standings" label="Standings" icon={BarChart3} onClick={onNavigate} />
       <NavItem href="/reports" label="Report Problem" icon={AlertTriangle} onClick={onNavigate} />
       <NavItem href="/subscriptions" label="Premium Access" icon={Sparkles} onClick={onNavigate} isLast={!isAuthenticated} />
-      {events.length > 0 && <><h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">Events</h3>{events.map((event) => <NavLink key={event.id} to={`/events/${event.slug}`} onClick={onNavigate} className={({ isActive }) => cn(navLinkVariants({ active: isActive }))}><span className="nav-connector-main" aria-hidden="true" />{event.logo ? <img src={buildCloudinaryUrl(event.logo, { width: 28, height: 28, crop: 'fill' })} alt="" className="relative z-10 h-6 w-6 shrink-0 rounded-lg object-contain" /> : <Sparkles className="relative z-10 h-6 w-6 shrink-0 text-accent" />}<span className="relative z-10 truncate">{event.name}</span></NavLink>)}</>}
+      {events.length > 0 && <><h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">Events</h3>{events.map((event) => {
+        const logoUrl = event.logo ? buildCloudinaryUrl(event.logo, { width: 28, height: 28, crop: 'fill' }) : null
+        const showLogo = Boolean(logoUrl) && !failedLogoUrls[logoUrl as string]
+        return (
+          <NavLink key={event.id} to={`/events/${event.slug}`} onClick={onNavigate} className={({ isActive }) => cn(navLinkVariants({ active: isActive }))}>
+            <span className="nav-connector-main" aria-hidden="true" />
+            {showLogo
+              ? <img src={logoUrl as string} alt="" loading="lazy" decoding="async" onError={() => setFailedLogoUrls((current) => ({ ...current, [logoUrl as string]: true }))} className="relative z-10 h-6 w-6 shrink-0 rounded-lg object-contain" />
+              : <Sparkles className="relative z-10 h-6 w-6 shrink-0 text-accent" />}
+            <span className="relative z-10 truncate">{event.name}</span>
+          </NavLink>
+        )
+      })}</>}
       {isAuthenticated && <><h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">My Account</h3><NavItem href="/profile" label="My Profile" icon={User} onClick={onNavigate} /><NavItem href="/profile/settings" label="Settings" icon={Settings} onClick={onNavigate} /></>}
       <div className="mt-2 pt-2">
         <NavItem href="/about" label="About" icon={Info} onClick={onNavigate} isLast />

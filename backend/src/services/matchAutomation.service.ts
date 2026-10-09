@@ -6,6 +6,7 @@ import { emitAutomationStatusUpdate, emitAutomationMetricsUpdate, emitAutomation
 import { notifyMatchStarted, notifyMatchReminder, MATCH_PUSH_SELECT } from './notification.service.js'
 import { cleanupMatch } from './match-cleanup.service.js'
 import { prewarmUpcomingMatches, cleanupCloudinaryOrphans } from './automation-support.service.js'
+import { AUTOMATION_METRICS_ACTIONS, AUTOMATION_METRICS_WINDOW_MS, summarizeAutomationMetrics } from './automationMetrics.js'
 import { isRedisConfigured, redis } from '../core/redis.js'
 import { cache, invalidateTags } from '../core/cache.js'
 import { emitMatchStatusUpdated } from '../core/socketManager.js'
@@ -408,35 +409,39 @@ export class MatchAutomationService {
       await cleanupCloudinaryOrphans()
     }
 
-    // Emit metrics update after automation completes
+    // Emit metrics update after automation completes. The numbers come from two grouped reads of the
+    // run history instead of five separate COUNT queries: every run performed these lookups, once a
+    // minute, and the grouped form answers exactly the same questions.
     if (this.jobId) {
-      const [totalRuns, successfulRuns, failedRuns] = await Promise.all([
-        prisma.automationLog.count({ where: { jobId: this.jobId } }),
-        prisma.automationLog.count({ where: { jobId: this.jobId, status: { in: ['SUCCESS', 'PARTIAL'] } } }),
-        prisma.automationLog.count({ where: { jobId: this.jobId, status: 'FAILED' } }),
+      const metricsCutoff = new Date(Date.now() - AUTOMATION_METRICS_WINDOW_MS)
+      const [statusGroups, recentActionGroups, lastRun] = await Promise.all([
+        prisma.automationLog.groupBy({
+          by: ['status'],
+          where: { jobId: this.jobId },
+          _count: { _all: true },
+        }),
+        prisma.automationLog.groupBy({
+          by: ['action', 'status'],
+          where: {
+            jobId: this.jobId,
+            action: { in: [...AUTOMATION_METRICS_ACTIONS] },
+            createdAt: { gte: metricsCutoff },
+          },
+          _count: { _all: true },
+        }),
+        prisma.automationLog.findFirst({
+          where: { jobId: this.jobId },
+          orderBy: { createdAt: 'desc' },
+        }),
       ])
 
-      const matchesCreatedLast24h = await prisma.automationLog.count({
-        where: {
-          jobId: this.jobId,
-          action: 'DISCOVER_MATCHES',
-          status: { in: ['SUCCESS', 'PARTIAL'] },
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        },
-      })
-
-      const streamsValidatedLast24h = await prisma.automationLog.count({
-        where: {
-          jobId: this.jobId,
-          action: 'VALIDATE_STREAMS',
-          status: 'SUCCESS',
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        },
-      })
-
-      const lastRun = await prisma.automationLog.findFirst({
-        where: { jobId: this.jobId },
-        orderBy: { createdAt: 'desc' },
+      const metrics = summarizeAutomationMetrics({
+        statusCounts: statusGroups.map((group) => ({ status: group.status, count: group._count._all })),
+        recentActionCounts: recentActionGroups.map((group) => ({
+          action: group.action,
+          status: group.status,
+          count: group._count._all,
+        })),
       })
 
       const job = await prisma.automationJob.findUnique({ where: { id: this.jobId }, include: { logs: { take: 10, orderBy: { createdAt: 'desc' } } } })
@@ -445,11 +450,7 @@ export class MatchAutomationService {
       }
 
       emitAutomationMetricsUpdate({
-        totalRuns,
-        successfulRuns,
-        failedRuns,
-        matchesCreatedLast24h,
-        streamsValidatedLast24h,
+        ...metrics,
         lastRunAt: lastRun?.createdAt,
         // Add missing properties
         jobStatus: job?.status ?? 'IDLE',

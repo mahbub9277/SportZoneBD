@@ -1,5 +1,5 @@
 import { redis } from '../../core/redis.js'
-import { getIoInstance, isSocketClusterActive } from '../../core/socketManager.js'
+import { emitApplicationSettingChanged, emitStreamHealthSummary, getIoInstance, isSocketClusterActive } from '../../core/socketManager.js'
 import logger from '../../core/logger.js'
 import { getRedisErrorCode } from '../../core/redisFailover.js'
 import { prisma } from '../../core/prisma.js'
@@ -162,7 +162,7 @@ export async function setTelemetryEnabled(enabled: boolean): Promise<void> {
   // Applies immediately on this instance: off clears the maintenance timer and all buffered work, on
   // starts the maintenance timer exactly once.
   applyTelemetryEnabled(enabled)
-  getIoInstance()?.emit('applicationSettingChanged', { key: TELEMETRY_SETTING_KEY, value })
+  emitApplicationSettingChanged(TELEMETRY_SETTING_KEY, value)
 }
 
 // ---------------------------------------------------------------- ingest
@@ -604,14 +604,13 @@ async function broadcastTelemetrySummary(enabled: boolean): Promise<void> {
   if (!enabled || !isTelemetryEnabled()) return
   if (Date.now() - lastBroadcastAt < TELEMETRY_BROADCAST_INTERVAL_MS) return
   lastBroadcastAt = Date.now()
-  const io = getIoInstance()
-  if (!io) return
+  if (!getIoInstance()) return
 
   const summary = await getTelemetrySummary()
   const signature = JSON.stringify(summary)
   if (!shouldBroadcastTelemetrySummary(lastBroadcastSignature, summary)) return
   lastBroadcastSignature = signature
-  io.of('/admin').to('admin-room').emit('analytics:stream-health', { ...summary })
+  emitStreamHealthSummary({ ...summary })
 }
 
 // ---------------------------------------------------------------- runtime lifecycle

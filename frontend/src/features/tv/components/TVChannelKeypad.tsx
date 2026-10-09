@@ -1,6 +1,6 @@
 import { Delete, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { TVChannel } from '../tvChannels'
+import { appendChannelDigit, formatChannelNumber, type TVChannel } from '../tvChannels'
 
 interface TVChannelKeypadProps {
   /** Resolves the typed digits against the real channel catalogue; null when no channel holds them. */
@@ -8,10 +8,17 @@ interface TVChannelKeypadProps {
   /** Tunes through the same selection path the channel cards use, so access rules are unchanged. */
   onTune: (channel: TVChannel) => void
   onClose: () => void
+  /**
+   * A digit pressed on the remote while the pad is not the focused element. Each bump of `seq` appends
+   * `value` once, so the pad stays the single owner of the entered number.
+   */
+  digitRequest?: { value: string; seq: number } | null
+  /**
+   * Reports that the request has been applied, so the page can drop it. Without this a request left
+   * over from an earlier entry would be replayed the next time the pad is opened.
+   */
+  onDigitRequestHandled?: () => void
 }
-
-/** A four-digit entry covers every realistic catalogue without letting the display grow unbounded. */
-const MAX_DIGITS = 4
 
 /**
  * The key order of the grid, and therefore its arrow-navigation order: `1-9`, clear, `0`, OK — the
@@ -31,10 +38,11 @@ const COLUMNS = 3
  * Every key it handles stops propagating, so the shell's arrow and channel keys cannot fire behind the
  * open keypad and change the channel the viewer is typing into.
  */
-export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVChannelKeypadProps) {
+export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose, digitRequest = null, onDigitRequestHandled }: TVChannelKeypadProps) {
   const [digits, setDigits] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const keyRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const handledDigitRequestRef = useRef(0)
 
   const focusKey = useCallback((index: number) => {
     keyRefs.current[index]?.focus({ preventScroll: true })
@@ -48,8 +56,18 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
 
   const appendDigit = useCallback((digit: string) => {
     setMessage(null)
-    setDigits((current) => (current.length >= MAX_DIGITS ? current : current + digit))
+    setDigits((current) => appendChannelDigit(current, digit))
   }, [])
+
+  // A digit the remote sent from elsewhere in the shell. The sequence number makes it exactly-once, so
+  // re-rendering or remounting the pad can never replay a digit the viewer already typed, and the page
+  // is told the moment it has been applied so a closed entry can never be re-entered on reopen.
+  useEffect(() => {
+    if (!digitRequest || digitRequest.seq === handledDigitRequestRef.current) return
+    handledDigitRequestRef.current = digitRequest.seq
+    appendDigit(digitRequest.value)
+    onDigitRequestHandled?.()
+  }, [appendDigit, digitRequest, onDigitRequestHandled])
 
   const backspace = useCallback(() => {
     setMessage(null)
@@ -75,6 +93,10 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
 
     onTune(channel)
   }, [digits, onTune, resolveChannelNumber])
+
+  // The preview only resolves against the catalogue the page already holds: no request, no tune, and it
+  // disappears the moment the number stops matching.
+  const preview = digits ? resolveChannelNumber(digits) : null
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     const active = document.activeElement
@@ -153,7 +175,10 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
       </div>
 
       <output className="tv-keypad-display" aria-live="polite" aria-label="Channel number entered">
-        {digits || '—'}
+        <span className="tv-keypad-digits">{digits || '—'}</span>
+        <span className="tv-keypad-preview">
+          {preview ? `${formatChannelNumber(preview.number)} ${preview.name}` : ''}
+        </span>
       </output>
 
       <div className="tv-keypad-grid">

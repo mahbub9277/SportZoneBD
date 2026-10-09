@@ -1,5 +1,5 @@
 import type { ElementType } from 'react'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import { Users, BarChart, TrendingUp, ShieldCheck, Activity, ArrowUpRight, Target, Zap, CheckCircle2, MousePointerClick, Eye, Timer } from 'lucide-react'
 import { motion } from 'framer-motion'
 import {
@@ -25,6 +25,16 @@ import { formatCurrency } from '../../lib/utils'
 import { useSocket, type StreamHealthSummary as SocketStreamHealthSummary } from '../../hooks/useSocket'
 import { useGetStreamHealthHistoryQuery, useGetStreamHealthSummaryQuery, useSetTelemetryEnabledMutation, type StreamHealthSummary } from '../../features/analytics/analytics.api'
 import { toast } from 'sonner'
+import {
+  CHART_AXIS_PROPS,
+  CHART_GRID_PROPS,
+  CHART_HEIGHT,
+  CHART_LEGEND_PROPS,
+  CHART_MARGIN,
+  CHART_TOOLTIP_PROPS,
+  type ChartState,
+} from './components/chartStyles'
+import { ChartSurface } from './components/ChartSurface'
 
 const DASHBOARD_QUERY_OPTIONS = {
   refetchOnFocus: false,
@@ -71,7 +81,7 @@ const StatCard = ({ title, value, icon: Icon, isLoading, delay = 0 }: { title: s
 
 export default function AnalyticsPage() {
   const [adPeriod, setAdPeriod] = useState('1')
-  const { data: chartData, isLoading: isChartLoading } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
+  const { data: chartData, isLoading: isChartLoading, isError: isChartError, refetch: refetchCharts } = useGetChartDataQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: recentUsers, isLoading: areRecentUsersLoading } = useGetRecentUsersQuery(undefined, DASHBOARD_QUERY_OPTIONS)
   const { data: adAnalytics, isLoading: isAdAnalyticsLoading } = useGetAdvertisementAnalyticsQuery(adPeriod, DASHBOARD_QUERY_OPTIONS)
   const [updateTelemetryStatus, { isLoading: isUpdatingTelemetryStatus }] = useSetTelemetryEnabledMutation()
@@ -90,9 +100,13 @@ export default function AnalyticsPage() {
     return () => { adminSocket.off('analytics:stream-health', handleHealth) }
   }, [adminSocket, telemetryEnabled])
 
-  const chartSeries = chartData?.revenue ?? []
-  const userSeries = chartData?.userSignups ?? []
+  // Stable identities: recharts re-renders on a new array, and an empty fallback would otherwise be a
+  // new array on every render.
+  const chartSeries = useMemo(() => chartData?.revenue ?? [], [chartData])
+  const userSeries = useMemo(() => chartData?.userSignups ?? [], [chartData])
   const recentUsersList = recentUsers ?? []
+  const chartState: ChartState = isChartLoading ? 'loading' : isChartError ? 'error' : chartSeries.length === 0 ? 'empty' : 'ready'
+  const userChartState: ChartState = isChartLoading ? 'loading' : isChartError ? 'error' : userSeries.length === 0 ? 'empty' : 'ready'
   const totalSignups = userSeries.reduce((sum, item) => sum + item.count, 0)
   const averageSignups = userSeries.length ? Math.round(totalSignups / userSeries.length) : 0
   const monthsActive = chartSeries.length
@@ -288,89 +302,59 @@ export default function AnalyticsPage() {
                 </motion.div>
 
                 <TabsContent value="revenue" className="mt-4">
-                  {isChartLoading ? (
-                    <Skeleton className="h-80 w-full" />
-                  ) : (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.6, duration: 0.4 }}
-                    >
-                      <ResponsiveContainer width="100%" height={320} minWidth={0}>
-                        <RechartsBarChart data={chartSeries}>
-                          <defs>
-                            <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.9} />
-                              <stop offset="95%" stopColor="var(--accent)" stopOpacity={0.3} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                          <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} stroke="var(--text-muted)" />
-                          <YAxis
-                            fontSize={12}
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(value) => formatCurrency(Number(value))}
-                            stroke="var(--text-muted)"
-                          />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--surface-strong)',
-                              border: '1px solid var(--border)',
-                              borderRadius: '12px',
-                            }}
-                            formatter={(value) => formatCurrency(Number(value))}
-                          />
-                          <Legend wrapperStyle={{ color: 'var(--text-muted)', paddingTop: '20px' }} />
-                          <Bar dataKey="total" name="Revenue" fill="url(#colorBar)" radius={[8, 8, 0, 0]} />
-                        </RechartsBarChart>
-                      </ResponsiveContainer>
-                    </motion.div>
-                  )}
+                  <ChartSurface state={chartState} height={CHART_HEIGHT} onRetry={() => void refetchCharts()}>
+                    <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={0}>
+                      <RechartsBarChart data={chartSeries} margin={CHART_MARGIN}>
+                        <defs>
+                          <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.9} />
+                            <stop offset="95%" stopColor="var(--accent)" stopOpacity={0.3} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid {...CHART_GRID_PROPS} />
+                        <XAxis dataKey="month" {...CHART_AXIS_PROPS} />
+                        <YAxis
+                          {...CHART_AXIS_PROPS}
+                          tickFormatter={(value) => formatCurrency(Number(value))}
+                        />
+                        <Tooltip
+                          {...CHART_TOOLTIP_PROPS}
+                          formatter={(value) => formatCurrency(Number(value))}
+                        />
+                        <Legend {...CHART_LEGEND_PROPS} />
+                        <Bar dataKey="total" name="Revenue" fill="url(#colorBar)" radius={[8, 8, 0, 0]} />
+                      </RechartsBarChart>
+                    </ResponsiveContainer>
+                  </ChartSurface>
                 </TabsContent>
 
                 <TabsContent value="users" className="mt-4">
-                  {isChartLoading ? (
-                    <Skeleton className="h-80 w-full" />
-                  ) : (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.6, duration: 0.4 }}
-                    >
-                      <ResponsiveContainer width="100%" height={320} minWidth={0}>
-                        <LineChart data={userSeries} margin={{ left: -12, right: -12, top: 20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.8} />
-                              <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" />
-                          <XAxis dataKey="day" fontSize={12} tickLine={false} axisLine={false} stroke="var(--text-muted)" />
-                          <YAxis fontSize={12} tickLine={false} axisLine={false} stroke="var(--text-muted)" />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--surface-strong)',
-                              border: '1px solid var(--border)',
-                              borderRadius: '12px',
-                            }}
-                          />
-                          <Legend wrapperStyle={{ color: 'var(--text-muted)', paddingTop: '20px' }} />
-                          <Line
-                            type="monotone"
-                            dataKey="count"
-                            name="Signups"
-                            stroke="var(--accent)"
-                            strokeWidth={3}
-                            dot={{ fill: 'var(--accent)', r: 5 }}
-                            activeDot={{ r: 7 }}
-                            isAnimationActive
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </motion.div>
-                  )}
+                  <ChartSurface state={userChartState} height={CHART_HEIGHT} onRetry={() => void refetchCharts()}>
+                    <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={0}>
+                      <LineChart data={userSeries} margin={{ ...CHART_MARGIN, top: 20 }}>
+                        <defs>
+                          <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.8} />
+                            <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid {...CHART_GRID_PROPS} />
+                        <XAxis dataKey="day" {...CHART_AXIS_PROPS} />
+                        <YAxis {...CHART_AXIS_PROPS} />
+                        <Tooltip {...CHART_TOOLTIP_PROPS} />
+                        <Legend {...CHART_LEGEND_PROPS} />
+                        <Line
+                          type="monotone"
+                          dataKey="count"
+                          name="Signups"
+                          stroke="var(--accent)"
+                          strokeWidth={3}
+                          dot={{ fill: 'var(--accent)', r: 5 }}
+                          activeDot={{ r: 7 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartSurface>
                 </TabsContent>
               </Tabs>
             </CardContent>

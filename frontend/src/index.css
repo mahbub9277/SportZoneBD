@@ -29,6 +29,16 @@
   --warning-soft: rgba(251, 191, 36, 0.16);
   --danger: #fb7185;
   --danger-soft: rgba(251, 113, 133, 0.16);
+  --match-live: #fda4af;
+  --match-live-dot: #fb7185;
+  --match-live-ring: rgba(251, 113, 133, 0.45);
+  --match-live-glow: rgba(251, 113, 133, 0.28);
+  --match-upcoming: #fcd34d;
+  --match-upcoming-dot: #fbbf24;
+  --match-upcoming-ring: rgba(251, 191, 36, 0.45);
+  --match-finished: #5eead4;
+  --match-finished-dot: #2dd4bf;
+  --match-finished-ring: rgba(45, 212, 191, 0.45);
   --text-primary: #f4f7ff;
   --text-secondary: #d7e2ff;
   --text-muted: #8fa3c5;
@@ -85,6 +95,18 @@
   --mobile-nav-active-bg: rgba(211, 159, 18, 0.12);
   --mobile-nav-inactive-text: #64748b;
   --mobile-nav-hover-text: #111827;
+  /* The dark theme's status accents are too light for text on the light surface, so the light
+     theme darkens them while keeping the same hue family. */
+  --match-live: #be123c;
+  --match-live-dot: #e11d48;
+  --match-live-ring: rgba(190, 18, 60, 0.32);
+  --match-live-glow: rgba(225, 29, 72, 0.18);
+  --match-upcoming: #b45309;
+  --match-upcoming-dot: #d97706;
+  --match-upcoming-ring: rgba(180, 83, 9, 0.32);
+  --match-finished: #047857;
+  --match-finished-dot: #059669;
+  --match-finished-ring: rgba(4, 120, 87, 0.28);
 }
 
 * {
@@ -552,6 +574,8 @@ html.theme-switching * {
   /* The deep navy of the selected channel, the keypad and the floating overlays. */
   --tv-navy: #0b2038;
   --tv-navy-strong: #071628;
+  /* The app-wide "this is really live" accent, kept in one variable so every TV surface agrees. */
+  --tv-live: #34d399;
 
   /* Positioned so a full-shell overlay (Auto Tune) can be laid over everything TV Mode owns. */
   position: relative;
@@ -559,6 +583,8 @@ html.theme-switching * {
   grid-template-columns: clamp(20em, 27vw, 34em) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
+  /* The layout owns the whole viewport, including the parts a notch or a home indicator claims. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   overflow: hidden;
   background: #071426;
   color: var(--tv-text-strong);
@@ -699,6 +725,15 @@ html.theme-switching * {
   gap: 0.35em;
 }
 
+/* The category selector and Auto Tune share one row: the selector takes what is left, the scan control
+   keeps its own width, and neither can ever overlap the other. */
+.tv-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4em;
+  align-items: center;
+}
+
 .tv-category-select {
   position: relative;
   display: grid;
@@ -720,14 +755,14 @@ html.theme-switching * {
   align-items: center;
   gap: 0.5em;
   width: 100%;
-  min-height: 2.6em;
-  padding: 0 0.7em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  min-height: 2.9em;
+  padding: 0 0.75em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 50%, transparent);
   border-radius: 0.6em;
-  background: #1b2132;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tv-navy) 55%, var(--tv-navy-strong)) 0%, var(--tv-navy-strong) 100%);
   color: var(--tv-text-strong);
-  font-size: 0.9em;
-  font-weight: 600;
+  font-size: 0.95em;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
   transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
@@ -747,9 +782,18 @@ html.theme-switching * {
 }
 
 .tv-category-trigger-count {
+  display: inline-flex;
   flex: 0 0 auto;
-  font-size: 0.85em;
-  opacity: 0.7;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9em;
+  padding: 0.1em 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tv-accent) 24%, transparent);
+  color: var(--tv-text-strong);
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .tv-category-trigger[aria-expanded='true'] {
@@ -780,13 +824,13 @@ html.theme-switching * {
   display: flex;
   align-items: center;
   gap: 0.5em;
-  min-height: 2.3em;
+  min-height: 2.4em;
   padding: 0 0.6em;
   border: 1px solid transparent;
   border-radius: 0.5em;
   background: transparent;
   color: var(--tv-text);
-  font-size: 0.88em;
+  font-size: 0.9em;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -853,11 +897,28 @@ html.theme-switching * {
 }
 
 /* The tuned channel is unmistakable without glowing: accent border, a deep navy fill that reads as
-   "selected" on its own, and a playing marker, so the state never depends on colour alone. */
+   "selected" on its own, an accent bar on the leading edge and a playing marker, so the state never
+   depends on colour alone. */
+.tv-channel-card {
+  position: relative;
+  overflow: hidden;
+}
+
 .tv-channel-card[data-tv-selected='true'] {
   border-color: var(--tv-accent);
   background: var(--tv-navy);
   color: var(--tv-text-strong);
+}
+
+.tv-channel-card[data-tv-selected='true']::before {
+  content: '';
+  position: absolute;
+  top: 0.5em;
+  bottom: 0.5em;
+  left: 0;
+  width: 0.22em;
+  border-radius: 0 999px 999px 0;
+  background: var(--tv-accent);
 }
 
 .tv-channel-number {
@@ -915,7 +976,7 @@ html.theme-switching * {
   white-space: nowrap;
 }
 
-/* Real state only: the playing marker, the live dot the backend reports, and a premium lock. */
+/* Real state only: the playing marker, the live badge the backend reports, and a premium lock. */
 .tv-channel-flags {
   display: grid;
   justify-items: center;
@@ -930,11 +991,26 @@ html.theme-switching * {
   color: var(--tv-accent);
 }
 
-.tv-channel-live-dot {
-  width: 0.55em;
-  height: 0.55em;
+.tv-channel-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.15em 0.45em;
+  border: 1px solid color-mix(in srgb, var(--tv-live) 40%, transparent);
   border-radius: 999px;
-  background: #34d399;
+  background: color-mix(in srgb, var(--tv-live) 16%, transparent);
+  color: var(--tv-live);
+  font-size: 0.62em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tv-channel-live-dot {
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 999px;
+  background: var(--tv-live);
 }
 
 .tv-channel-lock {
@@ -1182,30 +1258,105 @@ html.theme-switching * {
    a plain safe margin where the width cannot afford that, so it is never clipped or unreachable. */
 .tv-stage-controls {
   position: absolute;
-  top: 0.9em;
-  right: 15%;
+  top: max(0.9em, env(safe-area-inset-top));
+  right: max(15%, env(safe-area-inset-right));
   z-index: 3;
   display: flex;
   gap: 0.4em;
   padding: 0.3em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--tv-navy-strong) 82%, transparent);
+  background: color-mix(in srgb, var(--tv-navy-strong) 86%, transparent);
+  box-shadow: 0 0.4em 1.2em rgb(2 8 18 / 0.45);
   transition: opacity 200ms ease;
 }
 
-.tv-player-controls {
+/* The stage's own status, opposite the controls: the real live state of the channel that is playing.
+   It carries the same emerald accent the rest of the app uses for a healthy stream. */
+.tv-stage-status {
   position: absolute;
-  bottom: 1.2em;
-  left: 50%;
-  display: flex;
-  gap: 0.5em;
-  padding: 0.45em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 30%, transparent);
+  top: max(0.9em, env(safe-area-inset-top));
+  left: max(0.9em, env(safe-area-inset-left));
+  z-index: 3;
+  display: inline-flex;
+  margin: 0;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.35em 0.75em;
+  border: 1px solid color-mix(in srgb, var(--tv-live) 45%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--tv-navy-strong) 82%, transparent);
-  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--tv-navy-strong) 86%, transparent);
+  box-shadow: 0 0.4em 1.2em rgb(2 8 18 / 0.45);
+  font-size: 0.8em;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tv-live);
   transition: opacity 200ms ease;
+}
+
+.tv-stage-status-dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 999px;
+  background: var(--tv-live);
+  box-shadow: 0 0 0.55em color-mix(in srgb, var(--tv-live) 85%, transparent);
+  animation: tv-live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tv-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* The collapsed panel leaves this one slim tab behind. It sits at the far left a little below the top of
+   the viewport, it is never hidden with the control rows, and it stays a normal focus stop so a remote can
+   always bring the channel panel back. */
+.tv-panel-tab {
+  position: absolute;
+  left: env(safe-area-inset-left);
+  top: max(2%, env(safe-area-inset-top));
+  z-index: 4;
+  display: flex;
+  width: 1.9em;
+  min-height: 5.6em;
+  padding: 0.5em 0.15em;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  border: 1px solid color-mix(in srgb, var(--tv-border) 50%, transparent);
+  border-left: none;
+  border-radius: 0 0.7em 0.7em 0;
+  background: color-mix(in srgb, var(--tv-navy-strong) 90%, transparent);
+  color: var(--tv-text-strong);
+  box-shadow: 0 0.4em 1.2em rgb(2 8 18 / 0.45);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.tv-panel-tab svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.tv-panel-tab-label {
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--tv-text);
+  writing-mode: vertical-rl;
+}
+
+.tv-panel-tab:hover {
+  border-color: var(--tv-accent);
+  background: color-mix(in srgb, var(--tv-accent) 30%, var(--tv-navy-strong));
+}
+
+/* It is pinned to the edge, so the shell's focus scale would clip it: the border and ring carry focus. */
+.tv-shell .tv-panel-tab:focus {
+  transform: none;
 }
 
 .tv-control {
@@ -1287,8 +1438,6 @@ html.theme-switching * {
   visibility: hidden;
 }
 
-.tv-player-controls:focus-within,
-.tv-player-controls:has([data-tv-item]:focus),
 .tv-stage-controls:focus-within,
 .tv-stage-controls:has([data-tv-item]:focus) {
   opacity: 1;
@@ -1362,17 +1511,32 @@ html.theme-switching * {
 }
 
 .tv-keypad-display {
-  display: block;
-  padding: 0.3em 0.5em;
-  border: 1px solid color-mix(in srgb, var(--tv-accent) 40%, transparent);
+  display: grid;
+  gap: 0.15em;
+  padding: 0.35em 0.5em;
+  border: 1px solid color-mix(in srgb, var(--tv-accent) 45%, transparent);
   border-radius: 0.5em;
   background: var(--tv-navy);
+  text-align: center;
+}
+
+.tv-keypad-digits {
   font-size: 1.5em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.12em;
-  text-align: center;
   color: var(--tv-text-strong);
+}
+
+/* The typed number is resolved against the catalogue the page already holds: a preview, not a tune. */
+.tv-keypad-preview {
+  min-height: 1.1em;
+  overflow: hidden;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--tv-live);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tv-keypad-grid {
@@ -1383,17 +1547,17 @@ html.theme-switching * {
 
 .tv-keypad-key {
   display: grid;
-  min-height: 2.5em;
+  min-height: 2.7em;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tv-border) 38%, transparent);
   border-radius: 0.55em;
-  background: var(--tv-navy);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tv-navy) 55%, var(--tv-navy-strong)) 0%, var(--tv-navy-strong) 100%);
   color: var(--tv-text-strong);
-  font-size: 1.05em;
+  font-size: 1.1em;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .tv-keypad-key svg {
@@ -1407,9 +1571,11 @@ html.theme-switching * {
 
 .tv-keypad-key-tune {
   border-color: var(--tv-accent);
-  background: var(--tv-accent-strong);
+  background: linear-gradient(180deg, var(--tv-accent) 0%, var(--tv-accent-strong) 100%);
+  color: #04121f;
   font-size: 0.95em;
-  letter-spacing: 0.08em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
 }
 
 .tv-keypad-key:hover {
@@ -1682,7 +1848,7 @@ html.theme-switching * {
 @media (max-width: 1100px) {
   .tv-stage-controls,
   .tv-keypad {
-    right: 0.9em;
+    right: max(0.9em, env(safe-area-inset-right));
   }
 }
 
@@ -1701,8 +1867,17 @@ html.theme-switching * {
     font-size: 0.95em;
   }
 
-  .tv-keypad-display {
+  .tv-keypad-digits {
     font-size: 1.2em;
+  }
+
+  /* The slim panel tab shrinks with the viewport but never disappears off-screen. */
+  .tv-panel-tab {
+    min-height: 4.2em;
+  }
+
+  .tv-panel-tab-label {
+    display: none;
   }
 
   .tv-autotune {
@@ -1768,8 +1943,9 @@ html.theme-switching * {
   .tv-primary-button,
   .tv-secondary-button,
   .tv-channel-info,
-  .tv-player-controls,
   .tv-stage-controls,
+  .tv-stage-status,
+  .tv-panel-tab,
   .tv-keypad-key,
   .tv-autotune-button {
     transition: none;
@@ -1777,6 +1953,7 @@ html.theme-switching * {
 
   .tv-no-signal__effect,
   .tv-autotune-progress-fill,
+  .tv-stage-status-dot,
   .tv-control[data-state='scanning'] {
     animation: none;
   }
@@ -1792,8 +1969,9 @@ html.theme-switching * {
 .tv-lite .tv-primary-button,
 .tv-lite .tv-secondary-button,
 .tv-lite .tv-channel-info,
-.tv-lite .tv-player-controls,
 .tv-lite .tv-stage-controls,
+.tv-lite .tv-stage-status,
+.tv-lite .tv-panel-tab,
 .tv-lite .tv-keypad-key,
 .tv-lite .tv-autotune-button {
   transition: none;
@@ -1801,6 +1979,7 @@ html.theme-switching * {
 
 .tv-lite .tv-spin,
 .tv-lite .tv-no-signal__effect,
+.tv-lite .tv-stage-status-dot,
 .tv-lite .tv-autotune-progress-fill,
 .tv-lite .tv-control[data-state='scanning'] {
   animation: none;
@@ -1845,3 +2024,63 @@ html.theme-switching * {
   }
 }
 
+
+/* ------------------------------------------------------------------------------------------------
+   Match status tones
+   ------------------------------------------------------------------------------------------------
+   Live, upcoming and finished have to be unmistakable on a match card and on the match page, in both
+   themes. They are declared here with tokens rather than utility colour classes because the app is
+   dark-first: the palette utilities resolved to an inherited colour in the dark theme (checked in the
+   browser), while the light theme needs darker text than the dark theme's accent tokens provide.
+   Each tone carries its own text token, so contrast is a design decision rather than an accident. */
+.match-status {
+  /* Colour and border only. Layout stays at the call site so this hook never overrides a card's own
+     flex/rounding utilities. */
+  border-width: 1px;
+  border-style: solid;
+}
+
+.match-status--live {
+  border-color: var(--match-live-ring);
+  background: var(--danger-soft);
+  color: var(--match-live);
+  /* A soft, static glow: attention without a compositor animation. */
+  box-shadow: 0 0 14px var(--match-live-glow);
+}
+
+.match-status--upcoming {
+  border-color: var(--match-upcoming-ring);
+  background: var(--warning-soft);
+  color: var(--match-upcoming);
+}
+
+.match-status--finished {
+  border-color: var(--match-finished-ring);
+  background: var(--success-soft);
+  color: var(--match-finished);
+}
+
+.match-status--live .match-status-dot {
+  background: var(--match-live-dot);
+  box-shadow: 0 0 10px var(--match-live-glow);
+}
+
+.match-status--upcoming .match-status-dot {
+  background: var(--match-upcoming-dot);
+}
+
+.match-status--finished .match-status-dot {
+  background: var(--match-finished-dot);
+}
+
+.match-status-text--live {
+  color: var(--match-live);
+}
+
+.match-status-text--upcoming {
+  color: var(--match-upcoming);
+}
+
+.match-status-text--finished {
+  color: var(--match-finished);
+}

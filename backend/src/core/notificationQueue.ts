@@ -2,7 +2,7 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { createHash } from 'node:crypto'
 import webPush from 'web-push'
 import { prisma } from './prisma.js'
-import { isRedisConfigured, redis } from './redis.js'
+import { getPrimaryRedisStatus, isRedisConfigured, redis } from './redis.js'
 import { getRedisErrorCode } from './redisFailover.js'
 import logger from './logger.js'
 import { emitUserNotification } from './socketManager.js'
@@ -68,6 +68,9 @@ const queueInstance = hasRedisConnection
   : null
 
 let workerInstance: Worker<NotificationQueuePayload> | null = null
+
+/** A burst of connection errors is summarised to one line per interval instead of one line per event. */
+const WORKER_ERROR_LOG_INTERVAL_MS = 30_000
 
 /**
  * Delivery-time match snapshot, cached for a few seconds.
@@ -439,10 +442,39 @@ export function startNotificationWorker(): void {
     )
 
     workerInstance.on('failed', (job, err) => {
-      logger.error({ jobId: job?.id, err }, 'Notification worker job failed')
+      logger.error({
+        jobId: job?.id,
+        jobName: job?.name,
+        // Attempt metadata only: the job payload carries user ids, titles and bodies and must never be logged.
+        attemptsMade: job?.attemptsMade,
+        configuredAttempts: job?.opts?.attempts,
+        code: getRedisErrorCode(err),
+        errorType: err instanceof Error ? err.name : typeof err,
+        message: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+      }, 'Notification worker job failed')
     })
+
+    // BullMQ emits this once per connection problem, and a Redis outage produces a burst of them.
+    // Each burst is summarised to one line per interval so the reason stays visible without filling
+    // the log; the client's own connection status is included to tell "Redis is down" apart from a job
+    // level failure.
+    let lastWorkerErrorLoggedAt = 0
+    let suppressedWorkerErrors = 0
     workerInstance.on('error', (err) => {
-      logger.error({ code: getRedisErrorCode(err) }, 'Notification worker error')
+      const now = Date.now()
+      if (now - lastWorkerErrorLoggedAt < WORKER_ERROR_LOG_INTERVAL_MS) {
+        suppressedWorkerErrors += 1
+        return
+      }
+      logger.error({
+        code: getRedisErrorCode(err),
+        errorType: err instanceof Error ? err.name : typeof err,
+        message: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        redisStatus: getPrimaryRedisStatus(),
+        suppressedSinceLastLog: suppressedWorkerErrors,
+      }, 'Notification worker error')
+      suppressedWorkerErrors = 0
+      lastWorkerErrorLoggedAt = now
     })
   } catch (error) {
     workerInstance = null
@@ -451,6 +483,17 @@ export function startNotificationWorker(): void {
 }
 
 export async function closeNotificationQueue(): Promise<void> {
-  await queueInstance?.close()
-  await workerInstance?.close()
+  // Both are closed independently and never reject to the caller: during a shutdown after a Redis
+  // outage the queue's connection may already be gone, and that must not skip the worker or mask the
+  // original failure the shutdown was handling.
+  try {
+    await workerInstance?.close()
+  } catch (error) {
+    logger.warn({ code: getRedisErrorCode(error) }, 'Notification worker close failed during shutdown')
+  }
+  try {
+    await queueInstance?.close()
+  } catch (error) {
+    logger.warn({ code: getRedisErrorCode(error) }, 'Notification queue close failed during shutdown')
+  }
 }

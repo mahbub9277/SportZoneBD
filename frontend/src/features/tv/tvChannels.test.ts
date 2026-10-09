@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ChannelCategory } from '../../shared/types'
 import {
+  appendChannelDigit,
   buildTVCategories,
   buildTVChannels,
   filterTVChannels,
@@ -142,6 +143,38 @@ test('a typed channel number resolves through the catalogue numbering, never an 
   assert.equal(findChannelByNumber(channels, ''), null)
   assert.equal(findChannelByNumber(channels, 'abc'), null)
   assert.equal(findChannelByNumber([], '1'), null)
+})
+
+test('a filtered list resolves by the catalogue number, not by its position in that list', () => {
+  const sports = filterTVChannels(buildTVChannels(catalogue), { categoryId: 'cat-sports' })
+
+  // The filtered list starts at number 3, so its third entry is number 5 and it holds no number 1:
+  // resolving 3 to the first entry or 1 to a position would both be wrong here.
+  assert.deepEqual(sports.map((channel) => channel.number), [3, 4, 5])
+  assert.equal(findChannelByNumber(sports, '5')?.id, 'e')
+  assert.equal(findChannelByNumber(sports, '3')?.id, 'c')
+  assert.equal(findChannelByNumber(sports, '1'), null)
+  assert.equal(findChannelByNumber(sports, '05')?.id, 'e')
+})
+
+test('a digit pressed on a remote appends to the entered number like a keypad key', () => {
+  assert.equal(appendChannelDigit('', '3'), '3')
+  assert.equal(appendChannelDigit('3', '0'), '30', 'a zero directly after the first digit is kept')
+  assert.equal(appendChannelDigit('0', '3'), '03', 'a leading zero is kept as typed')
+})
+
+test('digit entry is bounded and ignores anything that is not a single digit', () => {
+  assert.equal(appendChannelDigit('1234', '5'), '1234', 'the entry stops at four digits')
+  assert.equal(appendChannelDigit('12', 'ab'), '12')
+  assert.equal(appendChannelDigit('12', ''), '12')
+  assert.equal(appendChannelDigit('12', '1'.repeat(2)), '12')
+})
+
+test('both entry paths resolve the same channel, including from a leading zero', () => {
+  const channels = buildTVChannels(catalogue)
+  const fromRemote = appendChannelDigit(appendChannelDigit('0', '0'), '3')
+  assert.equal(fromRemote, '003')
+  assert.equal(findChannelByNumber(channels, fromRemote)?.id, findChannelByNumber(channels, '3')?.id)
 })
 
 test('the recovery channel wraps past the failed one and skips ineligible channels', () => {

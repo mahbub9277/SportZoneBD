@@ -2,6 +2,7 @@ import cloudinary from '../lib/cloudinary.js'
 import type { UploadApiResponse } from 'cloudinary'
 import { AppError } from '../core/errors.js'
 import logger from '../core/logger.js'
+import { parseCloudinaryAssetReference } from './cloudinaryAsset.js'
 import * as streamifier from 'streamifier'
 
 /**
@@ -42,25 +43,10 @@ export const uploadFile = (file: Express.Multer.File, folder: string): Promise<U
  */
 export const deleteFile = async (fileUrl: string): Promise<void> => {
   try {
-    if (!fileUrl?.trim()) return
+    const reference = parseCloudinaryAssetReference(fileUrl)
+    if (!reference) return
 
-    const normalizedValue = fileUrl.trim()
-    let publicId = normalizedValue
-
-    if (/^https?:\/\//i.test(normalizedValue)) {
-      const uploadMarker = '/upload/'
-      const uploadIndex = normalizedValue.indexOf(uploadMarker)
-      if (uploadIndex === -1) return
-
-      publicId = normalizedValue.slice(uploadIndex + uploadMarker.length).split('?')[0]
-      publicId = publicId.replace(/^v\d+\//, '')
-    }
-
-    publicId = publicId.replace(/\.[^/.]+$/, '')
-
-    if (publicId) {
-      await cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
-    }
+    await cloudinary.uploader.destroy(reference.publicId, { resource_type: reference.resourceType })
   } catch (error) {
     logger.warn({ error }, 'Cloudinary file deletion failed - operation will continue')
     // We don't throw an error here to prevent a failed deletion from breaking the entire request.

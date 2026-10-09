@@ -13,7 +13,7 @@ import { useCountdown } from '../hooks/useCountdown'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { MarqueeText } from './MarqueeText'
 import { VsIcon } from './VsIcon'
-import { LIVE_BADGE_CLASS, LIVE_DOT_CLASS, LIVE_TEXT_CLASS } from '../utils/liveStatus'
+import { MATCH_STATUS_BADGE_CLASS, MATCH_STATUS_DOT_CLASS, MATCH_STATUS_TEXT_CLASS, matchStatusTone } from '../utils/liveStatus'
 
 interface MatchCardDisplayProps {
   match: Match
@@ -61,6 +61,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
   const [homeLogoFailed, setHomeLogoFailed] = useState(false)
   const [awayLogoFailed, setAwayLogoFailed] = useState(false)
   const matchStatus = getMatchStatus(match) ?? 'UPCOMING'
+  const statusTone = matchStatusTone(matchStatus)
   const timer = useCountdown(matchStatus === 'UPCOMING' || matchStatus === 'LIVE' ? match.kickoffAt : null)
   const handleCardClick = () => {
     if (onOpen) {
@@ -109,7 +110,7 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
               />
             )}
             <time dateTime={match.kickoffAt} className="ml-auto shrink-0 text-[10px] font-medium text-(--text-muted) sm:text-xs">
-              {matchStatus === 'LIVE' ? <span className={cn('font-semibold', LIVE_TEXT_CLASS)}>{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
+              {matchStatus === 'LIVE' ? <span className={cn('font-semibold', MATCH_STATUS_TEXT_CLASS.LIVE)}>{timer.elapsedFormatted}</span> : <span>{formatMatchKickoffTime(match.kickoffAt)} <span className="mx-1 text-(--border)">·</span> {formatMatchKickoffDate(match.kickoffAt)}</span>}
             </time>
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 sm:gap-5">
@@ -143,9 +144,9 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
         <CardContent className={cn(compact ? 'p-1.5' : 'p-2 sm:p-2.5')}>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5 rounded-xl border border-(--border)/60 bg-(--surface-soft)/60 px-2 py-1.5 text-[10px] font-semibold sm:px-2.5 sm:py-2 sm:text-xs" aria-live="polite">
             <span className="min-w-0 truncate text-(--text-muted)">{streamCount} stream{streamCount === 1 ? '' : 's'} available</span>
-            <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 uppercase tracking-[0.06em]', matchStatus === 'LIVE' ? LIVE_BADGE_CLASS : matchStatus === 'FINISHED' ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
-              {matchStatus === 'LIVE' && <span className={cn('h-1.5 w-1.5 rounded-full', LIVE_DOT_CLASS, simplifyMatchCard ? '' : 'animate-pulse')} aria-hidden="true" />}
-              {matchStatus === 'LIVE' ? 'LIVE' : matchStatus === 'FINISHED' ? 'FINISHED' : 'UPCOMING'}
+            <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 uppercase tracking-[0.06em]', MATCH_STATUS_BADGE_CLASS[statusTone])}>
+              {matchStatus === 'LIVE' && <span className={cn('h-1.5 w-1.5 rounded-full', MATCH_STATUS_DOT_CLASS, simplifyMatchCard ? '' : 'motion-safe:animate-pulse')} aria-hidden="true" />}
+              {matchStatus}
             </span>
             {match.premium && <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-yellow-500/25 bg-yellow-500/10 px-2 py-1 text-yellow-700 dark:text-yellow-400"><ShieldCheck className="h-3 w-3" aria-hidden="true" /> Premium</span>}
           </div>

@@ -36,6 +36,11 @@ export interface UseTVFocusOptions {
   onChannelStep: (direction: 1 | -1) => void
   /** Play/pause for the media keys some remotes expose. */
   onTogglePlayback: () => void
+  /**
+   * A digit pressed on a remote anywhere in the shell. Channel entry belongs to the keypad, so the
+   * shell forwards the digit instead of owning a second buffer.
+   */
+  onDigitKey?: (digit: string) => void
   /** Preferred focus target, for example the channel that is playing. */
   preferredKey?: string | null
   /** Changes whenever the visible list changes (category, search, refresh), so focus can be restored. */
@@ -79,7 +84,7 @@ function currentZoneItem(root: HTMLElement): { zone: TVZone | null; element: HTM
 }
 
 export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseTVFocusOptions): TVFocusApi {
-  const { onBack, onChannelStep, onTogglePlayback, preferredKey, listVersion = '', suspendAutoFocus = false } = options
+  const { onBack, onChannelStep, onTogglePlayback, onDigitKey, preferredKey, listVersion = '', suspendAutoFocus = false } = options
   const lastKeyRef = useRef<string | null>(null)
 
   const focusItem = useCallback((item: HTMLElement | null) => {
@@ -176,6 +181,15 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
       return
     }
 
+    // A digit anywhere in the shell starts (or continues) channel-number entry. It is handled here, once,
+    // so no key can also zap a channel or scroll the page, and the keypad stays the only owner of the
+    // typed number.
+    if (onDigitKey && /^[0-9]$/.test(event.key)) {
+      event.preventDefault()
+      onDigitKey(event.key)
+      return
+    }
+
     // The player surface itself is a focus stop: OK/Enter on it is play/pause, and the arrows zap
     // channels, which is what a viewer expects with nothing but the video on screen.
     const onPlayerSurface = zone === 'player' && document.activeElement?.getAttribute('data-tv-key') === 'stage'
@@ -221,7 +235,7 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
       default:
         break
     }
-  }, [focusZone, moveWithin, onBack, onChannelStep, onTogglePlayback, rootRef])
+  }, [focusZone, moveWithin, onBack, onChannelStep, onDigitKey, onTogglePlayback, rootRef])
 
   const focusZoneRef = useRef(focusZone)
   useEffect(() => {

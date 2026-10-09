@@ -14,26 +14,20 @@ import { cn } from '../../lib/utils'
 import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
 import { filterMatches, getMatchStatus, sortMatches } from '../matches/matchOrdering'
 import { formatMatchKickoff, getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
+import { buildCloudinaryUrl } from '../../utils/cloudinary'
 
 const HOMEPAGE_MATCH_LIMIT = 24
 
-const optimizeCloudinaryUrl = (url?: string | null, width = 1600) => {
-  if (!url) return url ?? ''
-
-  if (!/cloudinary\.com/i.test(url)) return url
-
-  return url.replace(/\/upload\//, `/upload/f_auto,q_auto,w_${width},dpr_auto,c_fill,g_center/`)
-}
-
 const BANNER_IMAGE_WIDTHS = [640, 960, 1280, 1600, 1920]
 
-// The 1600x500 upload specification is unchanged; this only lets the browser download the width it
-// actually needs. dpr_auto is intentionally omitted so the srcset width descriptor stays authoritative.
+// The banner specification is unchanged; this only lets the browser download the width it actually
+// needs. The URLs come from the shared Cloudinary builder, so a non-Cloudinary URL is still handed
+// back untouched and `dpr_auto` stays out of the descriptors.
 const buildBannerSrcSet = (url?: string | null) => {
   if (!url || !/cloudinary\.com/i.test(url)) return undefined
 
   return BANNER_IMAGE_WIDTHS
-    .map((width) => `${url.replace(/\/upload\//, `/upload/f_auto,q_auto,w_${width},c_fill,g_center/`)} ${width}w`)
+    .map((width) => `${buildCloudinaryUrl(url, { width, crop: 'fill', gravity: 'center' })} ${width}w`)
     .join(', ')
 }
 
@@ -128,8 +122,8 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
   const bannerLink = banner.ctaUrl?.trim() || ''
   // A banner may legitimately have no title; the homepage then renders no heading instead of a label.
   const displayTitle = banner.title?.trim() ?? ''
-  const bannerImage = optimizeCloudinaryUrl(banner.imageUrl ?? banner.posterUrl ?? null, 1800)
-  const bannerPoster = optimizeCloudinaryUrl(banner.posterUrl ?? banner.imageUrl ?? null, 1600)
+  const bannerImage = buildCloudinaryUrl(banner.imageUrl ?? banner.posterUrl ?? null, { width: 1800, crop: 'fill', gravity: 'center' })
+  const bannerPoster = buildCloudinaryUrl(banner.posterUrl ?? banner.imageUrl ?? null, { width: 1600, crop: 'fill', gravity: 'center' })
   const bannerLinkLabel = displayTitle || banner.ctaText?.trim() || 'featured banner'
   const bannerHasMedia = isVideo || Boolean(bannerImage)
   // The placeholder covers the media area until this banner's own media can paint, and never appears for a
@@ -158,8 +152,10 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
 
 const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
   const isLive = featuredMatch ? getMatchStatus(featuredMatch) === 'LIVE' : false
-  const homeLogo = featuredMatch ? optimizeCloudinaryUrl(featuredMatch.homeTeamLogo, 180) : undefined
-  const awayLogo = featuredMatch ? optimizeCloudinaryUrl(featuredMatch.awayTeamLogo, 180) : undefined
+  const homeLogo = featuredMatch ? buildCloudinaryUrl(featuredMatch.homeTeamLogo, { width: 180, crop: 'limit' }) : undefined
+  const awayLogo = featuredMatch ? buildCloudinaryUrl(featuredMatch.awayTeamLogo, { width: 180, crop: 'limit' }) : undefined
+  // Keyed by URL, so a crest that failed for one fixture is shown again for the next one.
+  const [failedLogoSrc, setFailedLogoSrc] = useState<string | null>(null)
 
   return (
     <motion.section className="home-page-section relative min-h-60 overflow-hidden rounded-4xl border border-border bg-(--surface) shadow-premium sm:min-h-75" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
@@ -167,9 +163,9 @@ const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
       <div className="relative z-10 flex min-h-105 items-end p-6 sm:min-h-120 sm:p-10 lg:p-14">
         <div className="max-w-2xl space-y-5">
           {featuredMatch && <div className="flex items-center gap-5" aria-label={`${featuredMatch.homeTeamName ?? 'Team 1'} versus ${featuredMatch.awayTeamName ?? 'Team 2'}`}>
-            {homeLogo && <img src={homeLogo} alt={featuredMatch.homeTeamName ?? 'Team 1'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" />}
+            {homeLogo && failedLogoSrc !== homeLogo && <img src={homeLogo} alt={featuredMatch.homeTeamName ?? 'Team 1'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" onError={() => setFailedLogoSrc(homeLogo)} />}
             <span className="text-xl font-black text-accent sm:text-3xl">VS</span>
-            {awayLogo && <img src={awayLogo} alt={featuredMatch.awayTeamName ?? 'Team 2'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" />}
+            {awayLogo && failedLogoSrc !== awayLogo && <img src={awayLogo} alt={featuredMatch.awayTeamName ?? 'Team 2'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" onError={() => setFailedLogoSrc(awayLogo)} />}
           </div>}
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.28em] text-(--accent)"><span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-rose-400 motion-safe:animate-pulse' : 'bg-(--accent)')} />{isLive ? 'Live now' : 'Next on SportZoneBD'}</p>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">{featuredMatch?.title ?? 'Every match, one clear view.'}</h1>

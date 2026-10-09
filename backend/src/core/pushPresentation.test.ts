@@ -17,6 +17,8 @@ const match = {
   title: 'Moreirense FC vs Gil Vicente FC',
   kickoffAt: kickoff,
   tournamentName: 'Primeira Liga',
+  homeTeamName: 'Moreirense FC',
+  awayTeamName: 'Gil Vicente FC',
   homeTeamLogo: 'https://crests.football-data.org/583.png',
   awayTeamLogo: 'https://crests.football-data.org/5533.png',
 }
@@ -56,6 +58,9 @@ test('a reminder keeps the existing status text and carries both real crests and
   assert.equal(presentation.extras.competition, 'Primeira Liga')
   assert.equal(presentation.extras.kickoffAt, kickoff.toISOString())
   assert.equal(presentation.extras.kind, 'reminder')
+  assert.equal(presentation.extras.homeTeamName, 'Moreirense FC')
+  assert.equal(presentation.extras.awayTeamName, 'Gil Vicente FC')
+  assert.equal(presentation.extras.pushBody, 'Moreirense FC vs Gil Vicente FC starts soon! Tap to watch live.')
 })
 
 test('the shared title and body stay exactly as they were, so the in-app toast is untouched', () => {
@@ -118,6 +123,74 @@ test('the competition is never inferred from a team name', () => {
   assert.ok(presentation.body.startsWith('Premier League select vs La Liga all stars starts soon'))
 })
 
+test('the push-only body names the two stored teams, so a hand-written title cannot replace one', () => {
+  const presentation = buildMatchPushPresentation(
+    { ...match, title: 'Primeira Liga night double-header', homeTeamName: 'Moreirense FC', awayTeamName: 'Gil Vicente FC' },
+    'reminder',
+  )
+
+  // The shared body (also used by the focused-tab toast) is untouched...
+  assert.equal(presentation.body, 'Primeira Liga night double-header starts soon! Tap to watch live.')
+  // ...while the device notification still names the real fixture.
+  assert.equal(presentation.extras.pushBody, 'Moreirense FC vs Gil Vicente FC starts soon! Tap to watch live.')
+})
+
+test('a started alert uses the started wording in its push-only body', () => {
+  const presentation = buildMatchPushPresentation(match, 'started')
+  assert.equal(presentation.title, MATCH_STARTED_TITLE)
+  assert.equal(presentation.extras.pushBody, 'Moreirense FC vs Gil Vicente FC has started! Tap to watch live.')
+  // The kickoff is only meaningful before kickoff, so a started alert never carries one.
+  assert.equal(presentation.extras.kickoffAt, null)
+})
+
+test('without both stored team names the push falls back to the shared body', () => {
+  for (const patch of [
+    { homeTeamName: null },
+    { awayTeamName: null },
+    { homeTeamName: '   ' },
+    { awayTeamName: undefined },
+  ]) {
+    const presentation = buildMatchPushPresentation({ ...match, ...patch }, 'reminder')
+    assert.equal(presentation.extras.pushBody, null, `pushBody for ${JSON.stringify(patch)}`)
+  }
+
+  // Nothing invented: the payload must not gain a team line built from a placeholder.
+  const payload = JSON.parse(buildPushMessage({
+    title: 'Match Starting Soon',
+    body: 'Moreirense FC vs Gil Vicente FC starts soon! Tap to watch live.',
+    type: 'match-reminder',
+    link: `/matches/${match.id}`,
+    notificationId: 'abc',
+    extras: buildMatchPushPresentation({ ...match, awayTeamName: null }, 'reminder').extras,
+  }))
+  assert.equal(payload.pushBody, undefined)
+  assert.equal(payload.awayTeamName, undefined)
+  assert.equal(payload.homeTeamName, match.homeTeamName)
+})
+
+test('team names and the push-only body are kept to one clean, bounded line', () => {
+  const noisy = buildMatchPushPresentation(
+    { ...match, homeTeamName: '  Real\n\tMadrid  ', awayTeamName: 'Barcelona\u0000CF' },
+    'reminder',
+  )
+  assert.equal(noisy.extras.homeTeamName, 'Real Madrid')
+  assert.equal(noisy.extras.awayTeamName, 'Barcelona CF')
+
+  const long = buildMatchPushPresentation({ ...match, homeTeamName: 'H'.repeat(90), awayTeamName: 'A'.repeat(90) }, 'reminder')
+  assert.ok((long.extras.homeTeamName?.length ?? 0) <= 60)
+  assert.ok((long.extras.pushBody?.length ?? 0) <= 220)
+
+  const payload = JSON.parse(buildPushMessage({
+    title: 'Match Starting Soon',
+    body: 'body',
+    type: 'match-reminder',
+    link: `/matches/${match.id}`,
+    notificationId: 'abc',
+    extras: long.extras,
+  }))
+  assert.ok((payload.pushBody?.length ?? 0) <= 220)
+})
+
 test('delivery is refused once the reminder no longer matches the match schedule', () => {
   const marker = String(kickoff.getTime())
   const stillUpcoming = { status: 'UPCOMING', kickoffAt: kickoff, deletedAt: null }
@@ -178,6 +251,9 @@ test('the pushed payload carries both crests and stays small', () => {
   assert.equal(parsed.kind, 'reminder')
   assert.equal(parsed.kickoffAt, kickoff.toISOString())
   assert.equal(parsed.competition, 'Primeira Liga')
+  assert.equal(parsed.homeTeamName, 'Moreirense FC')
+  assert.equal(parsed.awayTeamName, 'Gil Vicente FC')
+  assert.equal(parsed.pushBody, 'Moreirense FC vs Gil Vicente FC starts soon! Tap to watch live.')
   assert.equal(parsed.link, `/matches/${match.id}?k=${kickoff.getTime()}`)
   assert.ok(Buffer.byteLength(payload, 'utf8') < 800, `payload was ${Buffer.byteLength(payload, 'utf8')} bytes`)
 

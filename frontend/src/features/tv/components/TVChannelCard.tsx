@@ -15,8 +15,8 @@ interface TVChannelCardProps {
  *
  * Sized to be read from a sofa rather than a desk: a big logo, a bold name and the category underneath,
  * with only a few rows visible at once so the list stays scannable with a remote. The flags column stays
- * narrow and carries the real state only — the playing marker for the tuned channel, the live dot the
- * backend actually reports, and a lock for premium channels.
+ * narrow and carries the real state only — the playing marker for the tuned channel, a Live badge for the
+ * channels the backend really reports as active with a stream, and a lock for premium channels.
  */
 export const TVChannelCard = memo(function TVChannelCard({ channel, selected, locked, onSelect }: TVChannelCardProps) {
   const poster = channel.logo ? buildCloudinaryUrl(channel.logo, { width: 128, height: 128, crop: 'fill' }) : null
@@ -48,7 +48,12 @@ export const TVChannelCard = memo(function TVChannelCard({ channel, selected, lo
       {flagsVisible && (
         <span className="tv-channel-flags">
           {selected && <Play className="tv-channel-playing" aria-hidden="true" />}
-          {channel.isLive && <span className="tv-channel-live-dot" aria-hidden="true" />}
+          {channel.isLive && (
+            <span className="tv-channel-live">
+              <span className="tv-channel-live-dot" aria-hidden="true" />
+              Live
+            </span>
+          )}
           {locked && <Lock className="tv-channel-lock" aria-hidden="true" />}
         </span>
       )}

@@ -17,6 +17,8 @@ export interface MatchPushSource {
   title: string
   kickoffAt: Date | string
   tournamentName?: string | null
+  homeTeamName?: string | null
+  awayTeamName?: string | null
   homeTeamLogo?: string | null
   awayTeamLogo?: string | null
 }
@@ -42,6 +44,18 @@ export interface MatchPushExtras {
   kickoffAt: string | null
   /** The match's own stored competition name, or null when it is unknown. */
   competition: string | null
+  /** The stored home team name, or null when the match does not carry one. */
+  homeTeamName: string | null
+  /** The stored away team name, or null when the match does not carry one. */
+  awayTeamName: string | null
+  /**
+   * Push-only body, used by the service worker instead of the shared body.
+   *
+   * It is only set when both stored team names exist, so the device notification names the two real
+   * teams even if the match title was written by hand. Null means "the shared body is already the most
+   * accurate text there is".
+   */
+  pushBody: string | null
 }
 
 export interface MatchPushPresentation {
@@ -57,9 +71,14 @@ export interface MatchPushPresentation {
 export const MATCH_REMINDER_TITLE = 'Match Starting Soon'
 export const MATCH_STARTED_TITLE = 'Match Started'
 export const MATCH_PUSH_WATCH_CTA = 'Tap to watch live.'
+const MATCH_REMINDER_STATUS = 'starts soon!'
+const MATCH_STARTED_STATUS = 'has started!'
 /** Longer than any real crest host URL, short enough that a payload can never be bloated by one. */
 const MAX_LOGO_URL_LENGTH = 500
 const MAX_COMPETITION_LENGTH = 60
+const MAX_TEAM_NAME_LENGTH = 60
+/** The push body is a single line of real match text; anything longer is truncated by `cleanText`. */
+const MAX_PUSH_BODY_LENGTH = 220
 
 /**
  * The reminder identity: the match id *and* the kickoff it was scheduled for.
@@ -118,11 +137,22 @@ function httpsUrl(value: string | null | undefined): string | null {
  * Both crests use the only two image slots the platform offers: the notification icon and the
  * expanded image. Nothing is invented - a missing crest simply leaves its slot empty, and an unknown
  * competition simply drops the label.
+ *
+ * A single composite image holding both crests was investigated and is not available here: the crests
+ * live on the provider's host, and this Cloudinary account refuses to fetch remote URLs for overlay
+ * layers (verified: `l_fetch:` returns 401/404 depending on URL form, and generating an image from a
+ * blank canvas returns 404, while ordinary transformations on stored assets return 200). Rendering the
+ * composite in the service worker is closed off too: the provider host sends no
+ * `access-control-allow-origin`, so its crests taint a canvas and cannot be exported. Producing one
+ * would mean an image-rendering dependency, a per-notification upload or a new external service, so the
+ * two supported slots are used instead and the platform limits are reported rather than papered over.
  */
 export function buildMatchPushPresentation(match: MatchPushSource, kind: MatchPushKind): MatchPushPresentation {
   const homeLogo = httpsUrl(match.homeTeamLogo)
   const awayLogo = httpsUrl(match.awayTeamLogo)
   const kickoff = new Date(match.kickoffAt)
+  const homeTeamName = cleanText(match.homeTeamName, MAX_TEAM_NAME_LENGTH)
+  const awayTeamName = cleanText(match.awayTeamName, MAX_TEAM_NAME_LENGTH)
 
   return {
     title: kind === 'reminder' ? MATCH_REMINDER_TITLE : MATCH_STARTED_TITLE,
@@ -138,6 +168,13 @@ export function buildMatchPushPresentation(match: MatchPushSource, kind: MatchPu
       image: homeLogo && awayLogo ? awayLogo : null,
       kickoffAt: kind === 'reminder' && !Number.isNaN(kickoff.getTime()) ? kickoff.toISOString() : null,
       competition: cleanText(match.tournamentName, MAX_COMPETITION_LENGTH),
+      homeTeamName,
+      awayTeamName,
+      // Built only from the two stored team names: the device notification then always names the real
+      // fixture, and a hand-written match title can never replace one of the teams.
+      pushBody: homeTeamName && awayTeamName
+        ? `${homeTeamName} vs ${awayTeamName} ${kind === 'reminder' ? MATCH_REMINDER_STATUS : MATCH_STARTED_STATUS} ${MATCH_PUSH_WATCH_CTA}`
+        : null,
     },
   }
 }
@@ -203,6 +240,9 @@ export function buildPushMessage({ title, body, type, link, notificationId, extr
     ? new Date(extras.kickoffAt).toISOString()
     : null
   const competition = cleanText(extras?.competition, MAX_COMPETITION_LENGTH)
+  const homeTeamName = cleanText(extras?.homeTeamName, MAX_TEAM_NAME_LENGTH)
+  const awayTeamName = cleanText(extras?.awayTeamName, MAX_TEAM_NAME_LENGTH)
+  const pushBody = cleanText(extras?.pushBody, MAX_PUSH_BODY_LENGTH)
 
   return JSON.stringify({
     title,
@@ -215,5 +255,8 @@ export function buildPushMessage({ title, body, type, link, notificationId, extr
     ...(extras ? { matchId: extras.matchId, kind: extras.kind } : {}),
     ...(kickoffAt ? { kickoffAt } : {}),
     ...(competition ? { competition } : {}),
+    ...(homeTeamName ? { homeTeamName } : {}),
+    ...(awayTeamName ? { awayTeamName } : {}),
+    ...(pushBody ? { pushBody } : {}),
   })
 }

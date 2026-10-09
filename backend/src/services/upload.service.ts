@@ -1,6 +1,7 @@
 import cloudinary, { type UploadApiOptions } from '../lib/cloudinary.js';
 import { AppError } from '../core/errors.js';
 import logger from '../core/logger.js';
+import { parseCloudinaryAssetReference } from './cloudinaryAsset.js';
 import { Readable } from 'stream';
 
 /**
@@ -84,33 +85,16 @@ export const deleteFileFromCloudinary = async (publicId: string | null | undefin
     return;
   }
 
-  if (!publicId) {
-    return; // No file to delete
+  const reference = parseCloudinaryAssetReference(publicId)
+  if (!reference) {
+    return; // Nothing usable to delete.
   }
 
   try {
-    let normalizedId = publicId.trim()
-    let resourceType: 'image' | 'video' = 'image'
-
-    if (/^https?:\/\//i.test(normalizedId)) {
-      const uploadIndex = normalizedId.indexOf('/upload/')
-      if (uploadIndex === -1) return
-      const uploadPath = normalizedId.slice(uploadIndex + '/upload/'.length).split('?')[0]
-      const pathParts = uploadPath.split('/').filter(Boolean)
-      const versionIndex = pathParts.findIndex((part) => /^v\d+$/.test(part))
-      normalizedId = (versionIndex >= 0 ? pathParts.slice(versionIndex + 1) : pathParts).join('/')
-      resourceType = normalizedId.startsWith('video/') ? 'video' : 'image'
-    } else {
-      resourceType = normalizedId.startsWith('video/') ? 'video' : 'image'
-    }
-
-    normalizedId = normalizedId.replace(/\.[^/.]+$/, '')
-    if (!normalizedId) return
-
-    await cloudinary.uploader.destroy(normalizedId, { resource_type: resourceType });
+    await cloudinary.uploader.destroy(reference.publicId, { resource_type: reference.resourceType });
   } catch (error: any) {
     // Log the error but don't re-throw it. Failing to delete an old file shouldn't block an update operation.
-    logger.error({ error }, `Failed to delete file from Cloudinary`);
+    logger.error({ error, publicId: reference.publicId, resourceType: reference.resourceType }, `Failed to delete file from Cloudinary`);
   }
 };
 

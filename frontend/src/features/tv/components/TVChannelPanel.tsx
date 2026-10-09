@@ -1,6 +1,8 @@
-import { ArrowLeft, ChevronDown, Loader2, LogOut, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Loader2, LogOut, Radar, RefreshCw, Search } from 'lucide-react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { cn } from '../../../lib/utils'
 import type { TVCategory, TVChannel } from '../tvChannels'
+import type { AutoTuneStatus } from '../useAutoTune'
 import { TVChannelCard } from './TVChannelCard'
 
 interface TVChannelPanelProps {
@@ -13,11 +15,15 @@ interface TVChannelPanelProps {
   activeCategoryId: string
   query: string
   isPremiumSubscriber: boolean
+  /** Auto Tune's state, so the control can report a running scan: the scan itself lives on the page. */
+  autoTuneStatus: AutoTuneStatus
   /** Hides the panel and hands the whole viewport to the player, staying inside TV Mode. */
   onEnterPlayerView: () => void
   /** Leaves TV Mode altogether. */
   onExit: () => void
   onRefresh: () => void
+  /** Starts the existing Auto Tune scan. */
+  onStartAutoTune: () => void
   onSelectCategory: (categoryId: string) => void
   onQueryChange: (query: string) => void
   onSelectChannel: (channel: TVChannel) => void
@@ -40,9 +46,11 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   activeCategoryId,
   query,
   isPremiumSubscriber,
+  autoTuneStatus,
   onEnterPlayerView,
   onExit,
   onRefresh,
+  onStartAutoTune,
   onSelectCategory,
   onQueryChange,
   onSelectChannel,
@@ -214,78 +222,96 @@ export const TVChannelPanel = memo(function TVChannelPanel({
 
       <div data-tv-zone="categories" className="tv-categories-zone" role="group" aria-label="Channel categories">
         <span className="tv-categories-label" id="tv-category-label">Category</span>
-        <div className="tv-category-select">
-          <button
-            type="button"
-            data-tv-item
-            data-tv-key="category-select"
-            ref={categoryTriggerRef}
-            className="tv-category-trigger"
-            aria-haspopup="listbox"
-            aria-expanded={isCategoryMenuOpen}
-            aria-labelledby="tv-category-label"
-            onClick={() => setCategoryMenuOpen((open) => !open)}
-            // While the menu is open the arrows belong to the menu, so they must not also zap the list
-            // below or pull focus out of the dropdown.
-            onKeyDown={(event) => {
-              if (!isCategoryMenuOpen) return
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                event.stopPropagation()
-                focusCategoryOption(event.key === 'ArrowUp' ? -1 : 1)
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                event.stopPropagation()
-                setCategoryMenuOpen(false)
-              }
-            }}
-          >
-            <span className="tv-category-trigger-name">{activeCategory?.name ?? 'All channels'}</span>
-            <span className="tv-category-trigger-count">{activeCategory?.count ?? channelsByCategory.length}</span>
-            <ChevronDown aria-hidden="true" />
-          </button>
-
-          {isCategoryMenuOpen && (
-            <div
-              className="tv-category-menu"
-              role="listbox"
+        <div className="tv-category-row">
+          <div className="tv-category-select">
+            <button
+              type="button"
+              data-tv-item
+              data-tv-key="category-select"
+              ref={categoryTriggerRef}
+              className="tv-category-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={isCategoryMenuOpen}
               aria-labelledby="tv-category-label"
-              ref={categoryMenuRef}
+              onClick={() => setCategoryMenuOpen((open) => !open)}
+              // While the menu is open the arrows belong to the menu, so they must not also zap the list
+              // below or pull focus out of the dropdown.
               onKeyDown={(event) => {
-                if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+                if (!isCategoryMenuOpen) return
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   event.stopPropagation()
-                  moveCategoryFocus(event.key)
+                  focusCategoryOption(event.key === 'ArrowUp' ? -1 : 1)
                 } else if (event.key === 'Escape') {
                   event.preventDefault()
                   event.stopPropagation()
                   setCategoryMenuOpen(false)
-                  categoryTriggerRef.current?.focus()
                 }
               }}
             >
-              {categories.length === 0 && <p className="tv-category-empty">No categories available.</p>}
-              {categories.map((category) => {
-                const isActive = category.id === activeCategoryId
-                return (
-                  <button
-                    key={category.id}
-                    type="button"
-                    data-tv-item
-                    data-tv-key={`category:${category.id}`}
-                    data-tv-selected={isActive}
-                    role="option"
-                    aria-selected={isActive}
-                    onClick={() => commitCategory(category.id)}
-                    className="tv-category-option"
-                  >
-                    <span className="tv-category-option-name">{category.name}</span>
-                    <span className="tv-category-option-count">{category.count}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+              <span className="tv-category-trigger-name">{activeCategory?.name ?? 'All channels'}</span>
+              <span className="tv-category-trigger-count" aria-hidden="true">{activeCategory?.count ?? channelsByCategory.length}</span>
+              <ChevronDown aria-hidden="true" />
+            </button>
+
+            {isCategoryMenuOpen && (
+              <div
+                className="tv-category-menu"
+                role="listbox"
+                aria-labelledby="tv-category-label"
+                ref={categoryMenuRef}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    moveCategoryFocus(event.key)
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setCategoryMenuOpen(false)
+                    categoryTriggerRef.current?.focus()
+                  }
+                }}
+              >
+                {categories.length === 0 && <p className="tv-category-empty">No categories available.</p>}
+                {categories.map((category) => {
+                  const isActive = category.id === activeCategoryId
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      data-tv-item
+                      data-tv-key={`category:${category.id}`}
+                      data-tv-selected={isActive}
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => commitCategory(category.id)}
+                      className="tv-category-option"
+                    >
+                      <span className="tv-category-option-name">{category.name}</span>
+                      <span className="tv-category-option-count">{category.count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Auto Tune scans the catalogue the viewer is browsing, so it lives on the category row it
+              filters. It is the same scan the page already runs — one action, one entry point. */}
+          <button
+            type="button"
+            data-tv-item
+            data-tv-key="auto-tune"
+            data-state={autoTuneStatus === 'scanning' ? 'scanning' : 'idle'}
+            className={cn('tv-control tv-control-labelled', autoTuneStatus === 'scanning' && 'tv-control-active')}
+            onClick={onStartAutoTune}
+            aria-label={autoTuneStatus === 'scanning' ? 'Auto Tune is scanning' : 'Start Auto Tune'}
+            title="Scan the catalogue for channels you can watch"
+          >
+            <Radar aria-hidden="true" />
+            <span className="tv-control-label">{autoTuneStatus === 'scanning' ? 'Scanning…' : 'Auto Tune'}</span>
+          </button>
         </div>
       </div>
 

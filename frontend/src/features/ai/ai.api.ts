@@ -2,7 +2,7 @@ import { emptyApi } from '../../app/api/emptyApi'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse } from '../../app/api/types'
 
-export type AiEntityType = 'EVENT' | 'CHANNEL' | 'BANNER' | 'SUBSCRIPTION_PLAN' | 'ADVERTISEMENT' | 'CATEGORY' | 'ROLE' | 'REPORT' | 'POPUP' | 'EMAIL_NOTIFICATION' | 'PUSH_NOTIFICATION' | 'WEBSITE_SETTINGS'
+export type AiEntityType = 'EVENT' | 'CHANNEL' | 'BANNER' | 'SUBSCRIPTION_PLAN' | 'ADVERTISEMENT' | 'CATEGORY' | 'ROLE' | 'REPORT' | 'POPUP' | 'EMAIL_NOTIFICATION' | 'PUSH_NOTIFICATION' | 'WEBSITE_SETTINGS' | 'MATCH'
 
 export interface GenerateDescriptionRequest {
   entityType: AiEntityType
@@ -11,10 +11,16 @@ export interface GenerateDescriptionRequest {
   context?: Record<string, unknown>
   language?: 'auto' | 'en' | 'bn' | 'banglish'
   tone?: 'professional' | 'concise' | 'friendly'
+  /** Optional character range the generated text has to satisfy; the server enforces it. */
+  length?: { min: number; max: number }
 }
 
 export interface ParseMatchRequest {
   input: string
+  /** The sport already selected in the form, so the parser uses that sport's vocabulary. */
+  sport?: ParsedMatchDetails['sport']
+  /** The competition already typed in the form, so the parse stays consistent with it. */
+  tournamentName?: string | null
 }
 
 export type AiConfidenceLevel = 'high' | 'medium' | 'low'
@@ -43,6 +49,12 @@ export interface ParsedMatchDetails {
   quality: string | null
   confidence: Record<string, AiConfidenceLevel>
   warnings: string[]
+  /**
+   * One-line match summary composed by the server from the parsed values. It is always between 80 and
+   * 100 characters when present, and null with a warning when no truthful sentence of that length
+   * could be written.
+   */
+  description: string | null
 }
 
 export const aiApi = emptyApi.injectEndpoints({

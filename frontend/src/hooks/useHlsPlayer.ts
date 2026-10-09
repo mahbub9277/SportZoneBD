@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import logger from '../core/logger'
+import { buildHlsPlaybackUrl } from '../utils/streamPlaybackUrl'
 
 export interface HlsPlayerState {
   currentUrl: string | null
@@ -30,23 +31,10 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
     setForceDirectUrl(false)
   }, [])
 
-  const playbackUrl = useMemo(() => {
-    if (!currentUrl) {
-      return null
-    }
-
-    if (!streamId || forceDirectUrl) {
-      return currentUrl
-    }
-
-    const params = new URLSearchParams({
-      streamId,
-      type: usedBackup ? 'backup' : 'primary',
-      url: currentUrl,
-    })
-
-    return `/api/v1/stream/proxy?${params.toString()}`
-  }, [currentUrl, forceDirectUrl, streamId, usedBackup])
+  const playbackUrl = useMemo(
+    () => buildHlsPlaybackUrl({ url: currentUrl, streamId, usedBackup, forceDirectUrl }),
+    [currentUrl, forceDirectUrl, streamId, usedBackup],
+  )
 
   useEffect(() => {
     mountedRef.current = true

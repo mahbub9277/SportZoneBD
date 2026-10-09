@@ -1,10 +1,9 @@
-import { ChevronLeft, ChevronRight, Hash, Loader2, Lock, PanelLeftClose, PanelLeftOpen, Pause, Play, Radar } from 'lucide-react'
+import { ChevronRight, Grid3x3, Lock, Loader2, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { CustomVideoPlayer } from '../../../components/player/CustomVideoPlayer'
 import { cn } from '../../../lib/utils'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { formatChannelNumber, type TVChannel } from '../tvChannels'
-import type { AutoTuneStatus } from '../useAutoTune'
 import { TVChannelKeypad } from './TVChannelKeypad'
 
 export interface TVTransport {
@@ -23,16 +22,17 @@ interface TVPlayerStageProps {
   isPremiumLocked: boolean
   isImmersive: boolean
   isKeypadOpen: boolean
-  /** Auto Tune's state, only so the floating control can report it: the scan itself lives on the page. */
-  autoTuneStatus: AutoTuneStatus
   /**
    * Bumped whenever the viewer asks for the channel identity again — including on the channel that is
    * already playing, where no source change happens and the popup would otherwise stay hidden.
    */
   infoRequest: number
+  /** A digit the remote sent while the pad was closed, so the pad can own the typed number. */
+  digitRequest: { value: string; seq: number } | null
+  /** Reports that the digit request has been applied, so the page can drop it. */
+  onDigitRequestHandled: () => void
   onToggleImmersive: () => void
   onToggleKeypad: () => void
-  onToggleAutoTune: () => void
   onCloseKeypad: () => void
   /** Tunes to a channel the keypad resolved, through the page's existing selection path. */
   onTuneChannel: (channel: TVChannel) => void
@@ -51,22 +51,23 @@ interface TVPlayerStageProps {
  * The player side of TV Mode.
  *
  * The stream itself is the existing `CustomVideoPlayer` — this only frames it, adds the few TV controls
- * a remote needs (channel up/down, play/pause, Auto Tune, the numeric keypad and the channel-panel
- * toggle) and keeps them out of the way while watching. Playback state, HLS handling, retry, fallback
- * and error recovery all stay inside the player, and switching channels is a source change on the same
- * player instance rather than a remount — including opening and closing the overlays, which sit on this
- * stage without touching the player.
+ * a remote needs (the numeric keypad, the channel-panel toggle and the slim tab that brings the panel
+ * back) and keeps them out of the way while watching. Playback is driven by the remote itself
+ * (play/pause and channel up/down keys), not by on-screen transport buttons. Playback state, HLS
+ * handling, retry, fallback and error recovery all stay inside the player, and switching channels is a
+ * source change on the same player instance rather than a remount — including the panel toggle, which
+ * only changes the grid, so the player keeps playing through it.
  */
 export function TVPlayerStage({
   channel,
   isPremiumLocked,
   isImmersive,
   isKeypadOpen,
-  autoTuneStatus,
   infoRequest,
+  digitRequest,
+  onDigitRequestHandled,
   onToggleImmersive,
   onToggleKeypad,
-  onToggleAutoTune,
   onCloseKeypad,
   onTuneChannel,
   resolveChannelNumber,
@@ -193,7 +194,13 @@ export function TVPlayerStage({
   const playerElement = useMemo(() => (
     <CustomVideoPlayer
       url={channel?.streamUrl}
-      streamId={channel?.id}
+      /**
+       * Only `channelId` is passed: a channel is not a `stream` record, and the proxy resolves
+       * `streamId` against the stream table (a channel id there is a guaranteed 404, which the player
+       * used to spend two failed requests on before falling back to the direct URL anyway). Channel
+       * playback therefore plays the channel's stored URL directly, exactly like the normal channel
+       * page, while the channel identity is still available for premium checks and telemetry.
+       */
       presenceId={channel?.id}
       channelId={channel?.id}
       presenceType="channel"
@@ -213,7 +220,7 @@ export function TVPlayerStage({
     wake()
     const target = event.target
     const onTvControl = target instanceof HTMLElement
-      && Boolean(target.closest('.tv-keypad, .tv-stage-controls, .tv-player-controls'))
+      && Boolean(target.closest('.tv-keypad, .tv-stage-controls, .tv-panel-tab'))
     if (canPlay && !onTvControl) revealChannelInfo()
   }, [canPlay, revealChannelInfo, wake])
 
@@ -288,26 +295,19 @@ export function TVPlayerStage({
         </>
       )}
 
-      {/* Always reachable, whatever the stage is showing: tuning by number, scanning the catalogue and
-          hiding the panel are not playback actions, and a channel that will not play is exactly when a
-          viewer needs them. It sits before the transport row in the document so one arrow press from the
-          player surface reaches it. */}
+      {/* The stage's own status, at the opposite corner from the controls: the real live state of the
+          channel that is playing. It never claims more than the catalogue knows. */}
+      {channel && canPlay && channel.isLive && (
+        <p className={cn('tv-stage-status', isIdle && 'tv-hidden')} aria-live="polite">
+          <span className="tv-stage-status-dot" aria-hidden="true" />
+          Live
+        </p>
+      )}
+
+      {/* Always reachable, whatever the stage is showing: hiding the panel and tuning by number are not
+          playback actions, and a channel that will not play is exactly when a viewer needs them. It sits
+          before the keypad in the document so one arrow press from the player surface reaches it. */}
       <div className={cn('tv-stage-controls', isIdle && 'tv-hidden')}>
-        <button
-          type="button"
-          data-tv-item
-          data-tv-key="auto-tune"
-          data-state={autoTuneStatus === 'scanning' ? 'scanning' : 'idle'}
-          className={cn('tv-control tv-control-labelled', autoTuneStatus === 'scanning' && 'tv-control-active')}
-          onClick={onToggleAutoTune}
-          aria-label={autoTuneStatus === 'scanning' ? 'Auto Tune is scanning' : 'Start Auto Tune'}
-          title="Scan the catalogue for channels you can watch"
-        >
-          <Radar aria-hidden="true" />
-          <span className="tv-control-label">
-            {autoTuneStatus === 'scanning' ? 'Scanning…' : 'Auto Tune'}
-          </span>
-        </button>
         <button
           type="button"
           data-tv-item
@@ -318,7 +318,7 @@ export function TVPlayerStage({
           aria-expanded={isKeypadOpen}
           title="Channel number keypad"
         >
-          <Hash aria-hidden="true" />
+          <Grid3x3 aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -332,6 +332,24 @@ export function TVPlayerStage({
           {isImmersive ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
         </button>
       </div>
+
+      {/* The collapsed panel leaves this tab behind: pinned to the far left, a little below the top of
+          the viewport, and never hidden with the control rows, so the panel can always be brought back
+          with a pointer or a remote. */}
+      {isImmersive && (
+        <button
+          type="button"
+          data-tv-item
+          data-tv-key="panel-tab"
+          className="tv-panel-tab"
+          onClick={onToggleImmersive}
+          aria-label="Show channel panel"
+          title="Show channel panel"
+        >
+          <ChevronRight aria-hidden="true" />
+          <span className="tv-panel-tab-label">Channels</span>
+        </button>
+      )}
 
       {channel && canPlay && (
         <>
@@ -352,36 +370,19 @@ export function TVPlayerStage({
               <span className="tv-info-category">{channel.categoryName}</span>
             </span>
           </div>
-
-          <div className={cn('tv-player-controls', isIdle && 'tv-hidden')}>
-            <button type="button" data-tv-item data-tv-key="prev-channel" className="tv-control" onClick={() => onStepChannel(-1)} aria-label="Previous channel" title="Previous channel">
-              <ChevronLeft aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              data-tv-item
-              data-tv-key="play-pause"
-              className="tv-control tv-control-primary"
-              onClick={() => transport?.playPause()}
-              disabled={!transport}
-              aria-label={transport?.isPlaying ? 'Pause' : 'Play'}
-              title={transport?.isPlaying ? 'Pause' : 'Play'}
-            >
-              {transport?.isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-            </button>
-            <button type="button" data-tv-item data-tv-key="next-channel" className="tv-control" onClick={() => onStepChannel(1)} aria-label="Next channel" title="Next channel">
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </div>
         </>
       )}
 
-      {/* The keypad is an overlay of the same stage, so opening it never touches the player. */}
+      {/* The keypad is an overlay of the same stage, so opening it never touches the player. A digit the
+          remote sent from elsewhere in the shell is forwarded to it, so the pad stays the only owner of
+          the entered number. */}
       {isKeypadOpen && (
         <TVChannelKeypad
           resolveChannelNumber={resolveChannelNumber}
           onTune={onTuneChannel}
           onClose={onCloseKeypad}
+          digitRequest={digitRequest}
+          onDigitRequestHandled={onDigitRequestHandled}
         />
       )}
     </section>

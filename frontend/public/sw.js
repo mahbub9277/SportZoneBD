@@ -59,7 +59,9 @@ const describeMatchAlert = (data) => {
   }
   return {
     title: data.title ? `SportZoneBD · ${data.title}` : 'SportZoneBD',
-    body: `${describeKickoff(data)}${describeCompetition(data)}${data.body ?? ''}`,
+    // The push-only body names the two real teams; when the match has no stored team names the
+    // notification falls back to the same text the in-app toast shows.
+    body: `${describeKickoff(data)}${describeCompetition(data)}${data.pushBody || data.body || ''}`,
   }
 }
 

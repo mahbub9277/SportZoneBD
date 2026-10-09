@@ -5,7 +5,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '../../../components/ui/Input'
 import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
-import { ImagePlus, Loader2, PlusCircle, MinusCircle, X, ChevronDown, Sparkles } from 'lucide-react'
+import { ImagePlus, Loader2, PlusCircle, MinusCircle, X, ChevronDown, Sparkles, Trash2 } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/Select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/Popover'
 import { useGetAdminChannelsQuery } from '../../../features/admin/channels.api'
@@ -16,6 +16,16 @@ import { useParseMatchMutation, type ParsedMatchDetails } from '../../../feature
 import { formatMatchDateTimeInput, parseMatchDateTime } from '../../../utils/matchDateTime'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { countDescriptionCharacters } from '../../../utils/descriptionLength'
+import { cn } from '../../../lib/utils'
+import {
+  STREAM_SOURCE_TYPE_OPTIONS,
+  STREAM_STATUS_CHIP_CLASS,
+  STREAM_STATUS_LABELS,
+  STREAM_STATUS_OPTIONS,
+  streamSourceTypeLabel,
+  type StreamStatusValue,
+} from './streamFormFields'
 
 // This type is now comprehensive, matching MatchManagementPage.tsx's schema
 export type CreateMatchFormValues = {
@@ -58,6 +68,9 @@ const flatFormItemClass = 'space-y-2 border-0 bg-transparent p-0 shadow-none hov
 const sectionClass = 'min-w-0 space-y-4 rounded-3xl border border-(--border)/80 bg-linear-to-br from-(--surface-soft)/85 via-(--surface-soft)/55 to-(--surface) p-4 shadow-[0_18px_45px_rgba(2,6,23,0.12)] sm:p-5'
 const inputClass = 'min-h-11 border-(--border) bg-(--surface)/75 shadow-inner shadow-black/5 transition-colors placeholder:text-(--text-muted)/70 focus:border-(--accent)/60 focus:ring-2 focus:ring-(--accent)/15'
 const teamLogoTransform = { width: 128, height: 128, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const }
+
+/** The match-summary length the AI panel measures and the server enforces. */
+const MATCH_DESCRIPTION_RANGE = { min: 80, max: 100 } as const
 
 function useLogoPreview(value: File | string | null | undefined) {
   const preview = useMemo(() => {
@@ -150,6 +163,8 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
     return channel.name.toLowerCase().includes(search) || channel.id.toLowerCase().includes(search)
   })
   const selectedChannel = adminChannels.find((channel) => channel.id === selectedChannelId)
+  const streamName = form.watch(`streams.${streamIndex}.name`)
+  const streamStatus = form.watch(`streams.${streamIndex}.status`) ?? 'READY'
   const { fields: backupUrlFields, append: appendBackupUrl, remove: removeBackupUrl } = useFieldArray({
     control: form.control,
     name: `streams.${streamIndex}.backupUrls` as never,
@@ -157,6 +172,35 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
 
   return (
     <div className="mb-4 w-full min-w-0 space-y-4 rounded-3xl border border-(--border)/80 bg-linear-to-br from-(--surface-soft) to-(--surface) p-4 shadow-[0_16px_40px_rgba(2,6,23,0.12)] sm:p-5">
+      {/* The card opens with what this stream is and how it currently stands, so the fields below read
+          as one record instead of a wall of inputs. */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--border)/70 pb-3">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-(--accent)/30 bg-(--accent)/10 text-xs font-bold text-(--accent)">
+          {streamIndex + 1}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-(--text-primary)">{streamName?.trim() || 'New stream'}</p>
+          <p className="truncate text-xs text-(--text-muted)">
+            {streamSourceTypeLabel(sourceType)}{selectedChannel ? ` · ${selectedChannel.name}` : ''}
+          </p>
+        </div>
+        <span className={cn('shrink-0 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]', STREAM_STATUS_CHIP_CLASS[streamStatus as StreamStatusValue])}>
+          {STREAM_STATUS_LABELS[streamStatus as StreamStatusValue]}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => removeStream(streamIndex)}
+          disabled={isLoading}
+          aria-label={`Remove stream ${streamIndex + 1}`}
+          title="Remove stream"
+          className="shrink-0 text-(--text-muted) hover:text-red-600 dark:hover:text-red-400"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField control={form.control} name={`streams.${streamIndex}.name`} render={({ field }) => (
           <FormItem><FormLabel>Channel name</FormLabel><FormControl><Input placeholder="Sportzfy Sports HD" {...field} /></FormControl><FormMessage /></FormItem>
@@ -165,7 +209,7 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
           <FormItem><FormLabel>Channel logo</FormLabel><FormControl><div className="flex items-center gap-2">
             {logo ? <img src={logo} alt="Channel logo preview" className="h-10 w-10 rounded-lg border border-border object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground"><ImagePlus className="h-4 w-4" /></div>}
             <Button type="button" variant="outline" size="sm" onClick={() => setIsMediaLibraryOpen(true)} disabled={isLoading}><ImagePlus className="h-4 w-4" />Library</Button>
-            {onLogoUpload && <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary hover:border-accent/40 hover:text-accent">
+            {onLogoUpload && <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary transition hover:border-accent/40 hover:text-accent focus-within:ring-2 focus-within:ring-accent/40 focus-within:outline-none">
               {isUploadingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
               {isUploadingLogo ? 'Uploading...' : logo ? 'Change' : 'Upload'}
               <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={isUploadingLogo} onChange={(event) => { const file = event.target.files?.[0]; if (file) onLogoUpload(file); event.currentTarget.value = '' }} />
@@ -187,8 +231,7 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
-                <SelectItem value="DIRECT_URL">Direct URL</SelectItem>
-                <SelectItem value="CHANNEL">Existing Channel</SelectItem>
+                {STREAM_SOURCE_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <FormMessage />
@@ -220,7 +263,7 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
                       <button
                         key={channel.id}
                         type="button"
-                        className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left hover:border-accent/40 hover:bg-accent/5"
+                        className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left hover:border-accent/40 hover:bg-accent/5 focus-visible:border-accent/60 focus-visible:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                         onClick={() => {
                           field.onChange(channel.id)
                           setChannelPickerOpen(false)
@@ -320,10 +363,7 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
-                <SelectItem value="READY">Ready</SelectItem>
-                <SelectItem value="LIVE">Live</SelectItem>
-                <SelectItem value="OFFLINE">Offline</SelectItem>
-                <SelectItem value="ERROR">Error</SelectItem>
+                {STREAM_STATUS_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <FormMessage />
@@ -358,9 +398,6 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
         </Button>
       </div>
 
-      <Button type="button" variant="destructive" size="sm" onClick={() => removeStream(streamIndex)} className="w-full" disabled={isLoading}>
-        Remove Stream
-      </Button>
       {isMediaLibraryOpen && <MediaLibraryModal mediaType="LOGO" onCancel={() => setIsMediaLibraryOpen(false)} onConfirm={(media: MediaAsset) => { form.setValue(`streams.${streamIndex}.logo`, media.url, { shouldDirty: true, shouldValidate: true }); setIsMediaLibraryOpen(false) }} />}
     </div>
   )
@@ -486,8 +523,12 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
       toast.error('Paste or describe the match before using AI autofill.')
       return
     }
+    // The sport and competition the administrator has already chosen are sent with the text, so the
+    // parser reads a basketball or tennis fixture with that sport's vocabulary instead of football's.
+    const selectedSport = form.getValues('sport') ?? null
+    const selectedCompetition = form.getValues('title')?.trim() || null
     try {
-      const result = await parseMatch({ input: trimmedInput }).unwrap()
+      const result = await parseMatch({ input: trimmedInput, sport: selectedSport, tournamentName: selectedCompetition }).unwrap()
       setLastResult(result)
       applyResult(result)
     } catch (error) {
@@ -532,6 +573,28 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
             <div className="rounded-lg border border-border/70 bg-surface/45 p-2"><span className="text-[10px] uppercase tracking-wide text-text-muted">Sport / stream</span><p className="mt-1 wrap-break-word font-medium text-text-primary">{lastResult.sport || 'Needs review'}{lastResult.primaryStreamUrl ? ` · ${lastResult.quality || 'stream found'}` : ' · No stream found'}</p></div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[10px] text-text-muted"><span className="rounded-full bg-success-soft px-2 py-0.5 text-success">{Object.values(lastResult.confidence).filter((level) => level === 'high').length} high-confidence</span>{reviewCount > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{reviewCount} review item{reviewCount === 1 ? '' : 's'}</span>}{lastResult.warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">{lastResult.warnings.length} note{lastResult.warnings.length === 1 ? '' : 's'}</span>}</div>
+          {/* The summary is composed from the parsed values on the server, so it only ever restates what
+              was extracted. It is inside the match-description range by construction, or absent. */}
+          <div className="rounded-lg border border-border/70 bg-surface/45 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-text-muted">Match summary · {MATCH_DESCRIPTION_RANGE.min}–{MATCH_DESCRIPTION_RANGE.max} characters</span>
+              {lastResult.description && (
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(lastResult.description ?? '')}
+                  className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-text-secondary transition-colors hover:border-accent/50 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Copy
+                </button>
+              )}
+            </div>
+            <p className="mt-1 wrap-break-word font-medium text-text-primary">
+              {lastResult.description ?? 'No truthful summary of this length could be written from the extracted details.'}
+            </p>
+            {lastResult.description && (
+              <p className="mt-1 text-[10px] text-text-muted">{countDescriptionCharacters(lastResult.description)} characters, counted on the visible text.</p>
+            )}
+          </div>
         </div>
       )}
     </section>

@@ -24,6 +24,7 @@ import type { IconType } from 'react-icons'
 import { Popover, PopoverTrigger, PopoverContent } from '../../components/ui/Popover'
 import { toast } from 'sonner'
 import { cn } from '../../lib/utils'
+import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useGetAdUnlockQuery, useGetInterstitialAdvertisementQuery } from '../../features/admin/advertisements.api'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { formatMatchKickoff } from '../../utils/matchDateTime'
@@ -31,7 +32,7 @@ import { getMatchCompetitionName } from '../../features/matches/matchCompetition
 import { useCountdown } from '../../hooks/useCountdown'
 import { useResourceViewerCount } from '../../hooks/useResourceViewerCount'
 import { useGetPublicSiteSettingsQuery } from '../../features/settings/siteSettings.api'
-import { LIVE_BADGE_CLASS, LIVE_DOT_CLASS, formatViewerCount } from '../../utils/liveStatus'
+import { LIVE_BADGE_CLASS, LIVE_DOT_CLASS, MATCH_STATUS_BADGE_CLASS, MATCH_STATUS_DOT_CLASS, formatViewerCount, matchStatusTone } from '../../utils/liveStatus'
 
 export function MatchPage() {
   const { id } = useParams<{ id: string }>()
@@ -71,6 +72,8 @@ export function MatchPage() {
   const effectivePreStartEnabled = match?.preStartEnabled !== false
   const effectivePreStartWindowMinutes = match?.preStartWindowMinutes ?? globalPreStartWindowMinutes
   const [preStartVideoFailed, setPreStartVideoFailed] = useState(false)
+  /** The stream whose logo failed to load, so the next stream still gets its own logo. */
+  const [failedStreamLogoId, setFailedStreamLogoId] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(() => Date.now())
   const availableStreams = useMemo(
     () =>
@@ -382,8 +385,17 @@ export function MatchPage() {
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  {selectedStream.logo ? (
-                    <img src={selectedStream.logo} alt={selectedStream.name ?? 'Stream logo'} className="h-10 w-10 rounded-full object-cover ring-1 ring-border" />
+                  {selectedStream.logo && failedStreamLogoId !== selectedStream.id ? (
+                    <img
+                      src={buildCloudinaryUrl(selectedStream.logo, { width: 80, height: 80, crop: 'fill', gravity: 'auto' })}
+                      alt={selectedStream.name ?? 'Stream logo'}
+                      loading="lazy"
+                      decoding="async"
+                      // A stream whose logo is gone falls back to the icon instead of a broken image,
+                      // and the note is keyed on the stream so the next one still gets its logo.
+                      onError={() => setFailedStreamLogoId(selectedStream.id)}
+                      className="h-10 w-10 rounded-full object-cover ring-1 ring-border"
+                    />
                   ) : (
                     <motion.div className="flex h-10 w-10 items-center justify-center rounded-full bg-(--accent)/10 text-(--accent)">
                       <Server className="h-4 w-4" />
@@ -414,9 +426,9 @@ export function MatchPage() {
                   </motion.div>
                   {formatMatchKickoff(match.kickoffAt)}
                 </span>
-                <span className={cn('flex items-center gap-1.5 rounded-md border px-2.5 py-1', match.status === 'LIVE' ? LIVE_BADGE_CLASS : match.status === 'FINISHED' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
-                  <span className={cn('h-2 w-2 rounded-full', match.status === 'LIVE' ? `motion-safe:animate-pulse ${LIVE_DOT_CLASS}` : match.status === 'FINISHED' ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
-                  {match.status === 'LIVE' ? `LIVE · ${matchTimer.elapsedFormatted}` : match.status}
+                <span className={cn('flex items-center gap-1.5 rounded-md border px-2.5 py-1', MATCH_STATUS_BADGE_CLASS[matchStatusTone(match.status)])}>
+                  <span className={cn('h-2 w-2 rounded-full', MATCH_STATUS_DOT_CLASS, matchStatusTone(match.status) === 'LIVE' ? 'motion-safe:animate-pulse' : '')} aria-hidden="true" />
+                  {matchStatusTone(match.status) === 'LIVE' ? `LIVE · ${matchTimer.elapsedFormatted}` : matchStatusTone(match.status)}
                 </span>
               </div>
             </div>

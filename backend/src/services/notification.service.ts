@@ -22,6 +22,8 @@ export const MATCH_PUSH_SELECT = {
   title: true,
   kickoffAt: true,
   tournamentName: true,
+  homeTeamName: true,
+  awayTeamName: true,
   homeTeamLogo: true,
   awayTeamLogo: true,
 } satisfies Prisma.MatchSelect

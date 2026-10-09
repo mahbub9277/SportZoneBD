@@ -6,6 +6,8 @@ import { matchParseResultSchema } from './description.validator.js'
 import { getGeminiClient, getGeminiModelChain, getProviderCategory, getProviderStatus } from './gemini.client.js'
 import { extractMatchContext, mergeMatchExtraction, type ResolvedTeam } from './matchParser.js'
 import { pickLegacyTeamLogo, pickReconciledTeam, teamLookupKeys } from './teamReconciliation.js'
+import { countDescriptionCharacters, fitDescriptionToLengthRange, type DescriptionLengthRange } from './descriptionLength.js'
+import { composeMatchDescription } from './matchDescription.js'
 
 /**
  * AI-assisted admin content.
@@ -32,6 +34,8 @@ const contextFields: Record<DescriptionRequest['entityType'], string[]> = {
   EMAIL_NOTIFICATION: ['targetAudience', 'enabled', 'link'],
   PUSH_NOTIFICATION: ['targetAudience', 'enabled', 'link'],
   WEBSITE_SETTINGS: ['siteTitle', 'tagline', 'settingKey'],
+  /** A match summary: the fixture the administrator has already filled in, for the AI to describe. */
+  MATCH: ['sport', 'competition', 'homeTeam', 'awayTeam', 'kickoff', 'round', 'isPremium'],
 }
 
 const cleanContext = (request: DescriptionRequest) => Object.fromEntries(
@@ -57,6 +61,9 @@ const buildPrompt = (request: DescriptionRequest) => {
     `Verified context: ${context}.`,
     `Language: ${request.language}. ${languageInstruction}`,
     `Tone: ${request.tone}. Keep the wording appropriate for a sports platform.`,
+    request.length
+      ? `Length: the finished description must be at least ${request.length.min} and at most ${request.length.max} characters long. Count the visible text only, and stay inside that range without filler.`
+      : '',
     'Generate a concise, natural description for this exact entity and context.',
     'Use only supplied information. Do not invent facts, people, teams, dates, statistics, rights, URLs, features, benefits, or claims.',
     'Do not generate a match summary, recap, analysis, commentary, score, or result summary.',
@@ -243,8 +250,13 @@ const buildMatchPrompt = (
   `Server date/time: ${serverContext.now}. Current date: ${serverContext.date}. Day: ${serverContext.dayOfWeek}. Business timezone: ${serverContext.timezone}. Interpret relative dates such as tomorrow using this context.`,
   `Always return timezone as ${serverContext.timezone}. Return kickoffDate and kickoffTime as Bangladesh local values in YYYY-MM-DD and HH:mm 24-hour format. Understand Bangla terms such as আজ, কাল, আগামীকাল, রাত, সকাল, দুপুর, and বিকাল, plus Banglish equivalents.`,
   'Return round as an integer matchday or league round number only when it is explicitly stated; use null for a missing round and for knockout stages such as Round of 16.',
-  'Infer sport only when teams, players, competition, or context makes it sufficiently clear. Otherwise return sport null and warn that sport could not be determined confidently.',
-  'Use null for missing or uncertain fields. For expected duration, use football 120 or cricket 240 only when the sport is explicit or confidently inferred; use null for tennis, motorsports, or unknown sports.',
+  request.sport
+    ? `The administrator has already selected the sport ${request.sport}. Read the input with that sport's own vocabulary${sportGuidance(request.sport)}, and only return a different sport when the input contradicts it with certainty.`
+    : 'The administrator has not selected a sport yet, so infer it from the vocabulary: wickets, overs, innings, toss, batting, bowling or an eleven point to cricket; goals, penalties, offside, an XI or a manager point to football; quarters, rebounds, dunks or three-pointers point to basketball; sets, aces, breaks or doubles point to tennis; laps, grid, pole, circuit, drivers or constructors point to motorsport; a championship belt, a card, or wrestlers point to professional wrestling. Otherwise return sport null and warn that it could not be determined confidently.',
+  request.sport ? sportDurationGuidance(request.sport) : 'Use null for expected duration unless the sport and its format are both clear, then use that sport\'s usual length (cricket 240, football 120, basketball 150, tennis 180, motorsport 180, wrestling 180 minutes). Do not apply a football default to another sport.',
+  request.tournamentName
+    ? `The competition already typed in the form is "${request.tournamentName}". When the input names the same competition, return that spelling rather than a paraphrase; never return a second, different competition.`
+    : 'Return tournamentName exactly as the competition is named in the input; use null when no competition is named.',
   'Extract quality only when explicitly written as a value such as 720p, 1080p, or 4K. Never infer quality from a URL, filename, hostname, provider, CDN, or m3u8 extension.',
   'Set autoFinish or preStartEnabled only when explicitly stated; otherwise use null. Add a short warning when a date/time is inferred or a duration is defaulted.',
   'Never return team logos, team identifiers, or image URLs.',
@@ -255,6 +267,46 @@ const buildMatchPrompt = (
   request.input.replace(/https?:\/\/[^\s<>"']+/gi, '[STREAM_URL_REMOVED]'),
   'ADMIN_INPUT>>>',
 ].join('\n')
+
+/** The vocabulary and formats that belong to one sport, so the prompt never assumes football. */
+function sportGuidance(sport: MatchParseRequest['sport']): string {
+  switch (sport) {
+    case 'CRICKET':
+      return ' (overs, innings, wickets, toss, batting order, a Test, ODI or T20 format, and a competition such as a World Cup or a bilateral series)'
+    case 'FOOTBALL':
+      return ' (goals, penalties, offside, an XI, a manager, league matchdays and knockout ties)'
+    case 'BASKETBALL':
+      return ' (quarters, rebounds, dunks, three-pointers, and a franchise or national team matchup)'
+    case 'TENNIS':
+      return ' (sets, aces, breaks, seeds, singles or doubles, and a tournament round such as the quarter-finals)'
+    case 'MOTORSPORTS':
+      return ' (laps, grid, pole position, a circuit, drivers and constructors, and a race weekend session such as practice, qualifying or the race)'
+    case 'WWE':
+      return ' (a championship belt, a card, a pay-per-view, and named performers rather than teams)'
+    default:
+      return ''
+  }
+}
+
+/** The expected running time for a sport, stated for that sport only. */
+function sportDurationGuidance(sport: MatchParseRequest['sport']): string {
+  switch (sport) {
+    case 'CRICKET':
+      return 'For expected duration in cricket, use 240 minutes for a one-day innings-per-side match and 180 for a T20 when the format is clear; otherwise use null.'
+    case 'FOOTBALL':
+      return 'For expected duration in football, use 120 minutes when the format is clear; otherwise use null.'
+    case 'BASKETBALL':
+      return 'For expected duration in basketball, use 150 minutes when the format is clear; otherwise use null.'
+    case 'TENNIS':
+      return 'For expected duration in tennis, use 180 minutes when the format is clear; otherwise use null.'
+    case 'MOTORSPORTS':
+      return 'For expected duration in motorsport, use 180 minutes when the session is stated; otherwise use null.'
+    case 'WWE':
+      return 'For expected duration in professional wrestling, use 180 minutes when the event is stated; otherwise use null.'
+    default:
+      return 'Use null for expected duration unless the sport and its format are both clear.'
+  }
+}
 
 export async function parseMatchDetails(request: MatchParseRequest): Promise<MatchParseResult> {
   const client = getGeminiClient()
@@ -304,7 +356,28 @@ export async function parseMatchDetails(request: MatchParseRequest): Promise<Mat
     })
 
     logger.info({ operation: 'match_parse', model: suggestion.model, durationMs: Date.now() - startedAt }, 'AI match autofill succeeded')
-    return matchParseResultSchema.parse(merged)
+
+    // The one-line summary is composed from the merged result, never from the model's prose, so it can
+    // only ever restate values the administrator wrote or the server resolved.
+    const summary = composeMatchDescription({
+      sport: merged.sport,
+      tournamentName: merged.tournamentName,
+      homeTeamName: merged.homeTeamName,
+      awayTeamName: merged.awayTeamName,
+      kickoffLabel: merged.kickoffDate && merged.kickoffTime ? `${merged.kickoffDate} ${merged.kickoffTime}` : null,
+      round: merged.round,
+      durationMinutes: merged.expectedDurationMinutes,
+      quality: merged.quality,
+      preStartWindowMinutes: merged.preStartEnabled ? merged.preStartWindowMinutes : null,
+    })
+
+    return matchParseResultSchema.parse({
+      ...merged,
+      description: summary.description,
+      warnings: summary.warning && merged.warnings.length < 8
+        ? [...merged.warnings, summary.warning]
+        : merged.warnings,
+    })
   } catch (error) {
     if (error instanceof AppError) {
       if (/empty response/i.test(error.message)) throw new AppError(502, 'AI returned an empty match suggestion.')
@@ -327,6 +400,7 @@ export async function generateDescription(request: DescriptionRequest): Promise<
 
   const prompt = buildPrompt(request)
   const startedAt = Date.now()
+  const range: DescriptionLengthRange | null = request.length ?? null
 
   logger.info({ entityType: request.entityType, models: client.modelChain }, 'AI description generation requested')
 
@@ -338,10 +412,39 @@ export async function generateDescription(request: DescriptionRequest): Promise<
       maxOutputTokens: 400,
     })
 
-    const description = text.replace(/^['"“”]+|['"“”]+$/g, '').trim()
+    let description = text.replace(/^['"“”]+|['"“”]+$/g, '').trim()
     if (!description) throw new AppError(502, 'AI returned an empty description.')
 
-    logger.info({ entityType: request.entityType, model, durationMs: Date.now() - startedAt }, 'AI description generation succeeded')
+    if (range) {
+      // Shortening a whole trailing sentence is safe and costs no second model call; anything else is
+      // handed back to the model once, because padding or mid-sentence truncation would change meaning.
+      let check = fitDescriptionToLengthRange(description, range)
+      if (!check.inRange) {
+        logger.info({ entityType: request.entityType, length: check.length, reason: check.reason }, 'AI description did not meet the requested length; asking for one correction')
+        const correction = await client.generate({
+          contents: [
+            prompt,
+            '',
+            `Your previous answer was ${check.length} characters long and is not acceptable.`,
+            `Rewrite it so the visible text is between ${range.min} and ${range.max} characters.`,
+            'Keep every fact you used, change nothing else, and do not pad the text to reach the limit.',
+            `Previous answer: ${check.text}`,
+          ].join('\n'),
+          systemInstruction: DESCRIPTION_SYSTEM_INSTRUCTION,
+          temperature: 0.3,
+          maxOutputTokens: 400,
+        })
+        const corrected = correction.text.replace(/^['"“”]+|['"“”]+$/g, '').trim()
+        check = fitDescriptionToLengthRange(corrected || description, range)
+      }
+
+      if (!check.inRange) {
+        throw new AppError(422, `The AI description must be between ${range.min} and ${range.max} characters; the last answer was ${check.length}. Please try again.`)
+      }
+      description = check.text
+    }
+
+    logger.info({ entityType: request.entityType, model, durationMs: Date.now() - startedAt, length: countDescriptionCharacters(description) }, 'AI description generation succeeded')
     return description
   } catch (error) {
     if (error instanceof AppError) {

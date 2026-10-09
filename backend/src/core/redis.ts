@@ -64,11 +64,99 @@ const createRedisClient = () => {
     logger.info({ provider: 'primary' }, 'Connected to Redis')
   })
 
-  client.on('error', (err: Error) => {
-    logger.error({ provider: 'primary', code: getRedisErrorCode(err) }, 'Redis connection error')
-  })
+  attachRedisClientLogging(client, 'primary')
 
   return client
+}
+
+/**
+ * How often one client may repeat its connection-error line before the repeats are summarised.
+ *
+ * A flapping provider emits one connection error per reconnection attempt; without a bound the same
+ * failure would dominate the log for as long as the outage lasts. The suppressed count keeps the
+ * frequency visible in the next line, so throttling never hides that an outage is ongoing.
+ */
+const REDIS_ERROR_LOG_INTERVAL_MS = 30_000
+
+/** The minimal logger surface these lifecycle helpers need; injectable so they stay testable. */
+export interface RedisLifecycleLogger {
+  info(fields: Record<string, unknown>, message: string): void
+  warn(fields: Record<string, unknown>, message: string): void
+  error(fields: Record<string, unknown>, message: string): void
+}
+
+/**
+ * Attaches bounded, structured connection logging to any ioredis-like client.
+ *
+ * The Socket.IO adapter instantiates its own pub/sub clients, and one of them printing
+ * "missing 'error' handler on this Redis client" to the console is the only sign the adapter is
+ * unhealthy. This gives every client the same structured line, an error code, its connection status
+ * and a recovery line, while keeping the log bounded during an outage.
+ */
+export function attachRedisClientLogging(client: any, label: string, log: RedisLifecycleLogger = logger): void {
+  if (typeof client?.on !== 'function') return
+
+  let lastLoggedAt = 0
+  let suppressed = 0
+
+  client.on('error', (error: unknown) => {
+    const now = Date.now()
+    if (now - lastLoggedAt < REDIS_ERROR_LOG_INTERVAL_MS) {
+      suppressed += 1
+      return
+    }
+    log.error({
+      provider: label,
+      code: getRedisErrorCode(error),
+      status: typeof client.status === 'string' ? client.status : 'unknown',
+      suppressedSinceLastLog: suppressed,
+    }, 'Redis connection error')
+    suppressed = 0
+    lastLoggedAt = now
+  })
+
+  client.on('ready', () => {
+    if (lastLoggedAt === 0 && suppressed === 0) return
+    log.info({ provider: label, suppressedDuringOutage: suppressed }, 'Redis connection restored')
+    suppressed = 0
+    lastLoggedAt = 0
+  })
+}
+
+/**
+ * Closes a Redis client without assuming it can still write.
+ *
+ * `quit()` is only safe while the client is connected: ioredis rejects it with "Stream isn't
+ * writeable and enableOfflineQueue options is false" as soon as the socket is gone, which is exactly
+ * the failure a shutdown during a Redis outage hits. A client that cannot be quit gracefully is
+ * disconnected instead, and a close failure is reported but never allowed to abort the shutdown
+ * sequence or mask which step failed.
+ */
+export async function closeRedisClientSafely(client: any, label: string, log: RedisLifecycleLogger = logger): Promise<void> {
+  if (!client) return
+
+  try {
+    if (typeof client.quit !== 'function') {
+      client.disconnect?.()
+      return
+    }
+
+    if (client.status === 'ready') {
+      await client.quit()
+      log.info({ provider: label }, 'Redis client disconnected')
+      return
+    }
+
+    client.disconnect?.()
+    log.info({ provider: label, status: typeof client.status === 'string' ? client.status : 'unknown' }, 'Redis client disconnected without a graceful quit')
+  } catch (error) {
+    try {
+      client.disconnect?.()
+    } catch {
+      // The client is already gone; there is nothing left to release.
+    }
+    log.warn({ provider: label, code: getRedisErrorCode(error) }, 'Redis client could not be quit; disconnected instead')
+  }
 }
 
 export const isRedisConfigured = Boolean(primaryRedisUrl)
@@ -110,10 +198,59 @@ const redisFailover = new RedisFailoverManager<any>({
 
 const runCacheCommand = <Result>(operation: (client: any) => Promise<Result>) => redisFailover.execute(operation)
 
+/**
+ * Bounded accounting of the value bytes the cache client moves.
+ *
+ * A command count alone cannot say whether Redis traffic came from a few large values or many small
+ * ones, and Upstash does not break bandwidth down per command. These counters add up the value sizes
+ * seen by the cache client and emit one summary every few hundred commands — no timer, no per-command
+ * log line, no values, and only the key's path (never its query string, never user data). The largest
+ * value seen is reported so an oversized payload can be named instead of guessed at.
+ */
+const REDIS_ACCOUNTING_INTERVAL_COMMANDS = 500
+const REDIS_ACCOUNTING_MAX_KEY_LENGTH = 120
+const redisAccounting = { commands: 0, readBytes: 0, writeBytes: 0, largestValueBytes: 0, largestValueKey: '' }
+
+/** Characters are a good proxy for bytes here: the cached payloads are ASCII JSON. */
+const approximateBytes = (value: unknown): number => (typeof value === 'string' ? value.length : 0)
+
+function accountRedisCommand(key: unknown, bytes: number, direction: 'read' | 'write'): void {
+  redisAccounting.commands += 1
+  if (direction === 'read') redisAccounting.readBytes += bytes
+  else redisAccounting.writeBytes += bytes
+
+  if (bytes > redisAccounting.largestValueBytes) {
+    redisAccounting.largestValueBytes = bytes
+    const path = typeof key === 'string' ? key.split('?')[0] : ''
+    redisAccounting.largestValueKey = path.length > REDIS_ACCOUNTING_MAX_KEY_LENGTH ? `${path.slice(0, REDIS_ACCOUNTING_MAX_KEY_LENGTH)}…` : path
+  }
+
+  if (redisAccounting.commands % REDIS_ACCOUNTING_INTERVAL_COMMANDS !== 0) return
+
+  logger.info({ ...redisAccounting, windowCommands: REDIS_ACCOUNTING_INTERVAL_COMMANDS }, 'Redis cache byte accounting')
+  redisAccounting.commands = 0
+  redisAccounting.readBytes = 0
+  redisAccounting.writeBytes = 0
+  redisAccounting.largestValueBytes = 0
+  redisAccounting.largestValueKey = ''
+}
+
 export const cacheRedis = {
-  get: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.get(...args)),
-  mget: (...args: any[]): Promise<(string | null)[]> => runCacheCommand<(string | null)[]>((client) => client.mget(...args)),
-  set: (...args: any[]): Promise<string | null> => runCacheCommand<string | null>((client) => client.set(...args)),
+  async get(...args: any[]): Promise<string | null> {
+    const value = await runCacheCommand<string | null>((client) => client.get(...args))
+    accountRedisCommand(args[0], approximateBytes(value), 'read')
+    return value
+  },
+  async mget(...args: any[]): Promise<(string | null)[]> {
+    const values = await runCacheCommand<(string | null)[]>((client) => client.mget(...args))
+    accountRedisCommand(args[0], values.reduce((total, value) => total + approximateBytes(value), 0), 'read')
+    return values
+  },
+  async set(...args: any[]): Promise<string | null> {
+    const result = await runCacheCommand<string | null>((client) => client.set(...args))
+    accountRedisCommand(args[0], approximateBytes(args[1]), 'write')
+    return result
+  },
   eval: (...args: unknown[]): Promise<number> => runCacheCommand<number>((client) => client.eval(...args)),
   del: (...args: any[]): Promise<number> => runCacheCommand<number>((client) => client.del(...args)),
   sunion: (...args: any[]): Promise<string[]> => runCacheCommand<string[]>((client) => client.sunion(...args)),
@@ -125,10 +262,20 @@ export const cacheRedis = {
       expire(...args: unknown[]) { commands.push(['expire', args]); return pipeline },
       del(...args: unknown[]) { commands.push(['del', args]); return pipeline },
       exec() {
+        // The cache writes large values through the pipeline, so its `set` commands are the write side
+        // of the same accounting the single-command path reports.
+        const writeBytes = commands.reduce((total, [command, args]) => (
+          command === 'set' ? total + approximateBytes(args[1]) : total
+        ), 0)
+        const firstSetKey = commands.find(([command]) => command === 'set')?.[1][0]
+
         return runCacheCommand((client) => {
           const activePipeline = client.pipeline()
           for (const [command, args] of commands) activePipeline[command](...args)
           return activePipeline.exec()
+        }).then((result) => {
+          accountRedisCommand(firstSetKey, writeBytes, 'write')
+          return result
         })
       },
     }
@@ -142,13 +289,8 @@ export function getPrimaryRedisStatus(): string {
 
 export async function closeRedisFailoverClients(): Promise<void> {
   redisFailover.stop()
-  await Promise.all(backupClients.map(async (client: any, index) => {
-    if (!backupUrls[index]) return
-    try {
-      if (client.status === 'ready') await client.quit()
-      else client.disconnect()
-    } catch {
-      client.disconnect()
-    }
+  await Promise.all(backupClients.map((client: any, index) => {
+    if (!backupUrls[index]) return Promise.resolve()
+    return closeRedisClientSafely(client, `backup-${index + 1}`)
   }))
 }

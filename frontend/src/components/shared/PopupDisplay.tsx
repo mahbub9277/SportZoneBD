@@ -80,6 +80,9 @@ export function PopupDisplay() {
   };
 
   const popupImage = currentPopup?.imageUrl ? buildCloudinaryUrl(currentPopup.imageUrl, POPUP_IMAGE_TRANSFORM) : null;
+  // Keyed on the popup so a failed image never leaks into the next popup's render.
+  const [failedImagePopupId, setFailedImagePopupId] = useState<string | null>(null);
+  const showImage = Boolean(popupImage) && failedImagePopupId !== currentPopup?.id;
 
   return (
     <Dialog open={currentPopup !== null} onOpenChange={(isOpen) => { if (!isOpen) dismissPopup(); }}>
@@ -87,14 +90,17 @@ export function PopupDisplay() {
         {/* Keyed so each popup animates in, and animated on the inner wrapper so it cannot override
             the dialog's own centering transform. */}
         <div key={currentPopup?.id ?? 'popup'} className="app-page-card">
-          {popupImage && (
+          {showImage && (
             <div className="relative">
               <img
-                src={popupImage}
+                src={popupImage ?? undefined}
                 alt={currentPopup?.title ?? ''}
                 loading="eager"
                 fetchPriority="high"
                 decoding="async"
+                // A broken or deleted asset is dropped once and the dialog closes up around it, so the
+                // visitor never sees a stuck image slot. No retry: a 404 will not fix itself.
+                onError={() => setFailedImagePopupId(currentPopup?.id ?? null)}
                 className="aspect-video max-h-56 w-full object-cover object-center sm:max-h-80"
               />
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-linear-to-t from-(--surface) to-transparent" />

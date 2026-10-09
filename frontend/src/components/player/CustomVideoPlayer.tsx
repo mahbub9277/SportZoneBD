@@ -63,6 +63,11 @@ const resolveMediaElement = (candidate: unknown): HTMLMediaElement | null => {
 
 export interface CustomVideoPlayerProps {
   url?: string | null
+  /**
+   * The id of a **stream** record. It is the only thing that enables the manifest proxy
+   * (`/api/v1/stream/proxy`), which resolves it against the stream table, so a channel or match id
+   * must never be passed here — those play `url` directly and are identified by `channelId`/`matchId`.
+   */
   streamId?: string
   presenceId?: string
   presenceType?: 'stream' | 'channel' | 'match'

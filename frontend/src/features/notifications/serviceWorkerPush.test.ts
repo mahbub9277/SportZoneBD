@@ -173,6 +173,27 @@ test('an unknown competition is left out of the body', async () => {
   assert.equal(shown.options.body, `Kick-off ${localKickoff} · Santos FC vs CR Flamengo starts soon! Tap to watch live.`)
 })
 
+test('the push-only body is preferred when the payload carries real team names', async () => {
+  const [shown] = await loadServiceWorker().deliver({
+    ...reminderPayload,
+    // The shared body can be a hand-written match title; the push-only body always names both teams.
+    body: 'Brasileirão night double-header starts soon! Tap to watch live.',
+    homeTeamName: 'Santos FC',
+    awayTeamName: 'CR Flamengo',
+    pushBody: 'Santos FC vs CR Flamengo starts soon! Tap to watch live.',
+  })
+
+  assert.equal(
+    shown.options.body,
+    `Kick-off ${localKickoff} · Campeonato Brasileiro Série A · Santos FC vs CR Flamengo starts soon! Tap to watch live.`,
+  )
+})
+
+test('a payload without a push-only body keeps the shared text', async () => {
+  const [shown] = await loadServiceWorker().deliver({ ...reminderPayload, pushBody: undefined, homeTeamName: null })
+  assert.ok(shown.options.body?.endsWith('Santos FC vs CR Flamengo starts soon! Tap to watch live.'))
+})
+
 test('a long competition name is capped so the text stays readable', async () => {
   const [shown] = await loadServiceWorker().deliver({ ...reminderPayload, competition: 'x'.repeat(200) })
 

@@ -80,6 +80,11 @@ function TVModeExperience() {
   const [isAutoTuneOpen, setAutoTuneOpen] = useState(false)
   /** Bumped to ask the player stage to show the channel popup again, including for the same channel. */
   const [infoRequest, setInfoRequest] = useState(0)
+  /**
+   * Digits the remote sent while the keypad was not focused. The pad stays the owner of the entered
+   * number; the page only forwards the keypress, and `seq` makes each one exactly-once.
+   */
+  const [digitRequest, setDigitRequest] = useState<{ value: string; seq: number } | null>(null)
 
   /** Either overlay takes focus for as long as it is open; the shell stops managing it until it closes. */
   const isOverlayOpen = isKeypadOpen || isAutoTuneOpen
@@ -293,6 +298,25 @@ function TVModeExperience() {
     transportRef.current?.playPause()
   }, [])
 
+  /**
+   * A digit pressed on a remote anywhere in the shell.
+   *
+   * The keypad owns the number, so the digit is forwarded to it exactly once: the pad opens if it was
+   * closed and appends otherwise. While the Auto Tune overlay owns the stage a digit is ignored, so a scan
+   * can never be interrupted by a stray keypress.
+   */
+  const handleDigitKey = useCallback((digit: string) => {
+    if (isAutoTuneOpen) return
+    setKeypadOpen(true)
+    setDigitRequest((previous) => ({ value: digit, seq: (previous?.seq ?? 0) + 1 }))
+  }, [isAutoTuneOpen])
+
+  /**
+   * The pad reports every digit it applied, and the page then forgets it. A closed pad is unmounted, so
+   * without this the last digit of a previous entry would be replayed the next time it opens.
+   */
+  const handleDigitRequestHandled = useCallback(() => setDigitRequest(null), [])
+
   const handleTransportReady = useCallback((transport: TVTransport | null) => {
     transportRef.current = transport
     // Real playback again means the failure is over: nothing pending is still worth doing, and the
@@ -308,6 +332,7 @@ function TVModeExperience() {
     onBack: handleBack,
     onChannelStep: stepChannel,
     onTogglePlayback: togglePlayback,
+    onDigitKey: handleDigitKey,
     preferredKey: selectedChannelId ? `channel:${selectedChannelId}` : null,
     listVersion: `${activeCategoryId}|${query}|${visibleChannels.length}`,
     // An open overlay owns focus; the shell must not pull it back on a channel change underneath.
@@ -455,9 +480,11 @@ function TVModeExperience() {
         activeCategoryId={activeCategoryId}
         query={query}
         isPremiumSubscriber={isPremiumSubscriber}
+        autoTuneStatus={autoTune.status}
         onEnterPlayerView={enterPlayerView}
         onExit={handleExit}
         onRefresh={handleRefresh}
+        onStartAutoTune={openAutoTune}
         onSelectCategory={setActiveCategoryId}
         onQueryChange={setQuery}
         onSelectChannel={selectChannel}
@@ -468,11 +495,11 @@ function TVModeExperience() {
         isPremiumLocked={Boolean(selectedChannel?.isPremium) && !isPremiumSubscriber}
         isImmersive={isImmersive}
         isKeypadOpen={isKeypadOpen}
-        autoTuneStatus={autoTune.status}
         infoRequest={infoRequest}
+        digitRequest={digitRequest}
+        onDigitRequestHandled={handleDigitRequestHandled}
         onToggleImmersive={() => setImmersive((immersive) => !immersive)}
         onToggleKeypad={toggleKeypad}
-        onToggleAutoTune={openAutoTune}
         onCloseKeypad={closeKeypad}
         onTuneChannel={tuneFromKeypad}
         resolveChannelNumber={resolveChannelNumber}

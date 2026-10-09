@@ -593,6 +593,8 @@ export function mergeMatchExtraction({
     preStartWindowMinutes: aiResult.preStartWindowMinutes,
     primaryStreamUrl: context.url,
     quality: context.quality,
+    // The one-line summary is composed where the merged values are known, after this function returns.
+    description: null,
     confidence: {
       ...aiResult.confidence,
       ...(home ? { homeTeamName: home.id ? 'high' as const : aiResult.confidence.homeTeamName ?? 'medium' } : {}),

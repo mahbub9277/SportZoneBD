@@ -29,6 +29,21 @@ export interface TVCategory {
 
 export const TV_ALL_CATEGORY_ID = 'all'
 
+/** A four-digit entry covers every realistic catalogue without letting the display grow unbounded. */
+export const MAX_CHANNEL_DIGITS = 4
+
+/**
+ * Appends one typed digit to a channel number.
+ *
+ * Used by both entry paths — the keypad's own keys and a digit pressed on a remote while the pad is
+ * closed — so the two can never disagree about the buffer, the length cap or what counts as a digit.
+ */
+export function appendChannelDigit(current: string, digit: string): string {
+  if (!/^[0-9]$/.test(digit)) return current
+  if (current.length >= MAX_CHANNEL_DIGITS) return current
+  return current + digit
+}
+
 /** Formats a channel number the way the TV list shows it (`#01`). */
 export function formatChannelNumber(number: number): string {
   return `#${String(number).padStart(2, '0')}`

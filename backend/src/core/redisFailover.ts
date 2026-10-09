@@ -28,14 +28,22 @@ export function getRedisErrorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code.slice(0, 64) : undefined
 }
 
-function isRedisProviderFailure(error: unknown): boolean {
+/**
+ * True when a failure means "the Redis provider is currently unreachable, slow or refusing work" as
+ * opposed to "this command was wrong".
+ *
+ * It is used for two decisions: whether the failover manager should treat the active provider as
+ * unhealthy, and whether an escaped rejection is an availability event (degraded service, keep
+ * serving) rather than a programming error (fatal). Both need the same, single definition.
+ */
+export function isRedisProviderFailure(error: unknown): boolean {
   const code = getRedisErrorCode(error)
   if (code && /^(ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EPIPE|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN)$/i.test(code)) {
     return true
   }
 
   const message = error instanceof Error ? error.message : String(error)
-  return /(connection (?:closed|lost|refused|reset)|timed? ?out|timeout|quota|rate.?limit|too many (?:requests|commands)|(?:requests?|commands?)\s+per\s+(?:second|minute|day)|max(?:imum)?\s+(?:daily\s+)?(?:requests?|commands?)|limit (?:reached|exceeded)|request limit|temporarily unavailable|provider unavailable|command limit|\boom\b)/i.test(message)
+  return /(connection (?:closed|lost|refused|reset)|timed? ?out|timeout|quota|rate.?limit|too many (?:requests|commands)|(?:requests?|commands?)\s+per\s+(?:second|minute|day)|max(?:imum)?\s+(?:daily\s+)?(?:requests?|commands?)|limit (?:reached|exceeded)|request limit|temporarily unavailable|provider unavailable|command limit|\boom\b|stream isn't writeable|not writable|connection is closed)/i.test(message)
 }
 
 export class RedisFailoverManager<Client extends PingableClient> {

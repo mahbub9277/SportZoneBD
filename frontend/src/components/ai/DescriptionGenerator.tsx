@@ -3,6 +3,7 @@ import { Sparkles, Loader2, Languages } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../ui/Button'
 import { useGenerateDescriptionMutation, type AiEntityType } from '../../features/ai/ai.api'
+import { countDescriptionCharacters, isDescriptionWithinRange } from '../../utils/descriptionLength'
 
 interface DescriptionGeneratorProps {
   entityType: AiEntityType
@@ -14,9 +15,11 @@ interface DescriptionGeneratorProps {
   disabled?: boolean
   language?: 'auto' | 'en' | 'bn' | 'banglish'
   tone?: 'professional' | 'concise' | 'friendly'
+  /** When set, the generated text has to satisfy this range; it is enforced on both sides. */
+  length?: { min: number; max: number }
 }
 
-export function DescriptionGenerator({ entityType, title, subtitle, context, currentDescription, onGenerated, disabled = false, language = 'auto', tone = 'professional' }: DescriptionGeneratorProps) {
+export function DescriptionGenerator({ entityType, title, subtitle, context, currentDescription, onGenerated, disabled = false, language = 'auto', tone = 'professional', length }: DescriptionGeneratorProps) {
   const [generateDescription, { isLoading }] = useGenerateDescriptionMutation()
   const [selectedLanguage, setSelectedLanguage] = useState(language)
   const hasContext = Object.values(context ?? {}).some((value) => value !== null && value !== undefined && String(value).trim() !== '')
@@ -28,14 +31,20 @@ export function DescriptionGenerator({ entityType, title, subtitle, context, cur
     }
     if (currentDescription?.trim() && !window.confirm('Replace the existing description with a generated version?')) return
     try {
-      const result = await generateDescription({ entityType, title: normalizedTitle, subtitle: subtitle?.trim(), context, language: selectedLanguage, tone }).unwrap()
+      const result = await generateDescription({ entityType, title: normalizedTitle, subtitle: subtitle?.trim(), context, language: selectedLanguage, tone, ...(length ? { length } : {}) }).unwrap()
       const description = result.description.trim()
       if (!description) {
         toast.error('AI returned an empty description. Please try again.')
         return
       }
+      // The server enforces the range; this is the same rule applied again so an out-of-range result can
+      // never reach the field, whatever the round trip returned.
+      if (length && !isDescriptionWithinRange(description, length)) {
+        toast.error(`The generated description is ${countDescriptionCharacters(description)} characters, outside the ${length.min}–${length.max} range. Please try again.`)
+        return
+      }
       onGenerated(description)
-      toast.success('Description generated. Review it before saving.')
+      toast.success(length ? `Description generated (${countDescriptionCharacters(description)} characters). Review it before saving.` : 'Description generated. Review it before saving.')
     } catch {
       toast.error('AI description generation failed. Please try again.')
     }
@@ -43,7 +52,7 @@ export function DescriptionGenerator({ entityType, title, subtitle, context, cur
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="hidden text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted sm:inline">{hasContext ? 'Context ready' : 'AI assist'}</span>
+      <span className="hidden text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted sm:inline">{length ? `${length.min}–${length.max} characters` : hasContext ? 'Context ready' : 'AI assist'}</span>
       <label className="sr-only" htmlFor={`ai-language-${entityType}`}>AI output language</label>
       <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-surface-soft/60 px-2">
         <Languages className="h-3.5 w-3.5 text-accent" aria-hidden="true" />

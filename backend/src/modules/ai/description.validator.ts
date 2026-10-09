@@ -1,7 +1,18 @@
 import { z } from 'zod'
+import { checkDescriptionLength } from './descriptionLength.js'
+import { MATCH_DESCRIPTION_RANGE } from './matchDescription.js'
+
+/**
+ * The length rule a caller may ask for. The bounds stay inside what a description field can hold, and
+ * the minimum is never above the maximum, so a request can only ask for a range that is satisfiable.
+ */
+export const descriptionLengthSchema = z.object({
+  min: z.number().int().min(40).max(400),
+  max: z.number().int().min(40).max(400),
+}).refine((range) => range.min < range.max, 'The minimum length must be below the maximum length.')
 
 export const descriptionRequestSchema = z.object({
-  entityType: z.enum(['EVENT', 'CHANNEL', 'BANNER', 'SUBSCRIPTION_PLAN', 'ADVERTISEMENT', 'CATEGORY', 'ROLE', 'REPORT', 'POPUP', 'EMAIL_NOTIFICATION', 'PUSH_NOTIFICATION', 'WEBSITE_SETTINGS']),
+  entityType: z.enum(['EVENT', 'CHANNEL', 'BANNER', 'SUBSCRIPTION_PLAN', 'ADVERTISEMENT', 'CATEGORY', 'ROLE', 'REPORT', 'POPUP', 'EMAIL_NOTIFICATION', 'PUSH_NOTIFICATION', 'WEBSITE_SETTINGS', 'MATCH']),
   title: z.string().trim().min(1).max(160),
   subtitle: z.string().trim().max(500).optional().default(''),
   context: z.record(z.unknown()).optional().default({}).refine(
@@ -10,12 +21,18 @@ export const descriptionRequestSchema = z.object({
   ),
   language: z.enum(['auto', 'en', 'bn', 'banglish']).default('auto'),
   tone: z.enum(['professional', 'concise', 'friendly']).default('professional'),
+  /** Optional character range the generated text has to satisfy, using the shared counting rule. */
+  length: descriptionLengthSchema.optional(),
 })
 
 export type DescriptionRequest = z.infer<typeof descriptionRequestSchema>
 
 export const matchParseRequestSchema = z.object({
   input: z.string().trim().min(5, 'Match details are required.').max(2000),
+  /** The sport already chosen in the form, so the parser reads the input with the right vocabulary. */
+  sport: z.enum(['CRICKET', 'FOOTBALL', 'BASKETBALL', 'TENNIS', 'MOTORSPORTS', 'WWE']).nullable().optional().default(null),
+  /** The competition already typed in the form, used to keep the parse consistent with it. */
+  tournamentName: z.string().trim().max(255).nullable().optional().default(null),
 })
 
 export const matchParseResultSchema = z.object({
@@ -40,6 +57,17 @@ export const matchParseResultSchema = z.object({
   quality: z.string().trim().max(32).nullable(),
   confidence: z.record(z.enum(['high', 'medium', 'low'])),
   warnings: z.array(z.string().trim().min(1).max(240)).max(8),
+  /**
+   * The one-line match summary shown with the suggestion. It is composed from the parsed values, and
+   * when it is present it always satisfies the shared 80–100 character rule.
+   */
+  description: z.string().trim()
+    .refine(
+      (value) => checkDescriptionLength(value, MATCH_DESCRIPTION_RANGE).inRange,
+      'A generated match description must be between 80 and 100 characters.',
+    )
+    .nullable()
+    .default(null),
 })
 
 export type MatchParseRequest = z.infer<typeof matchParseRequestSchema>

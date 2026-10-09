@@ -16,11 +16,11 @@ import { apiRouter } from './routes/index.js'
 import './core/passport.js'
 import { corsOptions } from './config/cors.js'
 import { matchAutomationService } from './services/matchAutomation.service.js'
-import { setIoInstance, initializeSocketHandlers, getIoInstance, setSocketClusterAdapterEnabled } from './core/socketManager.js'
+import { setIoInstance, initializeSocketHandlers, getIoInstance, setSocketClusterAdapterEnabled, setSocketBroadcastGuard } from './core/socketManager.js'
 import { createAdapter } from '@socket.io/redis-adapter'
-import { closeRedisFailoverClients, getPrimaryRedisStatus, isRedisConfigured, redis } from './core/redis.js'
+import { attachRedisClientLogging, closeRedisClientSafely, closeRedisFailoverClients, getPrimaryRedisStatus, isRedisConfigured, redis } from './core/redis.js'
 import { isMultiInstanceDeployment } from './config/deployment.js'
-import { getRedisErrorCode } from './core/redisFailover.js'
+import { getRedisErrorCode, isRedisProviderFailure } from './core/redisFailover.js'
 import { startNotificationWorker } from './core/notificationQueue.js'
 import { prisma } from './core/prisma.js'
 
@@ -219,6 +219,11 @@ async function bootstrap(): Promise<void> {
       try {
         pubClient = redis.duplicate()
         subClient = redis.duplicate()
+        // The adapter only warns on the console when a client has no 'error' handler of its own, which
+        // leaves an adapter outage unlabelled in the logs; attach the same bounded structured logging
+        // the cache client uses.
+        attachRedisClientLogging(pubClient, 'socket-adapter-pub')
+        attachRedisClientLogging(subClient, 'socket-adapter-sub')
         await Promise.all([waitForRedisReady(pubClient), waitForRedisReady(subClient)])
         await Promise.all([pubClient.ping(), subClient.ping()])
         io.adapter(createAdapter(pubClient, subClient))
@@ -239,6 +244,11 @@ async function bootstrap(): Promise<void> {
     // Viewer counts are read from room membership, which only spans instances while the Redis
     // adapter is installed; without it the process-local membership map is the complete answer.
     setSocketClusterAdapterEnabled(redisAdapterEnabled)
+    // ioredis only accepts a command while its connection is 'ready' (`publish` is rejected outright
+    // on a non-writable stream with enableOfflineQueue disabled), so every broadcast is gated on that
+    // status. Without the gate a transient Redis blip makes the adapter publish fail, and that
+    // rejection escapes as an unhandled rejection.
+    setSocketBroadcastGuard(() => !redisAdapterEnabled || pubClient?.status === 'ready')
 
     // Centralize all socket event handling
     initializeSocketHandlers(io)
@@ -320,29 +330,30 @@ async function bootstrap(): Promise<void> {
     }
 
     try {
-      // Close Socket.IO Redis adapter clients
-      if (pubClient) {
-        await pubClient.quit()
-        logger.info('Socket.IO pub client disconnected.')
-      }
-      if (subClient) {
-        await subClient.quit()
-        logger.info('Socket.IO sub client disconnected.')
-      }
+      // Close Socket.IO Redis adapter clients. Each client is closed independently: a client that is
+      // already disconnected cannot be quit gracefully, and one failing close must not skip the other
+      // client or mask which step failed.
+      await closeRedisClientSafely(pubClient, 'socket-adapter-pub')
+      pubClient = null
+      await closeRedisClientSafely(subClient, 'socket-adapter-sub')
+      subClient = null
     } catch (error) {
-      logger.error(error, 'Error closing Socket.IO Redis adapter clients.')
+      logger.error({ code: getRedisErrorCode(error) }, 'Error closing Socket.IO Redis adapter clients.')
     }
 
     try {
       const { prisma } = await import('./core/prisma.js')
       await prisma.$disconnect()
       logger.info('Prisma client disconnected.')
-      const { redis } = await import('./core/redis.js')
-      await closeRedisFailoverClients()
-      await redis.quit()
-      logger.info('Redis client disconnected.')
     } catch (error) {
-      logger.error(error, 'Error during resource cleanup.')
+      logger.error({ code: getRedisErrorCode(error) }, 'Error disconnecting the Prisma client.')
+    }
+
+    try {
+      await closeRedisFailoverClients()
+      await closeRedisClientSafely(redis, 'primary')
+    } catch (error) {
+      logger.error({ code: getRedisErrorCode(error) }, 'Error during Redis cleanup.')
     }
 
     process.exit(0)
@@ -360,10 +371,34 @@ async function bootstrap(): Promise<void> {
     void shutdown(context)
   }
 
+  /**
+   * An escaped rejection is normally fatal: an unexpected promise chain is a bug worth a restart.
+   *
+   * A Redis availability failure is the exception. The Socket.IO adapter ignores the promise its own
+   * `publish` returns, so when the provider refuses the write the rejection reaches this handler with
+   * no application bug behind it — and restarting the service is what turned a Redis hiccup into a
+   * production outage. It is reported at error level with the provider state, and the process keeps
+   * serving the requests that do not need Redis (channel lists, match data, HLS proxying).
+   */
+  const handleUnhandledRejection = (reason: unknown) => {
+    if (isRedisProviderFailure(reason)) {
+      logger.error({
+        context: 'Unhandled rejection',
+        code: getRedisErrorCode(reason),
+        message: (reason instanceof Error ? reason.message : String(reason)).slice(0, 300),
+        redisStatus: getPrimaryRedisStatus(),
+        socketAdapterInstalled: Boolean(pubClient),
+      }, 'Redis provider failure escaped an async handler; continuing in degraded mode')
+      return
+    }
+
+    handleFatalError(reason, 'Unhandled rejection')
+  }
+
   process.on('SIGINT', () => void shutdown('SIGINT'))
   process.on('SIGTERM', () => void shutdown('SIGTERM'))
   process.on('uncaughtException', (error) => handleFatalError(error, 'Uncaught exception'))
-  process.on('unhandledRejection', (reason) => handleFatalError(reason, 'Unhandled rejection'))
+  process.on('unhandledRejection', (reason) => handleUnhandledRejection(reason))
 }
 
 void bootstrap().catch((error) => {

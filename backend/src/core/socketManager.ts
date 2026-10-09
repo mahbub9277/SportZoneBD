@@ -7,6 +7,7 @@ import type { Server, Socket } from 'socket.io'
 import logger from './logger.js'
 import { verifyAccessToken } from './auth.js'
 import { prisma } from './prisma.js'
+import { getRedisErrorCode } from './redisFailover.js'
 import {
   clearUnavailableViewerCount,
   forgetViewerCount,
@@ -90,6 +91,101 @@ export function setSocketClusterAdapterEnabled(enabled: boolean): void {
 }
 
 /**
+ * Tells this module whether a broadcast can currently reach Redis.
+ *
+ * With the Redis adapter installed every broadcast is published through the adapter's own pub client,
+ * and that client rejects the publish outright while its connection is not writable
+ * (`enableOfflineQueue: false`). The adapter ignores that rejection, so it escapes as an unhandled
+ * rejection — which this process treats as fatal. Gating broadcasts on the client's own writability
+ * therefore keeps a Redis outage from becoming an application outage, and matches the existing
+ * semantics: viewer counts are change-gated values that are re-sent on the next membership change, so
+ * a skipped update is coalesced rather than queued or retried.
+ */
+let adapterPublishable: (() => boolean) | null = null
+
+export function setSocketBroadcastGuard(isPublishable: () => boolean): void {
+  adapterPublishable = isPublishable
+}
+
+/** True while a broadcast can actually be published (no adapter, or a writable adapter client). */
+export function isSocketBroadcastAvailable(): boolean {
+  if (!ioInstance) return false
+  if (!adapterPublishable) return true
+  try {
+    return adapterPublishable()
+  } catch {
+    return false
+  }
+}
+
+/** Bounded, privacy-safe description of a socket/Redis failure for the log line. */
+function describeSocketError(error: unknown): { code?: string; errorType: string; message: string } {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown socket error'
+  return {
+    code: getRedisErrorCode(error),
+    errorType: error instanceof Error ? error.name : typeof error,
+    message: message.slice(0, 300),
+  }
+}
+
+/**
+ * Runs a broadcast without letting a Redis outage escape as an unhandled rejection.
+ *
+ * Returns whether the emit was dispatched. A skipped broadcast is reported once per event name (see
+ * `logSkippedBroadcast`) so an outage is visible without logging every viewer.
+ */
+function dispatchBroadcast(label: string, action: () => void): boolean {
+  if (!isSocketBroadcastAvailable()) {
+    logSkippedBroadcast(label)
+    return false
+  }
+
+  try {
+    action()
+    return true
+  } catch (error) {
+    logger.error({ label, ...describeSocketError(error) }, 'Socket.IO broadcast failed')
+    return false
+  }
+}
+
+/**
+ * Skipped broadcasts are summarised per event name at most once a minute: a Redis outage skips every
+ * broadcast, and one line per event is enough to see it without drowning the log.
+ */
+const SKIPPED_BROADCAST_LOG_INTERVAL_MS = 60_000
+const skippedBroadcastLogs = new Map<string, { at: number; count: number }>()
+
+function logSkippedBroadcast(label: string): void {
+  const now = Date.now()
+  const entry = skippedBroadcastLogs.get(label)
+  if (entry && now - entry.at < SKIPPED_BROADCAST_LOG_INTERVAL_MS) {
+    entry.count += 1
+    return
+  }
+  logger.warn({ label, skippedSinceLastLog: entry?.count ?? 0 }, 'Socket.IO broadcast skipped because the Redis adapter client is not writable')
+  skippedBroadcastLogs.set(label, { at: now, count: 0 })
+  if (skippedBroadcastLogs.size > 50) {
+    for (const [key, value] of skippedBroadcastLogs) {
+      if (now - value.at > SKIPPED_BROADCAST_LOG_INTERVAL_MS) skippedBroadcastLogs.delete(key)
+    }
+  }
+}
+
+/**
+ * Runs an async socket event handler and turns any rejection into a logged failure.
+ *
+ * Socket.IO does not await handlers registered with `socket.on`, so a rejected promise from one would
+ * otherwise escape the process entirely. Rejections are reported with the event name, the error class
+ * and its Redis code, but never swallowed silently.
+ */
+export function runSocketEventHandler(label: string, task: () => Promise<unknown>): void {
+  void task().catch((error) => {
+    logger.error({ event: label, ...describeSocketError(error) }, 'Socket event handler failed')
+  })
+}
+
+/**
  * True only while more than one Socket.IO server shares the adapter. A single instance keeps using
  * the process-local membership map, which costs no Redis commands at all; a real cluster resolves
  * rooms through the adapter that is already installed (no presence keys, no polling).
@@ -138,13 +234,15 @@ async function emitLiveViewerCount(totalLiveViewers: number | null, mode: Viewer
     if (totalLiveViewersUnavailable) return
     totalLiveViewersUnavailable = true
     forgetViewerCount('total')
-    ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: null })
+    const deliveredToAdmins = dispatchBroadcast('liveViewersUpdate', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: null }))
+    if (!deliveredToAdmins) rollbackSkippedEmit('total', true)
     return
   }
   totalLiveViewersUnavailable = false
   const count = Number.isFinite(totalLiveViewers) && totalLiveViewers > 0 ? Math.floor(totalLiveViewers) : 0
   if (!shouldEmitViewerCount('total', count, mode)) return
-  ioInstance.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: count })
+  const delivered = dispatchBroadcast('liveViewersUpdate', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('liveViewersUpdate', { totalLiveViewers: count }))
+  if (!delivered) rollbackSkippedEmit('total', false)
 }
 
 /**
@@ -197,7 +295,7 @@ export function emitAutomationStatusUpdate(data: AutomationStatus): void {
     logger.warn('Socket.IO instance not available for emitAutomationStatusUpdate.')
     return
   }
-  ioInstance.to(ADMIN_ROOM).emit('automationStatusUpdate', data)
+  dispatchBroadcast('automationStatusUpdate', () => ioInstance!.to(ADMIN_ROOM).emit('automationStatusUpdate', data))
 }
 
 /** Emits an automation metrics update to all clients in the admin room. */
@@ -206,7 +304,7 @@ export function emitAutomationMetricsUpdate(metrics: AutomationMetrics): void {
     logger.warn('Socket.IO instance not available for emitAutomationMetricsUpdate.')
     return
   }
-  ioInstance.to(ADMIN_ROOM).emit('automationMetricsUpdate', metrics)
+  dispatchBroadcast('automationMetricsUpdate', () => ioInstance!.to(ADMIN_ROOM).emit('automationMetricsUpdate', metrics))
 }
 
 /** Emits a new automation log entry to all clients in the admin room. */
@@ -215,7 +313,19 @@ export function emitAutomationLogEntry(logEntry: AutomationLog): void {
     logger.warn('Socket.IO instance not available for emitAutomationLogEntry.')
     return
   }
-  ioInstance.to(ADMIN_ROOM).emit('automationLogEntry', logEntry)
+  dispatchBroadcast('automationLogEntry', () => ioInstance!.to(ADMIN_ROOM).emit('automationLogEntry', logEntry))
+}
+
+/**
+ * Undoes the emit bookkeeping when nothing was actually published.
+ *
+ * A skipped broadcast must not be remembered as delivered, otherwise the next event for the same scope
+ * would be suppressed as a duplicate and the client would keep showing a stale count until an
+ * unrelated membership change forced a new value.
+ */
+function rollbackSkippedEmit(scope: string, wasUnavailable: boolean): void {
+  forgetViewerCount(scope)
+  if (wasUnavailable) clearUnavailableViewerCount(scope)
 }
 
 /** Emits a viewer count update to a specific channel room; returns true when it was broadcast. */
@@ -231,8 +341,10 @@ export function emitViewerCountUpdate(channelId: string, count: number | null, m
     clearUnavailableViewerCount(scope)
     if (!shouldEmitViewerCount(scope, count, mode)) return false
   }
-  ioInstance.to(channelId).emit('viewerCountUpdate', { channelId, count })
-  return true
+
+  const delivered = dispatchBroadcast('viewerCountUpdate', () => ioInstance!.to(channelId).emit('viewerCountUpdate', { channelId, count }))
+  if (!delivered) rollbackSkippedEmit(scope, count === null)
+  return delivered
 }
 
 export function emitResourceViewerCountUpdate(kind: ViewerResourceKind, resourceId: string, count: number | null, mode: ViewerCountEmitMode = 'force'): boolean {
@@ -244,13 +356,15 @@ export function emitResourceViewerCountUpdate(kind: ViewerResourceKind, resource
     clearUnavailableViewerCount(scope)
     if (!shouldEmitViewerCount(scope, count, mode)) return false
   }
-  ioInstance.to(scope).emit('resourceViewerCountUpdate', { kind, resourceId, count })
-  return true
+
+  const delivered = dispatchBroadcast('resourceViewerCountUpdate', () => ioInstance!.to(scope).emit('resourceViewerCountUpdate', { kind, resourceId, count }))
+  if (!delivered) rollbackSkippedEmit(scope, count === null)
+  return delivered
 }
 
 export function emitStreamUpdated(payload: { streamId?: string; channelId?: string; source: 'primary' | 'backup'; version: string }): void {
   if (!ioInstance) return
-  ioInstance.emit('stream:updated', payload)
+  dispatchBroadcast('stream:updated', () => ioInstance!.emit('stream:updated', payload))
 }
 
 /** Emits a resource creation event to all admins in the admin room. */
@@ -259,7 +373,7 @@ export function emitAdminResourceCreated(type: string, id: string, data: Record<
     logger.warn('Socket.IO instance not available for emitAdminResourceCreated.')
     return
   }
-  ioInstance.of('/admin').to(ADMIN_ROOM).emit('adminResourceCreated', { type, id, data })
+  dispatchBroadcast('adminResourceCreated', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('adminResourceCreated', { type, id, data }))
 }
 
 /** Emits a resource update event to all admins in the admin room. */
@@ -268,7 +382,7 @@ export function emitAdminResourceUpdated(type: string, id: string, data: Record<
     logger.warn('Socket.IO instance not available for emitAdminResourceUpdated.')
     return
   }
-  ioInstance.of('/admin').to(ADMIN_ROOM).emit('adminResourceUpdated', { type, id, data })
+  dispatchBroadcast('adminResourceUpdated', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('adminResourceUpdated', { type, id, data }))
 }
 
 /** Emits a resource deletion event to all admins in the admin room. */
@@ -277,15 +391,17 @@ export function emitAdminResourceDeleted(type: string, id: string): void {
     logger.warn('Socket.IO instance not available for emitAdminResourceDeleted.')
     return
   }
-  ioInstance.of('/admin').to(ADMIN_ROOM).emit('adminResourceDeleted', { type, id })
+  dispatchBroadcast('adminResourceDeleted', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('adminResourceDeleted', { type, id }))
 }
 
 export function emitMatchStatusUpdated(payload: { id: string; status: string; finishedAt?: Date | null }): void {
-  ioInstance?.emit('matchStatusUpdated', payload)
+  if (!ioInstance) return
+  dispatchBroadcast('matchStatusUpdated', () => ioInstance!.emit('matchStatusUpdated', payload))
 }
 
 export function emitUserNotification(userId: string, payload: Parameters<ServerToClientEvents['notificationCreated']>[0]): void {
-  ioInstance?.to(`user:${userId}`).emit('notificationCreated', payload)
+  if (!ioInstance) return
+  dispatchBroadcast('notificationCreated', () => ioInstance!.to(`user:${userId}`).emit('notificationCreated', payload))
 }
 
 /**
@@ -295,8 +411,20 @@ export function emitUserNotification(userId: string, payload: Parameters<ServerT
  * All recipients are targeted with a single room-set broadcast to avoid per-user adapter traffic.
  */
 export function emitTransientNotification(userIds: string[], payload: Parameters<ServerToClientEvents['notificationTransient']>[0]): void {
-  if (userIds.length === 0) return
-  ioInstance?.to(userIds.map((userId) => `user:${userId}`)).emit('notificationTransient', payload)
+  if (userIds.length === 0 || !ioInstance) return
+  dispatchBroadcast('notificationTransient', () => ioInstance!.to(userIds.map((userId) => `user:${userId}`)).emit('notificationTransient', payload))
+}
+
+/** An admin setting change is only a UI hint, so it is broadcast through the same guarded path. */
+export function emitApplicationSettingChanged(key: string, value: string): void {
+  if (!ioInstance) return
+  dispatchBroadcast('applicationSettingChanged', () => ioInstance!.emit('applicationSettingChanged', { key, value }))
+}
+
+/** Player health summary for the analytics dashboard, broadcast to admins through the guarded path. */
+export function emitStreamHealthSummary(summary: Record<string, unknown>): void {
+  if (!ioInstance) return
+  dispatchBroadcast('analytics:stream-health', () => ioInstance!.of('/admin').to(ADMIN_ROOM).emit('analytics:stream-health', summary))
 }
 
 /**
@@ -359,7 +487,9 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
     socket.join(ADMIN_ROOM)
     logger.info({ socketId: socket.id, user: (socket as any).user?.id }, 'Admin connected to socket namespace.')
     // A freshly connected admin missed earlier updates, so it always gets the current total once.
-    void getTotalLiveViewers().then((total) => emitLiveViewerCount(total, 'force'))
+    runSocketEventHandler('adminNamespaceConnection', async () => {
+      await emitLiveViewerCount(await getTotalLiveViewers(), 'force')
+    })
   })
 
   io.use((socket, next) => {
@@ -424,45 +554,47 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
       await updateAndEmitViewerCount(resource.kind, resource.resourceId, mode)
     }
 
-    socket.on('joinChannel', async ({ channelId }) => {
+    socket.on('joinChannel', ({ channelId }) => {
       const resource = normalizeViewerResource(channelId, 'channel')
       if (!resource) return
 
-      const targetRoom = viewerRoom(resource)
-      const previousRooms = Array.from(socket.rooms).filter((room) => room !== socket.id && !room.startsWith('user:') && room !== targetRoom)
-      await Promise.all(previousRooms.map((room) => socket.leave(room)))
+      runSocketEventHandler('joinChannel', async () => {
+        const targetRoom = viewerRoom(resource)
+        const previousRooms = Array.from(socket.rooms).filter((room) => room !== socket.id && !room.startsWith('user:') && room !== targetRoom)
+        await Promise.all(previousRooms.map((room) => socket.leave(room)))
 
-      await joinViewerRoom(resource)
+        await joinViewerRoom(resource)
+      })
     })
 
-    socket.on('leaveChannel', async ({ channelId }) => {
+    socket.on('leaveChannel', ({ channelId }) => {
       const resource = normalizeViewerResource(channelId, 'channel')
       if (!resource) return
 
-      await leaveViewerRoom(resource)
+      runSocketEventHandler('leaveChannel', () => leaveViewerRoom(resource))
     })
 
-    socket.on('joinStream', async ({ streamId, kind }) => {
+    socket.on('joinStream', ({ streamId, kind }) => {
       const resource = normalizeViewerResource(streamId, kind)
       if (!resource) return
 
-      await joinViewerRoom(resource)
+      runSocketEventHandler('joinStream', () => joinViewerRoom(resource))
     })
 
-    socket.on('leaveStream', async ({ streamId, kind }) => {
+    socket.on('leaveStream', ({ streamId, kind }) => {
       const resource = normalizeViewerResource(streamId, kind)
       if (!resource) return
 
-      await leaveViewerRoom(resource)
+      runSocketEventHandler('leaveStream', () => leaveViewerRoom(resource))
     })
 
     // Kept for clients that still send the previous 60s heartbeat. Socket.IO's own connection
     // lifecycle already handles liveness, so this only re-asserts membership and costs no I/O.
-    socket.on('viewerHeartbeat', async ({ streamId, kind }) => {
+    socket.on('viewerHeartbeat', ({ streamId, kind }) => {
       const resource = normalizeViewerResource(streamId, kind)
       if (!resource || socket.rooms.has(viewerRoom(resource))) return
 
-      await joinViewerRoom(resource)
+      runSocketEventHandler('viewerHeartbeat', () => joinViewerRoom(resource, 'onChange'))
     })
 
     // Rooms are still populated while 'disconnecting' runs but already cleaned up by 'disconnect',
@@ -474,10 +606,18 @@ export function initializeSocketHandlers(io: Server<ClientToServerEvents, Server
         .filter((resource): resource is ViewerResource => resource !== null)
     })
 
+    // Disconnect cleanup is the last chance to correct a viewer count, so a failing re-count here must
+    // never escape: it runs while the socket is already gone and has no caller to report to.
     socket.on('disconnect', () => {
       const resources = departingViewerResources
       departingViewerResources = []
-      for (const resource of resources) void updateAndEmitViewerCount(resource.kind, resource.resourceId)
+      if (resources.length === 0) return
+
+      runSocketEventHandler('disconnect', async () => {
+        for (const resource of resources) {
+          await updateAndEmitViewerCount(resource.kind, resource.resourceId)
+        }
+      })
     })
   })
 }
