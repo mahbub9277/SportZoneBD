@@ -326,8 +326,8 @@ export function TVPlayerStage({
           data-tv-key="panel-visibility"
           className="tv-control"
           onClick={onToggleImmersive}
-          aria-label={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
-          title={isImmersive ? 'Show channel controls' : 'Hide channel controls'}
+          aria-label={isImmersive ? 'Show channel panel' : 'Hide channel panel'}
+          title={isImmersive ? 'Show channel panel' : 'Hide channel panel'}
         >
           {isImmersive ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
         </button>

@@ -5,6 +5,7 @@ import { prisma } from '../../core/prisma.js'
 import { successResponse } from '../../core/api-response.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceUpdated } from '../../core/socketManager.js'
+import { isSiteSettingKey, siteSettings } from '../settings/site-settings.js'
 
 const API_SETTINGS = {
   'api.base_url': {
@@ -63,6 +64,9 @@ const updateSettings = asyncHandler(async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'Use the telemetry status endpoint to change this setting.' })
     }
     if (isApiSettingKey(setting.key) && !API_SETTINGS[setting.key].validate(setting.value)) {
+      return res.status(400).json({ success: false, message: `Invalid value for ${setting.key}.` })
+    }
+    if (isSiteSettingKey(setting.key) && !siteSettings[setting.key].validate(setting.value)) {
       return res.status(400).json({ success: false, message: `Invalid value for ${setting.key}.` })
     }
   }

@@ -29,6 +29,7 @@ type UploadPurpose =
   | 'stream-logo'
   | 'channel-logo'
   | 'channel-category-logo'
+  | 'match-prestart-video'
 
 interface UploadAuthorization {
   asset_folder: string
@@ -62,6 +63,7 @@ function getUploadPurpose(file: File, folder: string | undefined, mediaType: 'BA
     case 'sportzone/stream-logos': return 'stream-logo'
     case 'sportzone/channels': return 'channel-logo'
     case 'sportzone/channel-categories': return 'channel-category-logo'
+    case 'sportzone/match-prestart': return 'match-prestart-video'
     default: return null
   }
 }

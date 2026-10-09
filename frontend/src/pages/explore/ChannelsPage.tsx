@@ -184,15 +184,18 @@ export function ChannelsPage() {
       )}
 
       {orderedCategories.map((category: ChannelCategory) => (
+        // Every section is a grid of blurred, shadowed channel cards. Sections that are off screen are
+        // skipped for layout and paint while the page-entry animation runs, and are rendered as soon as
+        // they scroll into view, so opening the page no longer lays out and paints the whole catalogue.
         <div
           key={category.id}
-          className="space-y-4"
+          className="space-y-4 [content-visibility:auto] [contain-intrinsic-size:auto_1200px]"
         >
           <div
             className="flex min-w-0 items-center gap-3"
           >
             {category.image && (
-              <img src={buildCloudinaryUrl(category.image, { width: 50, height: 50, crop: 'fill' })} alt={category.name} className="h-10 w-10 rounded-xl object-cover border border-(--border) bg-(--surface-soft)" />
+              <img loading="lazy" decoding="async" src={buildCloudinaryUrl(category.image, { width: 50, height: 50, crop: 'fill' })} alt={category.name} className="h-10 w-10 rounded-xl object-cover border border-(--border) bg-(--surface-soft)" />
             )}
             <h2 className="truncate text-2xl font-semibold text-(--text-primary)">{category.name}</h2>
             <span className="ml-auto shrink-0 rounded-full border border-(--border) bg-(--surface-soft)/70 px-2.5 py-1 text-xs font-medium text-(--text-muted)">{category.channels?.length ?? 0}</span>
@@ -208,7 +211,7 @@ export function ChannelsPage() {
                 >
                   <Card className={CHANNEL_CARD_BASE}>
                     <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className={CHANNEL_CARD_LINK}>
-                      <img src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className={CHANNEL_LOGO_CLASS} />
+                      <img loading="lazy" decoding="async" fetchPriority="low" src={buildCloudinaryUrl(channel.logo, { width: 96, height: 96, crop: 'fill' })} alt={`${channel.name} logo`} className={CHANNEL_LOGO_CLASS} />
                       <p className={CHANNEL_NAME_CLASS}>{channel.name}</p>
                       {channel.isPremium && <span className="mt-1 rounded-full bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold text-(--accent)">PREMIUM</span>}
                     </Link>
@@ -238,7 +241,7 @@ export function ChannelsPage() {
                 >
                   <Card className="group flex min-w-0 flex-col gap-4 p-4 transition hover:border-(--accent)/50 sm:flex-row sm:items-center">
                     <Link to={`/watch/${channel.id}`} onClick={(event) => { event.preventDefault(); openChannel(`/watch/${channel.id}`, channel.isPremium === true) }} className="flex min-w-0 flex-1 items-center gap-4">
-                      <img src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })} alt={`${channel.name} logo`} className="h-20 w-20 shrink-0 rounded-2xl border border-(--border) bg-(--surface-soft) p-1 object-contain sm:h-28 sm:w-28 transition-transform duration-200 hover:scale-105" />
+                      <img loading="lazy" decoding="async" fetchPriority="low" src={buildCloudinaryUrl(channel.logo, { width: 120, height: 120, crop: 'fill' })} alt={`${channel.name} logo`} className="h-20 w-20 shrink-0 rounded-2xl border border-(--border) bg-(--surface-soft) p-1 object-contain sm:h-28 sm:w-28 transition-transform duration-200 hover:scale-105" />
                       <div className="min-w-0">
                         <p className="wrap-break-word text-lg font-semibold text-(--text-primary)">{channel.name} {channel.isPremium && <span className="ml-1 inline-flex rounded-full bg-(--accent-soft) px-2 py-0.5 text-xs font-semibold text-(--accent)">PREMIUM</span>}</p>
                         <p className="mt-1 text-sm text-(--text-muted)">{channel.description ?? ''}</p>

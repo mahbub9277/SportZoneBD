@@ -292,7 +292,7 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
 
     if (existingMatch.status !== 'LIVE' && updatedMatch.status === 'LIVE') {
       try {
-        await notifyMatchStarted({ id: updatedMatch.id, title: updatedMatch.title })
+        await notifyMatchStarted(updatedMatch)
       } catch (error) {
         console.error('Failed to broadcast match-start notifications:', error)
       }
@@ -489,7 +489,7 @@ export const updateMatchStatus = asyncHandler(async (req: Request, res: Response
   })
   if (existingMatch.status !== 'LIVE' && updatedMatch.status === 'LIVE') {
     try {
-      await notifyMatchStarted({ id: updatedMatch.id, title: updatedMatch.title })
+      await notifyMatchStarted(updatedMatch)
     } catch (error) {
       console.error('Failed to broadcast match-start notifications:', error)
     }

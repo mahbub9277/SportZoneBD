@@ -6,6 +6,13 @@ import { isRedisConfigured, redis } from './redis.js'
 import { getRedisErrorCode } from './redisFailover.js'
 import logger from './logger.js'
 import { emitUserNotification } from './socketManager.js'
+import {
+  buildPushMessage,
+  isMatchPushDeliveryValid,
+  parseMatchPushLink,
+  type MatchDeliverySnapshot,
+  type MatchPushExtras,
+} from './pushPresentation.js'
 
 export const NOTIFICATION_QUEUE_NAME = 'notification-dispatch'
 const NOTIFICATION_BATCH_SIZE = 100
@@ -24,6 +31,11 @@ export interface NotificationQueuePayload {
   link?: string
   channel?: 'IN_APP' | 'EMAIL' | 'PUSH'
   dedupeKey?: string
+  /**
+   * Presentation for a match push, built once per match by the notification service.
+   * Carrying it here means the worker no longer re-reads the match row for every recipient.
+   */
+  pushMatch?: MatchPushExtras | null
   retrySubscriptionIds?: string[]
   retryAllPushSubscriptions?: boolean
 }
@@ -57,8 +69,80 @@ const queueInstance = hasRedisConnection
 
 let workerInstance: Worker<NotificationQueuePayload> | null = null
 
+/**
+ * Delivery-time match snapshot, cached for a few seconds.
+ *
+ * A broadcast fans out to many recipients and every recipient job needs to know whether its match is
+ * still worth alerting about. A short TTL collapses that into one read per match per window, while a
+ * kickoff or status change still takes effect within the same short window. A miss always re-reads,
+ * so nothing here is authoritative for longer than the TTL.
+ */
+const MATCH_SNAPSHOT_TTL_MS = 30_000
+const MATCH_SNAPSHOT_MAX_ENTRIES = 200
+const matchSnapshotCache = new Map<string, { expiresAt: number; snapshot: MatchDeliverySnapshot | null }>()
+
+async function getMatchSnapshot(matchId: string): Promise<MatchDeliverySnapshot | null> {
+  const cached = matchSnapshotCache.get(matchId)
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.snapshot
+    matchSnapshotCache.delete(matchId)
+  }
+
+  const snapshot = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: { status: true, kickoffAt: true, deletedAt: true },
+  })
+
+  if (matchSnapshotCache.size >= MATCH_SNAPSHOT_MAX_ENTRIES) {
+    const oldestKey = matchSnapshotCache.keys().next().value
+    if (oldestKey !== undefined) matchSnapshotCache.delete(oldestKey)
+  }
+  matchSnapshotCache.set(matchId, { expiresAt: Date.now() + MATCH_SNAPSHOT_TTL_MS, snapshot })
+  return snapshot
+}
+
+/**
+ * Payload for any push that carries no match presentation with it.
+ *
+ * Only reached by a job that was already queued without match extras (for example an in-flight job
+ * across a deploy). It keeps the previous single-icon behaviour instead of dropping the image.
+ */
+async function buildLegacyPushMessage(notification: {
+  id: string
+  title: string
+  body: string
+  type: string
+  link?: string | null
+}): Promise<string> {
+  const matchId = parseMatchPushLink(notification.link)?.matchId
+  const match = matchId
+    ? await prisma.match.findUnique({
+        where: { id: matchId },
+        select: { homeTeamLogo: true, awayTeamLogo: true },
+      })
+    : null
+  const icon = [match?.homeTeamLogo, match?.awayTeamLogo].find((value) => typeof value === 'string' && /^https?:\/\//i.test(value)) ?? null
+
+  return JSON.stringify({
+    title: notification.title,
+    body: notification.body,
+    type: notification.type,
+    link: notification.link ?? '/notifications',
+    notificationId: notification.id,
+    ...(icon ? { icon } : {}),
+  })
+}
+
 async function sendPushNotification(
-  notification: { id: string; userId: string; title: string; body: string; type: string; link?: string | null },
+  notification: {
+    id: string
+    userId: string
+    title: string
+    body: string
+    type: string
+    link?: string | null
+    pushMatch?: MatchPushExtras | null
+  },
   subscriptionIds?: string[],
 ): Promise<string[]> {
   if (!pushConfigured) {
@@ -84,23 +168,16 @@ async function sendPushNotification(
     return []
   }
 
-  const matchId = notification.link?.match(/^\/matches\/([0-9a-f-]{36})$/i)?.[1]
-  const match = matchId
-    ? await prisma.match.findUnique({
-        where: { id: matchId },
-        select: { homeTeamLogo: true, awayTeamLogo: true },
+  const payload = notification.pushMatch
+    ? buildPushMessage({
+        title: notification.title,
+        body: notification.body,
+        type: notification.type,
+        link: notification.link ?? '/notifications',
+        notificationId: notification.id,
+        extras: notification.pushMatch,
       })
-    : null
-  const icon = [match?.homeTeamLogo, match?.awayTeamLogo].find((value) => typeof value === 'string' && /^https?:\/\//i.test(value)) ?? null
-
-  const payload = JSON.stringify({
-    title: notification.title,
-    body: notification.body,
-    type: notification.type,
-    link: notification.link ?? '/notifications',
-    notificationId: notification.id,
-    ...(icon ? { icon } : {}),
-  })
+    : await buildLegacyPushMessage(notification)
 
   const pushResults = await Promise.all(subscriptions.map(async (subscription) => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -171,6 +248,22 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
     ...(payload.link ? { link: payload.link } : {}),
   }
 
+  const pushMatch = payload.pushMatch ?? null
+  if (pushMatch) {
+    // The queue can lag behind the schedule, so a match alert is re-validated when it is actually
+    // delivered. A reminder for a kickoff that moved (or for a match that already started, finished,
+    // was rejected or was removed) is dropped here rather than telling a viewer to tune in at a time
+    // that no longer applies. The replacement reminder has its own identity and is unaffected.
+    const snapshot = await getMatchSnapshot(pushMatch.matchId)
+    if (!isMatchPushDeliveryValid(pushMatch.kind, parseMatchPushLink(payload.link)?.kickoffMarker ?? null, snapshot)) {
+      logger.info(
+        { matchId: pushMatch.matchId, kind: pushMatch.kind, status: snapshot?.status },
+        'Skipped a match push whose kickoff or status changed before delivery',
+      )
+      return { created: false }
+    }
+  }
+
   const existingNotification = await prisma.notification.findFirst({
     where: notificationPayload.type === 'match-reminder' || notificationPayload.type === 'match-started'
       ? {
@@ -193,7 +286,7 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
 
   if (existingNotification) {
     if (notificationPayload.channel === 'PUSH' && (payload.retryAllPushSubscriptions || payload.retrySubscriptionIds?.length)) {
-      const failedPushSubscriptionIds = await sendPushNotification({ ...notificationPayload, id: existingNotification.id }, payload.retryAllPushSubscriptions ? undefined : payload.retrySubscriptionIds)
+      const failedPushSubscriptionIds = await sendPushNotification({ ...notificationPayload, id: existingNotification.id, pushMatch }, payload.retryAllPushSubscriptions ? undefined : payload.retrySubscriptionIds)
       return { created: false, id: existingNotification.id, failedPushSubscriptionIds }
     }
     return { created: false, id: existingNotification.id }
@@ -210,7 +303,7 @@ export async function dispatchUserNotification(payload: NotificationQueuePayload
       // per-minute match-reminder tick from re-sending) and what lets failed subscriptions be
       // retried. In-app queries always filter `channel: 'IN_APP'`, so this row is never shown in
       // the In-App inbox, never counted in the unread badge and never emitted over Socket.IO.
-      const failedPushSubscriptionIds = await sendPushNotification(createdNotification)
+      const failedPushSubscriptionIds = await sendPushNotification({ ...createdNotification, pushMatch })
       return { created: true, id: createdNotification.id, failedPushSubscriptionIds }
     }
 

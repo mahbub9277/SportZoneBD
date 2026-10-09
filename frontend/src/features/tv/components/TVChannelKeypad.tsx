@@ -69,7 +69,7 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
 
     const channel = resolveChannelNumber(digits)
     if (!channel) {
-      setMessage(`No channel ${Number(digits)}`)
+      setMessage(`Channel not found — no number ${Number(digits)}.`)
       return
     }
 
@@ -84,6 +84,12 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
     const row = Math.floor(index / COLUMNS)
 
     switch (event.key) {
+      case 'Enter':
+        // OK/Enter tunes. Without this the browser's own button activation wins and "presses" whichever
+        // key has focus — so Enter on a digit appended it instead of submitting the number.
+        event.preventDefault()
+        tune()
+        break
       case 'Escape':
         event.preventDefault()
         onClose()
@@ -123,7 +129,7 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose }: TVCha
     // Nothing typed into the keypad may reach the shell, so no key can also zap a channel or toggle the
     // player while the viewer is entering a number.
     event.stopPropagation()
-  }, [appendDigit, backspace, focusKey, onClose])
+  }, [appendDigit, backspace, focusKey, onClose, tune])
 
   return (
     <div

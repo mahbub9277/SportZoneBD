@@ -27,8 +27,11 @@ import { cn } from '../../lib/utils'
 import { useGetAdUnlockQuery, useGetInterstitialAdvertisementQuery } from '../../features/admin/advertisements.api'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
 import { formatMatchKickoff } from '../../utils/matchDateTime'
+import { getMatchCompetitionName } from '../../features/matches/matchCompetition'
 import { useCountdown } from '../../hooks/useCountdown'
 import { useResourceViewerCount } from '../../hooks/useResourceViewerCount'
+import { useGetPublicSiteSettingsQuery } from '../../features/settings/siteSettings.api'
+import { LIVE_BADGE_CLASS, LIVE_DOT_CLASS, formatViewerCount } from '../../utils/liveStatus'
 
 export function MatchPage() {
   const { id } = useParams<{ id: string }>()
@@ -57,7 +60,7 @@ export function MatchPage() {
   const { data: directAdvertisement, isFetching: isAdvertisementLoading } = useGetInterstitialAdvertisementQuery('MATCH', { skip: isPremiumSubscriber || Boolean(match?.premium) })
   const { data: directUnlock, isFetching: isUnlockLoading } = useGetAdUnlockQuery(undefined, { skip: isPremiumSubscriber || Boolean(match?.premium) })
   const configuredPreStartVideoUrl = import.meta.env.VITE_MATCH_PRE_START_VIDEO_URL
-  const preStartVideoUrl = typeof configuredPreStartVideoUrl === 'string' && configuredPreStartVideoUrl.trim()
+  const defaultPreStartVideoUrl = typeof configuredPreStartVideoUrl === 'string' && configuredPreStartVideoUrl.trim()
     ? configuredPreStartVideoUrl.trim()
     : null
   const configuredPreStartWindow = import.meta.env.VITE_MATCH_PRE_START_WINDOW_MINUTES
@@ -67,10 +70,6 @@ export function MatchPage() {
     : 15
   const effectivePreStartEnabled = match?.preStartEnabled !== false
   const effectivePreStartWindowMinutes = match?.preStartWindowMinutes ?? globalPreStartWindowMinutes
-  const configuredMatchVideoUrl = match?.preStartVideoUrl
-  const effectivePreStartVideoUrl = typeof configuredMatchVideoUrl === 'string' && configuredMatchVideoUrl.trim()
-    ? configuredMatchVideoUrl.trim()
-    : preStartVideoUrl
   const [preStartVideoFailed, setPreStartVideoFailed] = useState(false)
   const [currentTime, setCurrentTime] = useState(() => Date.now())
   const availableStreams = useMemo(
@@ -97,6 +96,20 @@ export function MatchPage() {
     && effectivePreStartEnabled
     && match?.status !== 'FINISHED'
     && (match?.status === 'LIVE' || isWithinPreStartWindow)
+  // The site-level video is only read while the match really is waiting for its broadcast, so an ordinary
+  // match page still issues no extra request. The match's own override wins, then the admin-configured site
+  // video, then the deployment-level environment default.
+  const { data: publicSiteSettings } = useGetPublicSiteSettingsQuery(undefined, { skip: !shouldShowWaitingPlaceholder })
+  const sitePreStartVideoUrl = publicSiteSettings?.prestartVideoEnabled === false ? null : publicSiteSettings?.prestartVideoUrl ?? null
+  const configuredMatchVideoUrl = match?.preStartVideoUrl
+  const effectivePreStartVideoUrl = typeof configuredMatchVideoUrl === 'string' && configuredMatchVideoUrl.trim()
+    ? configuredMatchVideoUrl.trim()
+    : sitePreStartVideoUrl ?? defaultPreStartVideoUrl
+  const matchCompetitionName = match ? getMatchCompetitionName(match) : null
+  // The waiting panel names the real fixture, falling back to the stored match title when a side is unnamed.
+  const matchFixtureLine = match && match.homeTeamName?.trim() && match.awayTeamName?.trim()
+    ? `${match.homeTeamName.trim()} vs ${match.awayTeamName.trim()}`
+    : match?.title?.trim() || null
 
   useEffect(() => {
     startTransition(() => {
@@ -290,9 +303,9 @@ export function MatchPage() {
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
             className={cn(
-              'relative flex w-full aspect-video items-center justify-center overflow-hidden rounded-4xl border border-(--border) shadow-[0_20px_50px_rgba(0,0,0,0.35)]',
+              'relative flex w-full aspect-video items-center justify-center overflow-hidden rounded-4xl border border-(--border) shadow-[0_24px_60px_rgba(2,8,20,0.55)]',
               preStartVideoFailed || !effectivePreStartVideoUrl
-                ? 'bg-[radial-gradient(circle_at_center,#06457F_0%,#050510_55%,#020208_100%)]'
+                ? 'bg-[radial-gradient(circle_at_50%_120%,#0a4f8f_0%,#062036_38%,#050510_72%,#020208_100%)]'
                 : 'bg-[#050510]',
             )}
           >
@@ -309,11 +322,32 @@ export function MatchPage() {
                 className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
               />
             )}
-            <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/25 to-black/50" aria-hidden="true" />
-            <div className="relative z-10 mx-4 flex max-w-md flex-col items-center rounded-xl border border-white/10 bg-black/30 px-6 py-5 text-center shadow-2xl backdrop-blur-sm sm:px-8 sm:py-6">
-              <Radio className="mb-3 h-8 w-8 animate-pulse text-(--accent)" aria-hidden="true" />
-              <h2 className="text-xl font-bold tracking-wider text-white sm:text-2xl">MATCH STARTS SOON</h2>
-              <p className="mt-2 text-sm text-white/75 sm:text-base">Waiting for broadcast signal...</p>
+            <div className="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 to-black/60" aria-hidden="true" />
+            {/* Waiting-state light sweep: transform-only, and removed entirely for reduced motion. */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden motion-reduce:hidden motion-safe:animate-shimmer" aria-hidden="true">
+              <div className="h-full w-full bg-linear-to-r from-transparent via-white/6 to-transparent" />
+            </div>
+            <div className="relative z-10 flex w-full max-w-lg flex-col items-center gap-3 px-6 text-center sm:gap-4 sm:px-10">
+              <span className="inline-flex items-center gap-2 rounded-full border border-sky-300/25 bg-sky-400/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-sky-200/90">
+                <Radio className="h-3.5 w-3.5 motion-safe:animate-pulse" aria-hidden="true" />
+                {match.status === 'LIVE' ? 'Broadcast pending' : 'Pre-match'}
+              </span>
+              <h2 className="text-2xl font-black uppercase leading-tight tracking-[0.12em] text-white sm:text-3xl">
+                {match.status === 'LIVE' ? 'Match Started' : 'Match Starting Soon'}
+              </h2>
+              {matchCompetitionName && (
+                <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-white/70 sm:text-xs">{matchCompetitionName}</p>
+              )}
+              {matchFixtureLine && (
+                <p className="w-full truncate text-sm font-semibold text-white/90 sm:text-base">{matchFixtureLine}</p>
+              )}
+              {match.status !== 'LIVE' && (
+                <span className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 sm:text-sm">
+                  <Clock3 className="h-3.5 w-3.5 text-sky-200/80" aria-hidden="true" />
+                  Kick-off {formatMatchKickoff(match.kickoffAt)}
+                </span>
+              )}
+              <p className="text-xs text-white/65 sm:text-sm">Waiting for broadcast signal…</p>
             </div>
           </motion.div>
         ) : isPlaybackAllowed && currentStreamUrl ? (
@@ -360,7 +394,7 @@ export function MatchPage() {
                     <p className="truncate text-sm font-semibold text-(--text-primary)">{selectedStream.name ?? selectedStream.quality ?? 'Live Stream'}</p>
                   </div>
                 </div>
-                <span className="rounded-full border border-(--accent)/25 bg-(--accent)/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-(--accent)">Live</span>
+                <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em]', LIVE_BADGE_CLASS)}>Live</span>
               </div>
             </CardContent>
           </Card></motion.div>
@@ -380,13 +414,13 @@ export function MatchPage() {
                   </motion.div>
                   {formatMatchKickoff(match.kickoffAt)}
                 </span>
-                <span className={cn('flex items-center gap-1.5 rounded-md border px-2.5 py-1', match.status === 'LIVE' ? 'border-rose-400/30 bg-rose-500/10 text-rose-600 dark:text-rose-300' : match.status === 'FINISHED' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
-                  <span className={cn('h-2 w-2 rounded-full', match.status === 'LIVE' ? 'animate-pulse bg-rose-500' : match.status === 'FINISHED' ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
+                <span className={cn('flex items-center gap-1.5 rounded-md border px-2.5 py-1', match.status === 'LIVE' ? LIVE_BADGE_CLASS : match.status === 'FINISHED' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
+                  <span className={cn('h-2 w-2 rounded-full', match.status === 'LIVE' ? `motion-safe:animate-pulse ${LIVE_DOT_CLASS}` : match.status === 'FINISHED' ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
                   {match.status === 'LIVE' ? `LIVE · ${matchTimer.elapsedFormatted}` : match.status}
                 </span>
               </div>
             </div>
-            <span className="flex items-center gap-1.5 rounded-full border border-rose-400/25 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:text-rose-300 lg:ml-auto"><span className="h-2 w-2 rounded-full bg-rose-500 motion-safe:animate-pulse" aria-hidden="true" />{matchViewerCount === null ? 'Viewer count unavailable' : `${matchViewerCount} watching live`}</span>
+            <span className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold lg:ml-auto', LIVE_BADGE_CLASS)}><span className={cn('h-2 w-2 rounded-full motion-safe:animate-pulse', LIVE_DOT_CLASS)} aria-hidden="true" />{matchViewerCount === null ? 'Viewer count unavailable' : `${formatViewerCount(Math.max(0, matchViewerCount))} watching live`}</span>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="self-start">
@@ -425,7 +459,7 @@ export function MatchPage() {
               const isSelected = !isAutoMode && selectedStreamId === stream.id
 
               const streamStatus = stream.status?.toUpperCase() ?? 'READY'
-              const statusClass = streamStatus === 'LIVE' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-300' : streamStatus === 'ERROR' || streamStatus === 'OFFLINE' ? 'bg-slate-500/10 text-(--text-muted)' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              const statusClass = streamStatus === 'LIVE' ? LIVE_BADGE_CLASS : streamStatus === 'ERROR' || streamStatus === 'OFFLINE' ? 'bg-slate-500/10 text-(--text-muted)' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
 
               return (
                 <div key={stream.id} className={cn('flex min-w-0 flex-col gap-2 rounded-xl border border-(--border) bg-(--surface-soft)/50 p-3 shadow-[0_8px_24px_rgba(4,116,196,0.06)] backdrop-blur-sm', isSelected && 'border-(--accent)/60 bg-(--accent)/10 shadow-[0_0_20px_rgba(4,116,196,0.16)]')}>

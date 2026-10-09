@@ -2,8 +2,29 @@ import { prisma } from '../core/prisma.js'
 import type { Prisma } from '@prisma/client'
 import { enqueueUserNotifications, type NotificationQueuePayload } from '../core/notificationQueue.js'
 import { emitTransientNotification } from '../core/socketManager.js'
+import {
+  buildMatchPushPresentation,
+  type MatchPushExtras,
+  type MatchPushKind,
+  type MatchPushSource,
+} from '../core/pushPresentation.js'
 
 const BROADCAST_USER_BATCH_SIZE = 500
+
+/**
+ * The match columns a match push needs.
+ *
+ * Kept to one place so the reminder tick keeps using the same single bounded query it always did -
+ * it simply carries the few extra columns the push presentation is built from.
+ */
+export const MATCH_PUSH_SELECT = {
+  id: true,
+  title: true,
+  kickoffAt: true,
+  tournamentName: true,
+  homeTeamLogo: true,
+  awayTeamLogo: true,
+} satisfies Prisma.MatchSelect
 
 async function* iterateBroadcastUsers(where: Prisma.UserWhereInput, userId?: string): AsyncGenerator<Array<{ id: string }>> {
   if (userId) {
@@ -33,6 +54,8 @@ interface NotificationEvent {
   type?: string
   link?: string
   preference: 'matchStartPush' | 'newHighlightPush'
+  /** Match pushes only: the presentation extras that ride along with the queue payload. */
+  pushMatch?: MatchPushExtras | null
 }
 
 /** Stable per-event id so the client can drop duplicate toasts after reconnects or re-emits. */
@@ -73,6 +96,7 @@ async function broadcastNotificationChannel(
       link: event.link,
       channel,
       dedupeKey: `${channel}:${event.title}:${event.body}:${event.link ?? ''}:${user.id}`,
+      ...(event.pushMatch ? { pushMatch: event.pushMatch } : {}),
     }))
     const results = await enqueueUserNotifications(payloads)
     queuedCount += results.filter(Boolean).length
@@ -111,24 +135,30 @@ async function broadcastPushAlert(event: NotificationEvent): Promise<number> {
   return broadcastNotificationChannel(event, 'PUSH')
 }
 
-export async function notifyMatchStarted(match: { id: string; title: string }): Promise<number> {
+/**
+ * Builds a match alert from the match's own stored data and hands the presentation to the queue.
+ *
+ * The presentation (competition, both crests, kickoff) is computed once here per match and carried in
+ * the payload, so it is identical for every recipient and no longer re-read per delivery.
+ */
+async function broadcastMatchPush(match: MatchPushSource, kind: MatchPushKind): Promise<number> {
+  const presentation = buildMatchPushPresentation(match, kind)
   return broadcastPushAlert({
-    title: 'Match Started',
-    body: `${match.title} has started! Tap to watch live.`,
-    type: 'match-started',
-    link: `/matches/${match.id}`,
+    title: presentation.title,
+    body: presentation.body,
+    type: kind === 'reminder' ? 'match-reminder' : 'match-started',
+    link: presentation.link,
+    pushMatch: presentation.extras,
     preference: 'matchStartPush',
   })
 }
 
-export async function notifyMatchReminder(match: { id: string; title: string }): Promise<number> {
-  return broadcastPushAlert({
-    title: 'Match Starting Soon',
-    body: `${match.title} starts soon! Tap to watch live.`,
-    type: 'match-reminder',
-    link: `/matches/${match.id}`,
-    preference: 'matchStartPush',
-  })
+export async function notifyMatchStarted(match: MatchPushSource): Promise<number> {
+  return broadcastMatchPush(match, 'started')
+}
+
+export async function notifyMatchReminder(match: MatchPushSource): Promise<number> {
+  return broadcastMatchPush(match, 'reminder')
 }
 
 export async function notifyHighlightAdded(highlight: { id: string; title: string; matchTitle?: string | null }): Promise<number> {

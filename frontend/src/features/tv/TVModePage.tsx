@@ -334,19 +334,10 @@ function TVModeExperience() {
    * Focus follows the layout.
    *
    * Immersive mode hides the panel, which would otherwise blur whatever was focused and leave focus
-   * nowhere at all, so focus moves to the player's controls; leaving immersive hands it back to the
-   * channel that is playing. Both directions are plain DOM focus, not state.
-   */
-  useEffect(() => {
-    focusZone(isImmersive ? 'player' : 'channels', isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null)
-  }, [focusZone, isImmersive, selectedChannelId])
-
-  /**
-   * Focus follows the layout.
-   *
-   * Immersive mode hides the panel, which would otherwise blur whatever was focused and leave focus
-   * nowhere at all, so focus moves to the player's controls; leaving immersive hands it back to the
-   * channel that is playing. Both directions are plain DOM focus, not state.
+   * nowhere at all. Hiding it from the player's own control row keeps focus on that control, so OK can
+   * bring the panel straight back; hiding it from the panel itself hands focus to the player surface.
+   * Leaving immersive hands focus back to the channel that is playing. Both directions are plain DOM
+   * focus, not state.
    *
    * While an overlay is open it owns focus, so nothing behind it — a channel change, a scheduled
    * recovery, a filtered list — can pull the viewer out of what they are doing; closing the overlay
@@ -354,7 +345,13 @@ function TVModeExperience() {
    */
   useEffect(() => {
     if (isOverlayOpen) return
-    focusZone(isImmersive ? 'player' : 'channels', isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null)
+    if (isImmersive) {
+      const active = document.activeElement
+      if (active instanceof HTMLElement && active.closest('[data-tv-zone="player"]')) return
+      focusZone('player', 'stage')
+      return
+    }
+    focusZone('channels', selectedChannelId ? `channel:${selectedChannelId}` : null)
   }, [focusZone, isImmersive, isOverlayOpen, selectedChannelId])
 
   /**

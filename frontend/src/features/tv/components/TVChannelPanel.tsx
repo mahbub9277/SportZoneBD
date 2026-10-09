@@ -1,6 +1,5 @@
-import { ArrowLeft, Loader2, LogOut, RefreshCw, Search } from 'lucide-react'
-import { memo, useEffect, useRef, useState } from 'react'
-import { cn } from '../../../lib/utils'
+import { ArrowLeft, ChevronDown, Loader2, LogOut, RefreshCw, Search } from 'lucide-react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { TVCategory, TVChannel } from '../tvChannels'
 import { TVChannelCard } from './TVChannelCard'
 
@@ -51,6 +50,74 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   const listRef = useRef<HTMLDivElement | null>(null)
   const [isSearchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement | null>(null)
+  const [isCategoryMenuOpen, setCategoryMenuOpen] = useState(false)
+  const categoryTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const categoryMenuRef = useRef<HTMLDivElement | null>(null)
+
+  const activeCategory = categories.find((category) => category.id === activeCategoryId) ?? null
+
+  const categoryOptions = useCallback(() => {
+    const menu = categoryMenuRef.current
+    return menu ? Array.from(menu.querySelectorAll<HTMLButtonElement>('[data-tv-item]')) : []
+  }, [])
+
+  /** Moves DOM focus between the menu options so a remote's arrows and Enter work without any extra state. */
+  const moveCategoryFocus = useCallback((key: string) => {
+    const options = categoryOptions()
+    if (options.length === 0) return
+    const activeIndex = options.indexOf(document.activeElement as HTMLButtonElement)
+    const index = key === 'Home'
+      ? 0
+      : key === 'End'
+        ? options.length - 1
+        : (activeIndex === -1 ? 0 : (activeIndex + (key === 'ArrowUp' ? -1 : 1) + options.length) % options.length)
+    options[index]?.focus({ preventScroll: true })
+  }, [categoryOptions])
+
+  /** Opens the menu from the trigger and puts focus straight on the current category. */
+  const focusCategoryOption = useCallback((step: 1 | -1) => {
+    const options = categoryOptions()
+    if (options.length === 0) return
+    const selected = options.find((option) => option.getAttribute('data-tv-selected') === 'true')
+    const from = step === -1 ? options.length - 1 : 0
+    ;(selected ?? options[from]).focus({ preventScroll: true })
+  }, [categoryOptions])
+
+  const commitCategory = useCallback((categoryId: string) => {
+    setCategoryMenuOpen(false)
+    onSelectCategory(categoryId)
+    categoryTriggerRef.current?.focus()
+  }, [onSelectCategory])
+
+  /** Collapsing the panel must not leave an open menu behind for the next time the panel is restored. */
+  const handleEnterPlayerView = useCallback(() => {
+    setCategoryMenuOpen(false)
+    onEnterPlayerView()
+  }, [onEnterPlayerView])
+
+  // Opening the menu is a mode change: focus lands on the current category immediately so the first
+  // arrow key already works, and the list below is left untouched.
+  useEffect(() => {
+    if (isCategoryMenuOpen) focusCategoryOption(1)
+  }, [isCategoryMenuOpen, focusCategoryOption])
+
+  // A click anywhere else closes the menu without changing the tuned channel.
+  useEffect(() => {
+    if (!isCategoryMenuOpen) return undefined
+    const handlePointerDown = (event: PointerEvent) => {
+      if (categoryTriggerRef.current?.contains(event.target as Node)) return
+      if (categoryMenuRef.current?.contains(event.target as Node)) return
+      setCategoryMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [isCategoryMenuOpen])
+
+  // The category control is the only filter, so a filter committed anywhere else (a restored session, a
+  // fresh catalogue) always leaves the menu closed rather than open on a stale list.
+  useEffect(() => {
+    setCategoryMenuOpen(false)
+  }, [activeCategoryId])
 
   // Opening search is a mode change, not a new screen: the input takes focus immediately so a remote
   // can type straight away, and the list below stays exactly where it was.
@@ -72,9 +139,9 @@ export const TVChannelPanel = memo(function TVChannelPanel({
           data-tv-item
           data-tv-key="back"
           className="tv-icon-button"
-          onClick={onEnterPlayerView}
-          aria-label="Hide channel controls and show the player"
-          title="Hide channel controls"
+          onClick={handleEnterPlayerView}
+          aria-label="Hide channel panel and show the player"
+          title="Hide channel panel"
         >
           <ArrowLeft aria-hidden="true" />
           <span className="tv-button-label">Back</span>
@@ -146,26 +213,79 @@ export const TVChannelPanel = memo(function TVChannelPanel({
       )}
 
       <div data-tv-zone="categories" className="tv-categories-zone" role="group" aria-label="Channel categories">
-        <span className="tv-categories-label">Categories</span>
-        <div className="tv-categories">
-          {categories.map((category) => {
-            const isActive = category.id === activeCategoryId
-            return (
-              <button
-                key={category.id}
-                type="button"
-                data-tv-item
-                data-tv-key={`category:${category.id}`}
-                data-tv-selected={isActive}
-                aria-pressed={isActive}
-                onClick={() => onSelectCategory(category.id)}
-                className={cn('tv-category', isActive && 'tv-category-active')}
-              >
-                {category.name}
-                <span className="tv-category-count">{category.count}</span>
-              </button>
-            )
-          })}
+        <span className="tv-categories-label" id="tv-category-label">Category</span>
+        <div className="tv-category-select">
+          <button
+            type="button"
+            data-tv-item
+            data-tv-key="category-select"
+            ref={categoryTriggerRef}
+            className="tv-category-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={isCategoryMenuOpen}
+            aria-labelledby="tv-category-label"
+            onClick={() => setCategoryMenuOpen((open) => !open)}
+            // While the menu is open the arrows belong to the menu, so they must not also zap the list
+            // below or pull focus out of the dropdown.
+            onKeyDown={(event) => {
+              if (!isCategoryMenuOpen) return
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                event.stopPropagation()
+                focusCategoryOption(event.key === 'ArrowUp' ? -1 : 1)
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setCategoryMenuOpen(false)
+              }
+            }}
+          >
+            <span className="tv-category-trigger-name">{activeCategory?.name ?? 'All channels'}</span>
+            <span className="tv-category-trigger-count">{activeCategory?.count ?? channelsByCategory.length}</span>
+            <ChevronDown aria-hidden="true" />
+          </button>
+
+          {isCategoryMenuOpen && (
+            <div
+              className="tv-category-menu"
+              role="listbox"
+              aria-labelledby="tv-category-label"
+              ref={categoryMenuRef}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  moveCategoryFocus(event.key)
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setCategoryMenuOpen(false)
+                  categoryTriggerRef.current?.focus()
+                }
+              }}
+            >
+              {categories.length === 0 && <p className="tv-category-empty">No categories available.</p>}
+              {categories.map((category) => {
+                const isActive = category.id === activeCategoryId
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    data-tv-item
+                    data-tv-key={`category:${category.id}`}
+                    data-tv-selected={isActive}
+                    role="option"
+                    aria-selected={isActive}
+                    onClick={() => commitCategory(category.id)}
+                    className="tv-category-option"
+                  >
+                    <span className="tv-category-option-name">{category.name}</span>
+                    <span className="tv-category-option-count">{category.count}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import { cn } from '../../lib/utils'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { startTransition, useEffect, useState, useMemo, useRef } from 'react'
 import { useResourceViewerCount } from '../../hooks/useResourceViewerCount'
+import { formatViewerCount } from '../../utils/liveStatus'
 import { Input } from '../../components/ui/Input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
@@ -43,14 +44,24 @@ import { useLazyGetRelatedChannelsQuery } from '../../features/admin/channels.ap
   CHANNEL_NAME_CLASS,
 } from '../../components/ui/channelCardStyles'
 
-const formatViewerCount = (count: number) => {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}M`
-  }
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}K`
-  }
-  return count.toString()
+/**
+ * The catalogue grid below the fold mounts one card per channel, and every card is a blurred, shadowed
+ * layer. Rendering hundreds of them in the same frame the page-entry animation starts makes that
+ * animation recomposite every card while React mounts them, which is what made opening a channel feel
+ * slow and stuttery. The data query and the toolbar still render immediately; only the grid waits for
+ * the entry animation to finish (420ms desktop / 280ms mobile - see app-page-in in index.css).
+ */
+const CATALOGUE_GRID_DEFER_MS = 420
+
+function useDeferredGridMount() {
+  const [isGridReady, setGridReady] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGridReady(true), CATALOGUE_GRID_DEFER_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  return isGridReady
 }
 
 export function WatchChannelPage() {
@@ -337,7 +348,9 @@ export function WatchChannelPage() {
         </Card>
       )}
       <SubscriptionModal isOpen={openSubscriptionModal} onClose={() => setOpenSubscriptionModal(false)} />
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+      {/* No entrance animation here: the page root (.app-page) and the route transition already fade
+          and lift this content in, so animating it a third time only added work during page entry. */}
+      <div>
       <Card className="mb-3 border-(--border) bg-(--surface)/70 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant={optimisticReactions?.userReaction === 'LIKE' ? 'default' : 'outline'} size="sm" className="tabular-nums" aria-pressed={optimisticReactions?.userReaction === 'LIKE'} onClick={() => handleReaction('LIKE')} aria-label={isAuthenticated ? 'Like channel' : 'Sign in to like channel'}><ThumbsUp className="mr-1.5 h-4 w-4" />{optimisticReactions?.likeCount ?? reactions?.likeCount ?? 0}</Button>
@@ -382,7 +395,7 @@ export function WatchChannelPage() {
           </button>
         </div>
       </Card>
-      </motion.div>
+      </div>
 
       {relatedChannels.length > 0 && (
         <div>
@@ -472,6 +485,7 @@ export function WatchChannelPage() {
 function ChannelsBrowser() {
   const { data: categoriesResp, isLoading, isError } = useGetPublicChannelsQuery()
   const categories = useMemo(() => categoriesResp ?? [], [categoriesResp])
+  const isGridReady = useDeferredGridMount()
 
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [query, setQuery] = useState('')
@@ -562,7 +576,9 @@ function ChannelsBrowser() {
           <TabsTrigger value="all">All (A–Z)</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="byCategory" className="pt-4">
+        {isGridReady ? (
+          <>
+          <TabsContent value="byCategory" className="pt-4">
           {processedCategories.map((category: ChannelCategory) => (
             <div key={category.id} className="mb-6">
               <h3 className="text-lg font-semibold mb-3">{category.name}</h3>
@@ -644,6 +660,14 @@ function ChannelsBrowser() {
             )
           })()}
         </TabsContent>
+        </>
+      ) : (
+        <div className="mt-4 rounded-3xl border border-(--border) bg-(--surface-soft) p-5" aria-hidden="true">
+          <div className="grid grid-cols-3 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />)}
+          </div>
+        </div>
+      )}
       </Tabs>
     </div>
   )

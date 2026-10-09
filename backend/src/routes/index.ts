@@ -57,7 +57,11 @@ apiRouter.use('/system', (req, res, next) => {
 }, systemRouter)
 apiRouter.use('/admin', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), adminRouter)
 apiRouter.use('/admin/automation', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), automationRouter)
-apiRouter.use('/settings', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), settingsRouter)
+apiRouter.use('/settings', (req, res, next) => {
+  if (req.method === 'OPTIONS') return next()
+  if (req.method === 'GET' && req.path === '/public') return next()
+  return authenticate(req, res, next)
+}, settingsRouter)
 apiRouter.use('/streams', (req, res, next) => (req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), streamsRouter)
 apiRouter.use('/matches', (req, res, next) => (req.method === 'GET' || req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), matchRouter)
 apiRouter.use('/analytics', analyticsRouter)

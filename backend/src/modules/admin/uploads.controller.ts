@@ -22,6 +22,7 @@ const uploadPurposeSchema = z.enum([
   'stream-logo',
   'channel-logo',
   'channel-category-logo',
+  'match-prestart-video',
 ])
 
 type UploadPurpose = z.infer<typeof uploadPurposeSchema>
@@ -35,6 +36,8 @@ type UploadPolicy = {
 
 const imageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as const
 const videoMimeTypes = ['video/mp4', 'video/webm', 'video/quicktime'] as const
+/** The match-page pre-kick-off clip is played by the browser, so only the formats every target browser decodes are accepted. */
+const browserVideoMimeTypes = ['video/mp4', 'video/webm'] as const
 const formatsByMimeType: Record<string, readonly string[]> = {
   'image/jpeg': ['jpg', 'jpeg'],
   'image/png': ['png'],
@@ -59,6 +62,7 @@ const uploadPolicies: Record<UploadPurpose, UploadPolicy> = {
   'stream-logo': { folder: 'sportzone/stream-logos', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes },
   'channel-logo': { folder: 'sportzone/channels', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO' },
   'channel-category-logo': { folder: 'sportzone/channel-categories', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO' },
+  'match-prestart-video': { folder: 'sportzone/match-prestart', resourceType: 'video', maxBytes: 100 * 1024 * 1024, mimeTypes: browserVideoMimeTypes },
 }
 
 const signUploadSchema = z.object({

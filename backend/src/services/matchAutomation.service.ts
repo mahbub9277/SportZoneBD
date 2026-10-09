@@ -3,7 +3,7 @@ import { prisma } from '../core/prisma.js'
 import logger from '../core/logger.js'
 import { validateProxyTargetUrl } from '../utils/ssrfGuard.js'
 import { emitAutomationStatusUpdate, emitAutomationMetricsUpdate, emitAutomationLogEntry, emitAdminResourceUpdated } from '../core/socketManager.js'
-import { notifyMatchStarted, notifyMatchReminder } from './notification.service.js'
+import { notifyMatchStarted, notifyMatchReminder, MATCH_PUSH_SELECT } from './notification.service.js'
 import { cleanupMatch } from './match-cleanup.service.js'
 import { prewarmUpcomingMatches, cleanupCloudinaryOrphans } from './automation-support.service.js'
 import { isRedisConfigured, redis } from '../core/redis.js'
@@ -293,7 +293,7 @@ export class MatchAutomationService {
         },
         deletedAt: null,
       },
-      select: { id: true, title: true },
+      select: MATCH_PUSH_SELECT,
     })
 
     if (matchesStarting.length > 0) {
@@ -326,7 +326,7 @@ export class MatchAutomationService {
         deletedAt: null,
         kickoffAt: { gt: now, lte: reminderWindowEnd },
       },
-      select: { id: true, title: true },
+      select: MATCH_PUSH_SELECT,
     })
     for (const match of reminderMatches) {
       try {
