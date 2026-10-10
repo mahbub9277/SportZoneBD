@@ -5,9 +5,9 @@ import { getMatchCalendarYear } from '../../utils/matchDateTime.ts'
  * Competition context for a match card: "Football || La Liga 2026/2027 - Round 8",
  * "Cricket || Australia in South Africa, 2026".
  *
- * Every part is taken from data the match really carries. The match table has no season or round
- * column, so those are only shown when the real competition/title text (or a future provider field)
- * actually contains them; nothing is inferred, defaulted or invented.
+ * Every part is taken from data the match really carries: the stored `season` and `round` columns once a
+ * provider fixture (or an admin) stated them, and otherwise a real "2026/2027" or "Round N" token in the
+ * stored competition/title text. Nothing is inferred, defaulted or invented.
  */
 
 /** Sport codes are stored uppercase; the card shows the sport the way the application names it. */

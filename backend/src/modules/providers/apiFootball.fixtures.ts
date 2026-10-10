@@ -235,8 +235,11 @@ export function normalizeApiFootballFixtures(value: unknown): CanonicalFixture[]
       kickoffAt: requiredUtcIso(fixture.date, 'kickoff time'),
       competitionCode: providerIdentifier(league.id) ?? requiredString(league.name, 'competition name'),
       competitionName: requiredString(league.name, 'competition name'),
-      // API-Football states the season as its year (for example 2026); nothing is derived from it.
+      // API-Football states the season as its year (for example 2026); nothing is derived from it. Its
+      // round field is free text ("Regular Season - 7", "Round of 16"), which is not a matchday number, so
+      // a round stays unset here rather than being guessed from it.
       season: typeof league.season === 'number' && Number.isInteger(league.season) ? String(league.season) : null,
+      round: null,
       homeTeamName: requiredString(home.name, 'home team name'),
       awayTeamName: requiredString(away.name, 'away team name'),
       homeTeamCrest: nullableHttpUrl(home.logo),

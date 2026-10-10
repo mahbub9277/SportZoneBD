@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { StreamForm, type StreamFormValues } from './components/StreamForm'
 import type { Stream } from '../../features/admin/adminStreams.api'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
 import { useGetAdminChannelsQuery, useUpdateChannelMutation } from '../../features/admin/channels.api'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
 
@@ -45,7 +45,7 @@ export function StreamsManagementPage() {
   const [createStream, { isLoading: isCreating }] = useCreateStreamMutation()
   const [updateStream, { isLoading: isUpdating }] = useUpdateStreamMutation()
   const [deleteStream, { isLoading: isDeleting }] = useDeleteStreamMutation()
-  const [uploadFiles, { isLoading: isUploadingLogo }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: logoUploadProgress, isUploading: isUploadingLogo } = useMediaUploadProgress()
   const { data: channels = [] } = useGetAdminChannelsQuery()
   const [updateChannel] = useUpdateChannelMutation()
 
@@ -115,7 +115,7 @@ export function StreamsManagementPage() {
 
   const handleLogoUpload = async (file: File) => {
     try {
-      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos' }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos' })
       const uploadedUrl = result.uploads[0]?.url
       if (!uploadedUrl) throw new Error('Cloudinary did not return a logo URL.')
       form.setValue('logo', uploadedUrl, { shouldDirty: true, shouldValidate: true })
@@ -149,7 +149,7 @@ export function StreamsManagementPage() {
             </motion.div>
           </CardHeader>
           <CardContent className="p-6 pt-0">
-            <StreamForm form={form} onSubmit={handleFormSubmit} isLoading={isCreating} matches={matches} channels={channels} onLogoUpload={handleLogoUpload} isUploadingLogo={isUploadingLogo} />
+            <StreamForm form={form} onSubmit={handleFormSubmit} isLoading={isCreating} matches={matches} channels={channels} onLogoUpload={handleLogoUpload} isUploadingLogo={isUploadingLogo} logoProgress={logoUploadProgress.update} logoError={logoUploadProgress.error} />
             {isMatchesError && <motion.p className="mt-3 text-sm text-red-400" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>Unable to load matches. Stream creation is unavailable.</motion.p>}
           </CardContent>
         </Card>
@@ -161,7 +161,7 @@ export function StreamsManagementPage() {
             <DialogTitle className="text-brand-text-primary">Edit Stream</DialogTitle>
             <DialogDescription>Update the details for this stream.</DialogDescription>
           </DialogHeader>
-          <StreamForm form={form} onSubmit={handleFormSubmit} isLoading={isUpdating} matches={matches} channels={channels} onLogoUpload={handleLogoUpload} isUploadingLogo={isUploadingLogo} />
+          <StreamForm form={form} onSubmit={handleFormSubmit} isLoading={isUpdating} matches={matches} channels={channels} onLogoUpload={handleLogoUpload} isUploadingLogo={isUploadingLogo} logoProgress={logoUploadProgress.update} logoError={logoUploadProgress.error} />
           <DialogFooter>
             <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
           </DialogFooter>

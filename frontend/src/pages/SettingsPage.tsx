@@ -17,13 +17,15 @@ function ProfileSettings() {
   const { data: user, isError, isLoading, refetch } = useGetMeQuery()
   const [updateProfile, { isLoading: isSaving }] = useUpdateProfileMutation()
   const [formKey, setFormKey] = useState(0)
+  const [avatarUploadPercent, setAvatarUploadPercent] = useState<number | null>(null)
 
   const handleSubmit = (formData: FormData) => {
-    const request = updateProfile(formData)
+    // The avatar travels through the API, so its transfer progress is reported while it is sent.
+    const request = updateProfile({ formData, onProgress: setAvatarUploadPercent })
     void request.unwrap().then(() => {
       toast.success('Profile updated.')
       setFormKey((key) => key + 1)
-    }).catch(() => undefined)
+    }).catch(() => undefined).finally(() => setAvatarUploadPercent(null))
     return request
   }
 
@@ -40,6 +42,7 @@ function ProfileSettings() {
             user={user}
             onSubmit={handleSubmit}
             isLoading={isSaving}
+            uploadPercent={avatarUploadPercent}
             onCancel={() => setFormKey((key) => key + 1)}
           />
         ) : (

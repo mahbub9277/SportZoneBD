@@ -28,6 +28,7 @@ export function ProfilePage() {
   const user = fetchedUser ?? cachedUser
   const [now, setNow] = useState(() => Date.now())
   const [updateProfile, { isLoading: isUpdating }] = useUpdateProfileMutation()
+  const [avatarUploadPercent, setAvatarUploadPercent] = useState<number | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const recentChannelIds = useAppSelector(selectRecentChannelIds)
 
@@ -58,7 +59,9 @@ export function ProfilePage() {
   }
 
   const handleProfileUpdate = (formData: FormData): { abort: () => void } => {
-    const mutationPromise = updateProfile(formData)
+    // The avatar travels through the API, so its bytes are reported as they are sent.
+    const mutationPromise = updateProfile({ formData, onProgress: setAvatarUploadPercent })
+    mutationPromise.finally(() => setAvatarUploadPercent(null))
     toast.promise(
       mutationPromise.unwrap(),
       {
@@ -101,7 +104,7 @@ export function ProfilePage() {
               <DialogTitle>Edit Your Profile</DialogTitle>
               <DialogDescription>Make changes to your profile here. Click save when you&apos;re done.</DialogDescription>
             </DialogHeader>
-            <EditProfileForm user={user} onSubmit={handleProfileUpdate} isLoading={isUpdating} onCancel={() => setIsEditModalOpen(false)} />
+            <EditProfileForm user={user} onSubmit={handleProfileUpdate} isLoading={isUpdating} uploadPercent={avatarUploadPercent} onCancel={() => setIsEditModalOpen(false)} />
           </DialogContent>
         </Dialog>
         </div>

@@ -129,6 +129,8 @@ export interface Match {
   tournamentName?: string | null
   /** Season label exactly as the provider states it (e.g. "2026/2027"); absent when unknown. */
   season?: string | null;
+  /** League round or matchday as a number; absent when nobody stated one. */
+  round?: number | null;
   kickoffAt: string; // ISO date string
   status: 'LIVE' | 'UPCOMING' | 'FINISHED';
   sport?: 'CRICKET' | 'FOOTBALL' | 'BASKETBALL' | 'TENNIS' | 'MOTORSPORTS' | 'WWE' | string;

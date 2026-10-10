@@ -15,6 +15,7 @@ import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
 import { filterMatches, getMatchStatus, sortMatches } from '../matches/matchOrdering'
 import { formatMatchKickoff, getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { selectTeamLogo, teamInitials } from '../../utils/teamLogo'
 
 const HOMEPAGE_MATCH_LIMIT = 24
 
@@ -152,8 +153,8 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
 
 const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
   const isLive = featuredMatch ? getMatchStatus(featuredMatch) === 'LIVE' : false
-  const homeLogo = featuredMatch ? buildCloudinaryUrl(featuredMatch.homeTeamLogo, { width: 180, crop: 'limit' }) : undefined
-  const awayLogo = featuredMatch ? buildCloudinaryUrl(featuredMatch.awayTeamLogo, { width: 180, crop: 'limit' }) : undefined
+  const homeLogo = featuredMatch ? selectTeamLogo([featuredMatch.homeTeam?.logoUrl, featuredMatch.homeTeamLogo], { width: 180, crop: 'limit' }).url : null
+  const awayLogo = featuredMatch ? selectTeamLogo([featuredMatch.awayTeam?.logoUrl, featuredMatch.awayTeamLogo], { width: 180, crop: 'limit' }).url : null
   // Keyed by URL, so a crest that failed for one fixture is shown again for the next one.
   const [failedLogoSrc, setFailedLogoSrc] = useState<string | null>(null)
 
@@ -167,6 +168,12 @@ const HeroSection = ({ featuredMatch }: { featuredMatch?: Match }) => {
             <span className="text-xl font-black text-accent sm:text-3xl">VS</span>
             {awayLogo && failedLogoSrc !== awayLogo && <img src={awayLogo} alt={featuredMatch.awayTeamName ?? 'Team 2'} className="h-16 w-16 object-contain sm:h-24 sm:w-24" loading="lazy" decoding="async" onError={() => setFailedLogoSrc(awayLogo)} />}
           </div>}
+          {featuredMatch && !homeLogo && !awayLogo && (
+            // Both sides are logo-less: the hero keeps the names instead of leaving an empty row.
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-(--accent)">
+              {teamInitials(featuredMatch.homeTeamName, { fallback: 'T1' })} <span className="text-white/60">vs</span> {teamInitials(featuredMatch.awayTeamName, { fallback: 'T2' })}
+            </p>
+          )}
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.28em] text-(--accent)"><span className={cn('h-2 w-2 rounded-full', isLive ? 'bg-rose-400 motion-safe:animate-pulse' : 'bg-(--accent)')} />{isLive ? 'Live now' : 'Next on SportZoneBD'}</p>
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">{featuredMatch?.title ?? 'Every match, one clear view.'}</h1>
           <p className="max-w-xl text-sm leading-7 text-white sm:text-base">{featuredMatch ? (isLive ? 'Watch the live broadcast and stay close to every moment.' : `Kickoff ${formatMatchKickoff(featuredMatch.kickoffAt)}. Get ready for the broadcast.`) : 'Follow live action, upcoming fixtures, and premium coverage from one connected sports hub.'}</p>

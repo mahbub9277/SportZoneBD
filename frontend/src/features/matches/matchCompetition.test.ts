@@ -35,7 +35,8 @@ test('football uses a real round field and a real season field when the API prov
 test('a missing round is never defaulted to a number', () => {
   assert.equal(getMatchCompetitionLabel(match({ sport: 'FOOTBALL', tournamentName: 'Bundesliga' })), 'Football || Bundesliga')
   assert.equal(getMatchCompetitionLabel(match({ sport: 'FOOTBALL', tournamentName: 'Bundesliga', round: 0 })), 'Football || Bundesliga')
-  assert.equal(getMatchCompetitionLabel(match({ sport: 'FOOTBALL', tournamentName: 'Bundesliga', round: 'none' })), 'Football || Bundesliga')
+  // Untyped payloads can still carry junk, so the reader stays defensive at runtime.
+  assert.equal(getMatchCompetitionLabel(match({ sport: 'FOOTBALL', tournamentName: 'Bundesliga', round: 'none' as unknown as number })), 'Football || Bundesliga')
 })
 
 test('cricket uses its own format with the match year', () => {

@@ -19,6 +19,8 @@ export interface FootballDataFixture {
   competitionName: string
   /** Season as the provider states it: "2026/2027" from the season span, or the provider's season year. */
   season: string | null
+  /** The provider's own matchday for the fixture; null when it publishes none. */
+  round: number | null
   homeTeamName: string
   awayTeamName: string
   homeTeamCrest?: string | null
@@ -52,6 +54,16 @@ export function formatProviderSeason(season: unknown): string | null {
   if (typeof id === 'string' && /^\d{4}$/.test(id.trim())) return id.trim()
 
   return null
+}
+
+/**
+ * The provider's matchday as a round number. football-data.org reports `matchday` as an integer for
+ * league fixtures and omits it for cup ties, so a missing or nonsensical value stays null rather than
+ * becoming a round.
+ */
+export function readProviderRound(value: unknown): number | null {
+  const round = typeof value === 'number' ? value : Number(typeof value === 'string' ? value.trim() : NaN)
+  return Number.isInteger(round) && round > 0 && round <= 200 ? round : null
 }
 
 const FOOTBALL_DATA_API_URL = 'https://api.football-data.org/v4/competitions'
@@ -181,6 +193,7 @@ function normalizeCompetitionFixtures(value: unknown, competitionCode: string): 
       competitionCode,
       competitionName: getCanonicalCompetitionName(competitionCode, requiredString(competition.name, 'competition name')),
       season: formatProviderSeason(match.season),
+      round: readProviderRound(match.matchday),
       homeTeamName: requiredString(homeTeam.name, 'home team name'),
       awayTeamName: requiredString(awayTeam.name, 'away team name'),
       homeTeamCrest: nullableHttpUrl(homeTeam.crest),

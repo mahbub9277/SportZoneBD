@@ -3,6 +3,7 @@ import { prisma } from '../../core/prisma.js'
 import { getPaginatedData, type PaginatedQuery, type PaginatedResult } from '../../services/pagination.service.js'
 import { invalidateTags } from '../../core/cache.js'
 import { writeAuditLog } from '../../core/audit.js'
+import { cleanupAssetIfUnused, cleanupReplacedAsset } from '../../services/asset-cleanup.service.js'
 
 export const listStreams = async (query: PaginatedQuery) => {
   const { items, meta } = await getPaginatedData({
@@ -99,7 +100,7 @@ export const updateStream = async (
     }
   }
 
-  const existingStream = await prisma.stream.findFirst({ where: { id, deletedAt: null }, select: { id: true } })
+  const existingStream = await prisma.stream.findFirst({ where: { id, deletedAt: null }, select: { id: true, logo: true } })
   if (!existingStream) return null
 
   const stream = await prisma.stream.update({
@@ -117,14 +118,19 @@ export const updateStream = async (
   })
   await writeAuditLog('Stream updated', { streamId: stream.id, matchId: stream.matchId, name: stream.name })
   await invalidateTags(['matches', 'streams'])
+  // A replaced or cleared logo leaves the previous asset with no reference from this stream. It is only
+  // removed once no other record uses it, so a logo shared with another stream or match is kept.
+  await cleanupReplacedAsset(existingStream.logo, stream.logo)
   return stream
 }
 
 export const removeStream = async (id: string) => {
-  const existingStream = await prisma.stream.findFirst({ where: { id, deletedAt: null }, select: { id: true, matchId: true, name: true } })
+  const existingStream = await prisma.stream.findFirst({ where: { id, deletedAt: null }, select: { id: true, matchId: true, name: true, logo: true } })
   if (!existingStream) return null
   const stream = await prisma.stream.update({ where: { id: existingStream.id }, data: { deletedAt: new Date() } })
   await writeAuditLog('Stream deleted', { streamId: stream.id, matchId: existingStream.matchId, name: existingStream.name })
   await invalidateTags(['matches', 'streams'])
+  // The soft-deleted stream is not a reference any more, so its own logo can be released when unused.
+  await cleanupAssetIfUnused(existingStream.logo)
   return stream
 }

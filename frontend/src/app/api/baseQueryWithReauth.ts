@@ -4,7 +4,8 @@ import { createAction } from '@reduxjs/toolkit'
 
 // Mutex to ensure only one token refresh is in progress at a time
 const mutex = new Mutex()
-const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '')
+/** The API base every request uses, exported so an upload that needs byte progress can target it too. */
+export const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '')
 
 const baseQuery = fetchBaseQuery({
   baseUrl: apiBaseUrl,

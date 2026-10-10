@@ -151,19 +151,19 @@ export function PlayerControls({
       {/* The centre overlay now holds only the optional skip shortcuts: play/pause lives in the control
           bar, so it is no longer duplicated over the video. */}
       <div
-        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-4 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-5 ${transportVisibilityClass(showTransportControls)}`}
+        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center gap-5 px-4 transition-opacity duration-200 motion-reduce:transition-none sm:gap-6 ${transportVisibilityClass(showTransportControls)}`}
         aria-hidden={!showTransportControls}
         onClick={stopControlPropagation}
         onDoubleClick={stopControlPropagation}
       >
         {showSeekControls && (
           <button type="button" className={transportButtonClass} onClick={onSeekBackward} tabIndex={showTransportControls ? 0 : -1} aria-label="Rewind 5 seconds" title="Rewind 5 seconds">
-            <TransportGlyph icon={<RotateCcw className="h-6 w-6" aria-hidden="true" />} badge="5" />
+            <TransportGlyph icon={<RotateCcw className="h-6.25 w-6.25" aria-hidden="true" />} badge="5" />
           </button>
         )}
         {showSeekControls && (
           <button type="button" className={transportButtonClass} onClick={onSeekForward} tabIndex={showTransportControls ? 0 : -1} aria-label="Skip forward 10 seconds" title="Skip forward 10 seconds">
-            <TransportGlyph icon={<RotateCw className="h-6 w-6" aria-hidden="true" />} badge="10" />
+            <TransportGlyph icon={<RotateCw className="h-6.25 w-6.25" aria-hidden="true" />} badge="10" />
           </button>
         )}
       </div>
@@ -210,7 +210,9 @@ function TransportGlyph({ icon, badge }: { icon: React.ReactNode; badge: string 
   return (
     <span className="relative inline-flex items-center justify-center">
       {icon}
-      <span className="absolute text-[9px] font-black leading-none tracking-tight" aria-hidden="true">{badge}</span>
+      {/* The interval label sits inside the arrow: bigger than before and with a hairline shadow, so "5"
+          and "10" stay readable over a bright video frame. */}
+      <span className="absolute text-[11px] font-black leading-none tracking-tight [text-shadow:0_1px_2px_rgba(0,0,0,0.75)]" aria-hidden="true">{badge}</span>
     </span>
   )
 }

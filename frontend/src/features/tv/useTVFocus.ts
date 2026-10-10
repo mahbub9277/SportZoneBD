@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import { actionFromRemote, digitFromRemote } from './remoteKeys.ts'
 
 /**
  * The TV focus system.
@@ -130,38 +131,33 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
 
     const { zone } = currentZoneItem(root)
     const target = event.target as HTMLElement | null
+    // One normalized action for the key, whatever the remote called it.
+    const action = actionFromRemote({ key: event.key, code: event.code })
 
     // Media and channel keys work from anywhere in the shell: they are what a TV remote sends for
     // play/pause and for channel up/down.
-    switch (event.key) {
-      case 'MediaPlayPause':
+    switch (action) {
+      case 'playPause':
         event.preventDefault()
         onTogglePlayback()
         return
-      case 'MediaTrackNext':
-      case 'PageDown':
-      case 'ChannelDown':
+      case 'channelDown':
         event.preventDefault()
         onChannelStep(1)
         return
-      case 'MediaTrackPrevious':
-      case 'PageUp':
-      case 'ChannelUp':
+      case 'channelUp':
         event.preventDefault()
         onChannelStep(-1)
         return
-      case 'Escape':
-        event.preventDefault()
+      case 'back':
         if (isEditable(target)) {
+          // Backspace inside text entry stays a delete; Escape is the key that leaves the field.
+          if (event.key !== 'Escape') return
+          event.preventDefault()
           target?.blur()
           focusZone('toolbar')
           return
         }
-        onBack()
-        return
-      case 'Backspace':
-        // A remote Back key often arrives as Backspace; inside text entry it must stay a delete.
-        if (isEditable(target)) return
         event.preventDefault()
         onBack()
         return
@@ -171,10 +167,10 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
 
     // Typing in the search box keeps its own arrow behaviour, with the vertical moves that make sense.
     if (isEditable(target)) {
-      if (event.key === 'ArrowDown') {
+      if (action === 'down') {
         event.preventDefault()
         focusZone('categories')
-      } else if (event.key === 'ArrowUp') {
+      } else if (action === 'up') {
         event.preventDefault()
         focusZone('toolbar')
       }
@@ -184,23 +180,24 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
     // A digit anywhere in the shell starts (or continues) channel-number entry. It is handled here, once,
     // so no key can also zap a channel or scroll the page, and the keypad stays the only owner of the
     // typed number.
-    if (onDigitKey && /^[0-9]$/.test(event.key)) {
+    const digit = digitFromRemote({ key: event.key, code: event.code })
+    if (onDigitKey && digit) {
       event.preventDefault()
-      onDigitKey(event.key)
+      onDigitKey(digit)
       return
     }
 
     // The player surface itself is a focus stop: OK/Enter on it is play/pause, and the arrows zap
     // channels, which is what a viewer expects with nothing but the video on screen.
     const onPlayerSurface = zone === 'player' && document.activeElement?.getAttribute('data-tv-key') === 'stage'
-    if (onPlayerSurface && (event.key === 'Enter' || event.key === ' ')) {
+    if (onPlayerSurface && action === 'activate') {
       event.preventDefault()
       onTogglePlayback()
       return
     }
 
-    switch (event.key) {
-      case 'ArrowDown': {
+    switch (action) {
+      case 'down': {
         event.preventDefault()
         if (zone === 'toolbar') focusZone('categories')
         else if (zone === 'categories') focusZone('channels')
@@ -208,7 +205,7 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
         else moveWithin('channels', 1)
         return
       }
-      case 'ArrowUp': {
+      case 'up': {
         event.preventDefault()
         if (zone === 'channels') {
           const items = itemsOf(root, 'channels')
@@ -219,13 +216,13 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
         else if (zone === 'player') onChannelStep(-1)
         return
       }
-      case 'ArrowRight': {
+      case 'right': {
         event.preventDefault()
         if (zone === 'channels') focusZone('player')
         else moveWithin(zone ?? 'toolbar', 1)
         return
       }
-      case 'ArrowLeft': {
+      case 'left': {
         event.preventDefault()
         if (zone === 'player') focusZone('channels')
         else if (zone === 'channels') focusZone('categories')

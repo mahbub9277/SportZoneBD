@@ -19,9 +19,11 @@ import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixture
 import { getCricketFixtures } from '../modules/providers/cricketData.fixtures.js'
 import { PROVIDER_KEY_PREFIX, PROVIDER_LABEL, providerFixtureKey, type CanonicalFixture, type ProviderFetchResult, type ProviderId } from '../modules/providers/types.js'
 import {
+  buildProviderKeyOwners,
   buildRejectedFixtureLookup,
   getTeamsIdentity,
   isFixtureRejected,
+  isProviderFixtureKeyConflict,
   normalizeFixtureName,
   resolveExistingFixture,
 } from '../modules/providers/fixtureIdentity.js'
@@ -562,6 +564,27 @@ export class MatchAutomationService {
         uniqueFixtures.push(fixture)
       }
 
+      // One select for the two fixture reads below: the window query and the provider-key lookup have to
+      // return the same shape, because either can supply the row an update is applied to.
+      const fixtureMatchSelect = {
+        id: true,
+        providerFixtureKey: true,
+        title: true,
+        kickoffAt: true,
+        homeTeamName: true,
+        awayTeamName: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        homeTeamLogo: true,
+        awayTeamLogo: true,
+        sport: true,
+        status: true,
+        finishedAt: true,
+        tournamentName: true,
+        season: true,
+        round: true,
+      } as const
+
       const existingMatches = await prisma.match.findMany({
         where: {
           deletedAt: null,
@@ -570,23 +593,7 @@ export class MatchAutomationService {
             lt: fixtureWindowEndExclusive,
           },
         },
-        select: {
-          id: true,
-          providerFixtureKey: true,
-          title: true,
-          kickoffAt: true,
-          homeTeamName: true,
-          awayTeamName: true,
-          homeTeamId: true,
-          awayTeamId: true,
-          homeTeamLogo: true,
-          awayTeamLogo: true,
-          sport: true,
-          status: true,
-          finishedAt: true,
-          tournamentName: true,
-          season: true,
-        },
+        select: fixtureMatchSelect,
       })
 
       // Reviewed rejections are read once per cycle, padded around the fixture window so a reschedule
@@ -619,6 +626,20 @@ export class MatchAutomationService {
       // each create their own row before either could see the other.
       const matchesCreatedThisCycle: Array<(typeof existingMatches)[number]> = []
 
+      // Rows the window query cannot return while their unique provider key is already taken: a reviewed
+      // rejection keeps its key after being soft-deleted, and a row created for an earlier kickoff sits
+      // outside today's window (providers do report a fixture that has just finished). Without this the
+      // loop would try to insert a key that already exists, so the fixture is silently skipped and Prisma
+      // logs a unique-constraint error on every cycle. The lookup is bounded to the keys this cycle is
+      // about to write and uses the unique index, so it replaces failing inserts rather than adding work.
+      const cycleProviderKeys = uniqueFixtures.map(buildProviderFixtureKey)
+      const providerKeyOwners: Map<string, (typeof existingMatches)[number]> = cycleProviderKeys.length > 0
+        ? buildProviderKeyOwners(await prisma.match.findMany({
+          where: { providerFixtureKey: { in: cycleProviderKeys } },
+          select: fixtureMatchSelect,
+        }))
+        : new Map()
+
       for (const fixture of uniqueFixtures) {
         const homeName = fixture.homeTeamName.trim()
         const awayName = fixture.awayTeamName.trim()
@@ -647,10 +668,11 @@ export class MatchAutomationService {
 
         // The provider's own fixture key wins; the team identity inside the identity window catches a
         // rescheduled or re-identified fixture so an approved match is updated instead of duplicated.
+        // The stored owner of this exact key is the backstop for a row the window query cannot see.
         const existingMatch = resolveExistingFixture(fixture, providerFixtureKey, [...existingMatches, ...matchesCreatedThisCycle], {
           identityWindowMs: FIXTURE_IDENTITY_WINDOW_MS,
           rankOwner: getCanonicalOwnerRank,
-        })
+        }) ?? providerKeyOwners.get(providerFixtureKey) ?? null
 
         // Cross-provider duplicate protection: never let a lower-priority provider overwrite a
         // canonical match that a higher-priority provider owns.
@@ -685,6 +707,8 @@ export class MatchAutomationService {
           const awayTeamLogo = awayTeam?.logoUrl?.trim() || existingMatch.awayTeamLogo?.trim() || fixture.awayTeamCrest || null
           // A provider that publishes no season must never blank a season that is already stored.
           const season = fixture.season?.trim() || existingMatch.season || null
+          // Same rule for the round: an omitted matchday keeps the stored one (which an admin may have set).
+          const round = fixture.round ?? existingMatch.round ?? null
             const status = existingMatch.status === 'FINISHED'
               ? 'FINISHED'
               : existingMatch.status === 'PENDING'
@@ -701,6 +725,7 @@ export class MatchAutomationService {
             existingMatch.kickoffAt.getTime() !== kickoffAt.getTime() ||
             existingMatch.tournamentName !== fixture.competitionName ||
             existingMatch.season !== season ||
+            existingMatch.round !== round ||
             existingMatch.homeTeamId !== homeTeamId ||
             existingMatch.awayTeamId !== awayTeamId ||
             existingMatch.homeTeamLogo !== homeTeamLogo ||
@@ -724,6 +749,7 @@ export class MatchAutomationService {
                 sport: fixture.sport,
                 tournamentName: fixture.competitionName || existingMatch.tournamentName || null,
                 season,
+                round,
                 status,
                 finishedAt,
               },
@@ -735,12 +761,12 @@ export class MatchAutomationService {
         }
 
         // Creation window (RULES 1-3): a fixture may only become a match once kickoff is within the
-        // configured lead time. Evaluated per fixture so scheduler jitter cannot create weeks early.
+        // configured lead time and has not already gone by. Evaluated per fixture, again here, so scheduler
+        // jitter or a late sync cannot create weeks-early matches or re-insert an expired fixture.
         const creationDecision = evaluateFixtureCreationWindow({
           kickoffAt,
           now: new Date(cycleNow),
           maxLeadMs,
-          providerStatus,
         })
 
         if (creationDecision !== 'create') {
@@ -749,7 +775,9 @@ export class MatchAutomationService {
             { provider: fixture.provider, title: desiredTitle, kickoffAt, creationDecision },
             creationDecision === 'too-early'
               ? 'Fixture skipped because it is too early to create'
-              : 'Fixture skipped because the provider still reports an already-started fixture as upcoming',
+              : creationDecision === 'expired'
+                ? 'Fixture skipped because its kickoff has already passed'
+                : 'Fixture skipped because the provider still reports an already-started fixture as upcoming',
           )
           continue
         }
@@ -771,6 +799,7 @@ export class MatchAutomationService {
               sport: fixture.sport,
               tournamentName: fixture.competitionName,
               season: fixture.season?.trim() || null,
+              round: fixture.round ?? null,
               status: 'PENDING',
               finishedAt: null,
               premium: false,
@@ -782,7 +811,10 @@ export class MatchAutomationService {
           matchesCreatedThisCycle.push(createdMatch)
           logger.info({ provider: fixture.provider, title: desiredTitle, kickoffAt }, 'Created new match from provider sync')
         } catch (error) {
-          if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+          // A genuine race with another instance is the only way left to reach the unique constraint, and
+          // the other instance has the row, so this cycle skips it and picks it up on the next pass. The
+          // conflict is verified first: anything else keeps propagating.
+          if (isProviderFixtureKeyConflict(error)) {
             skippedCount++
             logger.info({ title: desiredTitle, kickoffAt, providerFixtureKey }, 'Skip duplicate provider fixture already created')
             continue

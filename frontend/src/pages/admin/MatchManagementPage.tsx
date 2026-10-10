@@ -21,11 +21,13 @@ import { MatchFilters } from './components/MatchFilters'
 import { PendingMatchesSection } from './components/PendingMatchesSection'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../../components/ui/Table'
 import { PaginationControls } from '../../components/ui/PaginationControls'
-import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '@/hooks/useMediaUploadProgress'
+import { useDeleteUploadedFileMutation } from '../../features/admin/uploads.api'
 
 import { useNavigate } from 'react-router-dom' // Import useNavigate
 import { motion } from 'framer-motion'
 import { formatMatchDateTimeInput, parseMatchDateTime } from '../../utils/matchDateTime'
+import { parseMatchRound } from '../../utils/matchRound'
 
 const matchFormSchemaBase = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters.'),
@@ -129,6 +131,7 @@ export function MatchManagementPage() {
     defaultValues: {
       title: '',
       season: '',
+      round: '',
       homeTeamName: '',
       awayTeamName: '',
       homeTeamId: null,
@@ -149,16 +152,16 @@ export function MatchManagementPage() {
       streams: [],
     },
   })
-  const [uploadFiles, { isLoading: isUploadingStreamLogo }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: streamLogoProgress, isUploading: isUploadingStreamLogo } = useMediaUploadProgress()
+  const { upload: uploadTeamLogoFile, progress: teamLogoProgress, isUploading: isUploadingTeamLogos } = useMediaUploadProgress()
   const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [uploadingStreamLogoIndex, setUploadingStreamLogoIndex] = useState<number | null>(null)
-  const [isUploadingTeamLogos, setIsUploadingTeamLogos] = useState(false)
   const uploadedTeamLogoIdsRef = useRef<string[]>([])
 
   const handleStreamLogoUpload = useCallback(async (streamIndex: number, file: File) => {
     setUploadingStreamLogoIndex(streamIndex)
     try {
-      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos', mediaType: 'LOGO' }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos', mediaType: 'LOGO' })
       const logoUrl = result.uploads[0]?.url
       if (!logoUrl) throw new Error('Cloudinary did not return a logo URL.')
       form.setValue(`streams.${streamIndex}.logo`, logoUrl, { shouldDirty: true, shouldValidate: true })
@@ -174,6 +177,7 @@ export function MatchManagementPage() {
     return {
       title: match.title,
       season: match.season ?? '',
+      round: match.round != null ? String(match.round) : '',
       homeTeamName: match.homeTeamName ?? '',
       awayTeamName: match.awayTeamName ?? '',
       homeTeamId: match.homeTeamId ?? match.homeTeam?.id ?? null,
@@ -218,56 +222,54 @@ export function MatchManagementPage() {
 
     const uploadTeamLogo = async (value: File | string | null | undefined) => {
       if (!(value instanceof File)) return value ?? null
-      const result = await uploadFiles({ files: [value], folder: 'sportzone/team-logos', mediaType: 'LOGO' }).unwrap()
+      const result = await uploadTeamLogoFile({ files: [value], folder: 'sportzone/team-logos', mediaType: 'LOGO' })
       const uploaded = result.uploads[0]
       if (!uploaded?.url || !uploaded.publicId) throw new Error('Cloudinary did not return verified team logo metadata.')
       uploadedTeamLogoIdsRef.current.push(uploaded.publicId)
       return uploaded.url
     }
 
-    setIsUploadingTeamLogos(true)
-    try {
-      const [homeTeamLogo, awayTeamLogo] = await Promise.all([
-        uploadTeamLogo(values.homeTeamLogo),
-        uploadTeamLogo(values.awayTeamLogo),
-      ])
+    const [homeTeamLogo, awayTeamLogo] = await Promise.all([
+      uploadTeamLogo(values.homeTeamLogo),
+      uploadTeamLogo(values.awayTeamLogo),
+    ])
 
-      const normalizedStreams = (values.streams ?? []).map((stream) => ({
-        ...stream,
-        sourceType: stream.sourceType ?? 'DIRECT_URL',
-        channelId: stream.sourceType === 'CHANNEL' ? (stream.channelId ?? null) : null,
-        activationMode: stream.activationMode ?? 'AUTOMATIC',
-        activationOffsetMinutes: Number(stream.activationOffsetMinutes ?? 0),
-        primaryUrl: (stream.primaryUrl ?? '').trim(),
-        backupUrl: Array.isArray(stream.backupUrls) ? stream.backupUrls.find((url) => url?.trim()) ?? null : stream.backupUrls ?? null,
-        backupUrls: undefined,
-      }))
+    const normalizedStreams = (values.streams ?? []).map((stream) => ({
+      ...stream,
+      sourceType: stream.sourceType ?? 'DIRECT_URL',
+      channelId: stream.sourceType === 'CHANNEL' ? (stream.channelId ?? null) : null,
+      activationMode: stream.activationMode ?? 'AUTOMATIC',
+      activationOffsetMinutes: Number(stream.activationOffsetMinutes ?? 0),
+      primaryUrl: (stream.primaryUrl ?? '').trim(),
+      backupUrl: Array.isArray(stream.backupUrls) ? stream.backupUrls.find((url) => url?.trim()) ?? null : stream.backupUrls ?? null,
+      backupUrls: undefined,
+    }))
 
-      return {
-        title: values.title.trim(),
-        tournamentName: values.title.trim(),
-        season: values.season?.trim() || null,
-        homeTeamName: values.homeTeamName ?? null,
-        awayTeamName: values.awayTeamName ?? null,
-        homeTeamId: values.homeTeamId || null,
-        awayTeamId: values.awayTeamId || null,
-        homeTeamLogo,
-        awayTeamLogo,
-        kickoffAt,
-        expectedEndTime: expectedEndTime || undefined,
-        autoFinish: values.autoFinish,
-        preStartEnabled: values.preStartEnabled,
-        preStartWindowMinutes: values.preStartWindowMinutes,
-        preStartVideoUrl: values.preStartVideoUrl || null,
-        sport: values.sport,
-        status: values.status,
-        premium: values.premium,
-        streams: JSON.stringify(normalizedStreams),
-      }
-    } finally {
-      setIsUploadingTeamLogos(false)
+    // The upload hook owns the "uploading" flag, so a failed team-logo upload clears itself.
+    // A failed upload still rejects here, which is what stops the match from being saved without its logo.
+    return {
+      title: values.title.trim(),
+      tournamentName: values.title.trim(),
+      season: values.season?.trim() || null,
+      round: parseMatchRound(values.round),
+      homeTeamName: values.homeTeamName ?? null,
+      awayTeamName: values.awayTeamName ?? null,
+      homeTeamId: values.homeTeamId || null,
+      awayTeamId: values.awayTeamId || null,
+      homeTeamLogo,
+      awayTeamLogo,
+      kickoffAt,
+      expectedEndTime: expectedEndTime || undefined,
+      autoFinish: values.autoFinish,
+      preStartEnabled: values.preStartEnabled,
+      preStartWindowMinutes: values.preStartWindowMinutes,
+      preStartVideoUrl: values.preStartVideoUrl || null,
+      sport: values.sport,
+      status: values.status,
+      premium: values.premium,
+      streams: JSON.stringify(normalizedStreams),
     }
-  }, [uploadFiles])
+  }, [uploadTeamLogoFile])
 
   const {
     editingEntity: editingMatch,
@@ -387,7 +389,7 @@ export function MatchManagementPage() {
                 : 'Fill in the details to add a new match.'}
             </DialogDescription>
           </DialogHeader> 
-          <CreateMatchForm form={form} onSubmit={handleSubmit} isLoading={isMutating || isUploadingStreamLogo || isUploadingTeamLogos} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill={!editingMatch} />
+          <CreateMatchForm form={form} onSubmit={handleSubmit} isLoading={isMutating || isUploadingStreamLogo || isUploadingTeamLogos} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill={!editingMatch} streamLogoProgress={streamLogoProgress.update} teamLogoProgress={teamLogoProgress.update} teamLogoError={teamLogoProgress.error} streamLogoError={streamLogoProgress.error} />
         </DialogContent>
       </Dialog>
 

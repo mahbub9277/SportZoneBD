@@ -12,7 +12,8 @@ import { useGetAdvertisementsQuery, useCreateAdvertisementMutation, useUpdateAdv
 import { getErrorMessage } from '../../utils/get-error-message'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
+import { UploadProgress } from '../../components/ui/UploadProgress'
 import { DescriptionGenerator } from '../../components/ai/DescriptionGenerator'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 
@@ -71,7 +72,7 @@ export default function AdvertisementsManagementPage() {
   const [createAdvertisement, { isLoading: isCreating }] = useCreateAdvertisementMutation()
   const [updateAdvertisement, { isLoading: isUpdating }] = useUpdateAdvertisementMutation()
   const [deleteAdvertisement] = useDeleteAdvertisementMutation()
-  const [uploadFiles, { isLoading: isUploadingImage }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: imageUploadProgress, isUploading: isUploadingImage } = useMediaUploadProgress()
 
   const isLoading = isCreating || isUpdating;
 
@@ -118,7 +119,7 @@ export default function AdvertisementsManagementPage() {
     }
     try {
       const normalizedFile = await normalizeImageFile(selectedImageFile)
-      const result = await uploadFiles({ files: [normalizedFile], folder: 'sportzone/advertisements', mediaType: 'BANNER' }).unwrap()
+      const result = await uploadFiles({ files: [normalizedFile], folder: 'sportzone/advertisements', mediaType: 'BANNER' })
       const uploadedUrl = result.uploads[0]?.url
       if (!uploadedUrl) throw new Error('Upload succeeded but no image URL was returned.')
       setForm((current) => ({ ...current, imageUrl: uploadedUrl }))
@@ -248,6 +249,7 @@ export default function AdvertisementsManagementPage() {
                   <Button type="button" variant="outline" onClick={() => void handleImageUpload()} disabled={!selectedImageFile || isUploadingImage} className="gap-2">{isUploadingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}{isUploadingImage ? 'Uploading...' : 'Upload image'}</Button>
                 </div>
                 <p className="mt-2 text-xs text-(--text-muted)">{selectedImageFile ? selectedImageFile.name : form.imageUrl ? '1200 x 300 banner attached.' : 'Optional: choose and upload a 1200 x 300 banner.'}</p>
+                <UploadProgress update={imageUploadProgress.update} error={imageUploadProgress.error} className="mt-2" />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

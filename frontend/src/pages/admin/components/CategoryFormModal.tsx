@@ -5,7 +5,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useCreateCategoryMutation, useUpdateCategoryMutation } from '../../../features/admin/channels.api'
-import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
+import { useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../../hooks/useMediaUploadProgress'
+import { UploadProgress } from '../../../components/ui/UploadProgress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/Dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../components/ui/Form'
 import { Input } from '../../../components/ui/Input'
@@ -32,7 +34,7 @@ interface CategoryFormModalProps {
 export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCategory = null }: CategoryFormModalProps) {
   const [createCategory, { isLoading: isCreating }] = useCreateCategoryMutation()
   const [updateCategory, { isLoading: isUpdating }] = useUpdateCategoryMutation()
-  const [uploadFiles, { isLoading: isUploadingImage }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: imageProgress, isUploading: isUploadingImage } = useMediaUploadProgress()
   const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
@@ -71,7 +73,7 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
     try {
       const imageFile = values.image instanceof FileList ? values.image[0] : undefined
       const uploaded = imageFile
-        ? await uploadFiles({ files: [imageFile], folder: 'sportzone/channel-categories', mediaType: 'LOGO' }).unwrap()
+        ? await uploadFiles({ files: [imageFile], folder: 'sportzone/channel-categories', mediaType: 'LOGO' })
         : null
       uploadedPublicId = uploaded?.uploads[0]?.publicId
       const image = uploaded?.uploads[0]?.url ?? (typeof values.image === 'string' ? values.image : undefined)
@@ -137,6 +139,7 @@ export function CategoryFormModal({ isOpen, onOpenChange, onSuccess, editingCate
                         {imagePreviewUrl && <Button type="button" variant="ghost" size="icon" onClick={() => { setImagePreviewUrl(null); onChange(undefined) }} aria-label="Remove category image"><X className="h-4 w-4" /></Button>}
                       </div>
                     </div>
+                    <UploadProgress update={imageProgress.update} error={imageProgress.error} className="mt-3" />
                     <p className="mt-2 text-xs text-text-muted">Choose a square PNG, JPG, or WebP image.</p>
                   </div>
                 </FormControl>

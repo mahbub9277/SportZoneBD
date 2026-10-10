@@ -10,6 +10,7 @@ let getConfiguredCompetitionCodes: MatchesService['getConfiguredCompetitionCodes
 let getConfiguredCompetitionFixtures: MatchesService['getConfiguredCompetitionFixtures']
 let defaultCompetitionCodes: MatchesService['DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS']
 let formatProviderSeason: MatchesService['formatProviderSeason']
+let readProviderRound: MatchesService['readProviderRound']
 let acquireFootballDataRequestSlot: typeof import('./footballDataRequestLimiter.js')['acquireFootballDataRequestSlot']
 
 before(async () => {
@@ -27,6 +28,7 @@ before(async () => {
   getConfiguredCompetitionFixtures = matchesModule.getConfiguredCompetitionFixtures
   defaultCompetitionCodes = matchesModule.DEFAULT_FOOTBALL_DISCOVERY_COMPETITIONS
   formatProviderSeason = matchesModule.formatProviderSeason
+  readProviderRound = matchesModule.readProviderRound
   acquireFootballDataRequestSlot = limiterModule.acquireFootballDataRequestSlot
 })
 
@@ -72,6 +74,7 @@ test('isolates one competition fixture failure from the other configured competi
     competitionCode,
     competitionName: competitionCode,
     season: null,
+    round: null,
     homeTeamName: 'Home Team',
     awayTeamName: 'Away Team',
   })
@@ -236,6 +239,7 @@ test('reads the real season label from the provider season object', async (conte
         id: 2001,
         utcDate: '2026-10-04T18:00:00Z',
         status: 'TIMED',
+        matchday: 7,
         competition: { name: 'Premier League' },
         season: { id: 2026, startDate: '2026-08-14', endDate: '2027-05-23', currentMatchday: 7 },
         homeTeam: { name: 'Liverpool FC', crest: null },
@@ -268,10 +272,27 @@ test('reads the real season label from the provider season object', async (conte
     assert.equal(fixtures[0].season, '2026/2027')
     assert.equal(fixtures[1].season, '2026')
     assert.equal(fixtures[2].season, null)
+    // The matchday the provider publishes is the round; a fixture that carries none stays null.
+    assert.equal(fixtures[0].round, 7)
+    assert.equal(fixtures[1].round, null)
+    assert.equal(fixtures[2].round, null)
   } finally {
     if (previousApiKey === undefined) delete process.env.FOOTBALL_API_KEY
     else process.env.FOOTBALL_API_KEY = previousApiKey
   }
+})
+
+test('the provider matchday is read as a round and anything else stays unset', () => {
+  assert.equal(readProviderRound(7), 7)
+  assert.equal(readProviderRound('8'), 8)
+  // Cup ties and unusual payloads must not become a round number.
+  assert.equal(readProviderRound(null), null)
+  assert.equal(readProviderRound(undefined), null)
+  assert.equal(readProviderRound(0), null)
+  assert.equal(readProviderRound(-3), null)
+  assert.equal(readProviderRound(2.5), null)
+  assert.equal(readProviderRound('Round of 16'), null)
+  assert.equal(readProviderRound(999), null)
 })
 
 test('season formatting uses the provider span or its season id and never invents one', () => {

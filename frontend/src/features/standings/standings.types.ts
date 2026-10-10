@@ -16,6 +16,8 @@ export interface LeagueStanding {
     shortName: string | null
     tla: string | null
     crest: string | null
+    /** The logo SportZoneBD stores for this team; it takes priority over the provider crest when set. */
+    assignedLogo?: string | null
   }
   playedGames: number
   won: number

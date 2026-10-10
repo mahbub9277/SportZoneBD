@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from '../../components/ui/Tabs'
 import { useGetLeagueStandingsQuery } from '../../features/standings/standings.api'
 import type { LeagueCode, LeagueStanding } from '../../features/standings/standings.types'
 import { useGetStandingsCompetitionsQuery } from '../../features/standings/standings.api'
+import { selectTeamLogo, teamInitials } from '../../utils/teamLogo'
 
 const SKELETON_ROWS = Array.from({ length: 8 }, (_, index) => index)
 
@@ -197,14 +198,15 @@ function NumericCell({ value }: { value: number | string }) {
 }
 
 function TeamCrest({ standing }: { standing: LeagueStanding }) {
-  const [hasError, setHasError] = useState(!standing.team.crest)
-  const initials = standing.team.tla || standing.team.shortName?.slice(0, 3) || standing.team.name.slice(0, 2)
+  const logo = selectTeamLogo([standing.team.assignedLogo, standing.team.crest], { width: 32, height: 32, crop: 'fit' })
+  const [hasError, setHasError] = useState(false)
+  const initials = teamInitials(standing.team.name, { shortName: standing.team.shortName, tla: standing.team.tla })
 
-  if (hasError || !standing.team.crest) {
+  if (hasError || !logo.url) {
     return <span aria-label={`${standing.team.name} crest unavailable`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-(--border) bg-(--surface-soft) text-[10px] font-semibold text-(--text-muted)">{initials}</span>
   }
 
-  return <img src={standing.team.crest} alt={`${standing.team.name} crest`} width={32} height={32} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setHasError(true)} className="h-8 w-8 shrink-0 rounded-full object-contain" />
+  return <img src={logo.url} alt={`${standing.team.name} crest`} width={32} height={32} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setHasError(true)} className="h-8 w-8 shrink-0 rounded-full object-contain" />
 }
 
 function CompetitionEmblem({ name, src }: { name: string; src: string | null }) {

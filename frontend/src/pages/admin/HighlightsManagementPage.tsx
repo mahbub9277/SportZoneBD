@@ -7,7 +7,8 @@ import { Label } from '../../components/ui/Label'
 import { useGetAdminHighlightsQuery, useCreateHighlightMutation, useUpdateHighlightMutation, useDeleteHighlightMutation } from '../../features/admin/adminHighlights.api'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
+import { UploadProgress } from '../../components/ui/UploadProgress'
 import type { Highlight } from '../../features/admin/adminHighlights.api'
 
 const emptyHighlights: Highlight[] = []
@@ -20,11 +21,13 @@ export function HighlightsManagementPage() {
   const [createHighlight, { isLoading: isCreating }] = useCreateHighlightMutation()
   const [updateHighlight, { isLoading: isUpdating }] = useUpdateHighlightMutation()
   const [deleteHighlight, { isLoading: isDeleting }] = useDeleteHighlightMutation()
-  const [uploadFiles, { isLoading: isUploadingThumbnail }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: uploadProgress, isUploading } = useMediaUploadProgress()
+  // One upload runs at a time in this form, so both upload buttons share the hook's active flag.
+  const isUploadingThumbnail = isUploading
+  const isUploadingVideo = isUploading
 
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null)
   const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null)
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false)
   const [editingHighlightId, setEditingHighlightId] = useState<string | null>(null)
   const selectedThumbnailPreviewUrl = useMemo(
     () => selectedThumbnailFile ? URL.createObjectURL(selectedThumbnailFile) : null,
@@ -52,7 +55,7 @@ export function HighlightsManagementPage() {
     if (!file) return
 
     try {
-      const result = await uploadFiles({ files: [file], folder: 'sportzone/highlights' }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: 'sportzone/highlights' })
       const uploadedUrl = result.uploads[0]?.url
 
       if (!uploadedUrl) {
@@ -74,9 +77,8 @@ export function HighlightsManagementPage() {
       setSelectedVideoFile(null)
       return
     }
-    setIsUploadingVideo(true)
     try {
-      const result = await uploadFiles({ files: [file], folder: 'sportzone/highlights', mediaType: 'VIDEO' }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: 'sportzone/highlights', mediaType: 'VIDEO' })
       const uploadedUrl = result.uploads[0]?.url
       if (!uploadedUrl) throw new Error('Upload succeeded but the highlight video URL was not returned.')
       setForm((prev) => ({ ...prev, url: uploadedUrl }))
@@ -84,8 +86,6 @@ export function HighlightsManagementPage() {
       toast.success('Highlight video uploaded successfully.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Video upload failed.')
-    } finally {
-      setIsUploadingVideo(false)
     }
   }
 
@@ -199,6 +199,7 @@ export function HighlightsManagementPage() {
                 </div>
                 <p className="mt-2 text-xs text-(--text-muted)">Choose a video file first, then click Upload video.</p>
                 {selectedVideoFile && <p className="mt-1 truncate text-xs text-(--accent)">Selected: {selectedVideoFile.name}</p>}
+                <UploadProgress update={uploadProgress.update} error={uploadProgress.error} className="mt-2" />
               </div>
               <Input id="url" name="url" type="url" value={form.url} onChange={handleInputChange} placeholder="https://youtube.com/watch?v=..." required={!isUploadingVideo} />
               {form.url && <p className="truncate text-xs text-(--success)">Video source ready.</p>}
@@ -252,6 +253,7 @@ export function HighlightsManagementPage() {
                   />
                 </div>
               )}
+              <UploadProgress update={uploadProgress.update} error={uploadProgress.error} className="mt-3" />
             </div>
             <div className="md:col-span-2">
               <div className="flex flex-wrap gap-2">

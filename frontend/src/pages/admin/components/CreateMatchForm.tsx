@@ -6,6 +6,9 @@ import { Input } from '../../../components/ui/Input'
 import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
 import { ImagePlus, Loader2, PlusCircle, MinusCircle, X, ChevronDown, Sparkles, Trash2 } from 'lucide-react'
+import { UploadProgress } from '../../../components/ui/UploadProgress'
+import { TeamLogoBadge } from '../../../components/ui/TeamLogoBadge'
+import type { MediaUploadProgressUpdate } from '../../../utils/uploadProgress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/Select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/Popover'
 import { useGetAdminChannelsQuery } from '../../../features/admin/channels.api'
@@ -32,6 +35,8 @@ export type CreateMatchFormValues = {
   title: string
   /** Optional season label as the competition states it, for example "2026/2027". */
   season?: string | null
+  /** Optional league round or matchday as typed by an admin, for example "7". */
+  round?: string | null
   homeTeamName?: string | null
   awayTeamName?: string | null
   homeTeamId?: string | null
@@ -119,7 +124,7 @@ function TeamNameField({ form, nameField, idField, logoField, label, placeholder
             {isFetching && <p className="px-3 py-2 text-xs text-text-muted">Searching teams...</p>}
             {!isFetching && results.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">No existing team found. Upload a new logo below.</p>}
             {!isFetching && results.map((team) => <button key={`${team.id ?? team.normalizedName}`} type="button" className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-surface-soft" onMouseDown={(event) => event.preventDefault()} onClick={() => selectTeam(team)}>
-              {team.logoUrl ? <img src={buildCloudinaryUrl(team.logoUrl, teamLogoTransform)} alt="" className="h-9 w-9 rounded-full bg-surface-soft object-cover p-0.5" /> : <span className="grid h-9 w-9 place-items-center rounded-full bg-surface-soft text-xs">{team.name.slice(0, 2).toUpperCase()}</span>}
+              <TeamLogoBadge candidates={[team.logoUrl]} name={team.name} className="h-9 w-9 rounded-full bg-surface-soft object-cover p-0.5" fallbackClassName="grid h-9 w-9 place-items-center rounded-full bg-surface-soft text-xs" transform={teamLogoTransform} />
               <span className="min-w-0"><span className="block truncate text-sm text-text-primary">{team.name}</span><span className="block text-[11px] text-text-muted">Existing team</span></span>
             </button>)}
           </div>}
@@ -138,6 +143,14 @@ interface CreateMatchFormProps {
   onStreamLogoUpload?: (streamIndex: number, file: File) => void
   uploadingStreamLogoIndex?: number | null
   showAiAutofill?: boolean
+  /** Live progress of the stream-logo upload that is currently running. */
+  streamLogoProgress?: MediaUploadProgressUpdate | null
+  /** Live progress of the team-logo uploads that run when the match is saved. */
+  teamLogoProgress?: MediaUploadProgressUpdate | null
+  /** Why the last team-logo upload failed, when it did. */
+  teamLogoError?: string | null
+  /** Why the last stream-logo upload failed, when it did. */
+  streamLogoError?: string | null
 }
 
 interface StreamCardProps {
@@ -147,9 +160,11 @@ interface StreamCardProps {
   removeStream: (index: number) => void
   onLogoUpload?: (file: File) => void
   isUploadingLogo?: boolean
+  logoProgress?: MediaUploadProgressUpdate | null
+  logoError?: string | null
 }
 
-function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, isUploadingLogo = false }: StreamCardProps) {
+function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, isUploadingLogo = false, logoProgress = null, logoError = null }: StreamCardProps) {
   const logo = form.watch(`streams.${streamIndex}.logo`)
   const sourceType = form.watch(`streams.${streamIndex}.sourceType`) ?? 'DIRECT_URL'
   const selectedChannelId = form.watch(`streams.${streamIndex}.channelId`) ?? ''
@@ -215,7 +230,9 @@ function StreamCard({ form, streamIndex, isLoading, removeStream, onLogoUpload, 
               <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={isUploadingLogo} onChange={(event) => { const file = event.target.files?.[0]; if (file) onLogoUpload(file); event.currentTarget.value = '' }} />
             </label>}
             {logo && <Button type="button" variant="ghost" size="icon" onClick={() => field.onChange('')} aria-label="Remove channel logo"><X className="h-4 w-4" /></Button>}
-          </div></FormControl><FormMessage /></FormItem>
+          </div>
+          <UploadProgress update={logoProgress} error={isUploadingLogo ? null : logoError} className="mt-2" />
+          </FormControl><FormMessage /></FormItem>
         )} />
       </div>
       <FormField
@@ -461,6 +478,9 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
     applySuggestion('sport', result.sport, result.confidence.sport, true)
     applySuggestion('kickoffDate', result.kickoffDate, result.confidence.kickoffDate)
     applySuggestion('kickoffTime', result.kickoffTime, result.confidence.kickoffTime)
+    // A round the input actually stated ("Matchday 7") is carried into the form so it is stored with the
+    // match. Nothing is defaulted: an input without a round leaves the field exactly as the admin left it.
+    applySuggestion('round', result.round != null ? String(result.round) : null, result.confidence.round)
     applySuggestion('expectedDurationMinutes', result.expectedDurationMinutes, result.confidence.expectedDurationMinutes, true)
     applySuggestion('autoFinish', result.autoFinish, result.confidence.autoFinish, true)
     applySuggestion('preStartEnabled', result.preStartEnabled, result.confidence.preStartEnabled, true)
@@ -601,7 +621,7 @@ function MatchAutofill({ form, append, disabled }: { form: UseFormReturn<CreateM
   )
 }
 
-export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload, uploadingStreamLogoIndex, showAiAutofill = false }: CreateMatchFormProps) {
+export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload, uploadingStreamLogoIndex, showAiAutofill = false, streamLogoProgress = null, teamLogoProgress = null, teamLogoError = null, streamLogoError = null }: CreateMatchFormProps) {
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: 'streams',
@@ -644,6 +664,10 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
           <FormItem className={flatFormItemClass}><FormLabel className="text-base font-semibold">Season (optional)</FormLabel><FormControl><Input placeholder="e.g., 2026/2027" className={inputClass} {...field} value={field.value ?? ''} /></FormControl><p className="text-xs text-text-muted">Shown next to the competition on the match card. Leave empty when the provider or the competition does not publish a season.</p><FormMessage /></FormItem>
         )} />
 
+        <FormField control={form.control} name="round" render={({ field }) => (
+          <FormItem className={flatFormItemClass}><FormLabel className="text-base font-semibold">Round / matchday (optional)</FormLabel><FormControl><Input type="number" min={1} max={200} inputMode="numeric" placeholder="e.g., 7" className={inputClass} {...field} value={field.value ?? ''} /></FormControl><p className="text-xs text-text-muted">The league round the fixture belongs to. Match cards show it as “- Round 7” next to the season. Leave empty for cup ties and fixtures with no matchday.</p><FormMessage /></FormItem>
+        )} />
+
         <section className={sectionClass}>
           <div className="mb-4 flex flex-col gap-3 border-b border-border/60 pb-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -677,6 +701,7 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
                       <Button type="button" variant="ghost" size="sm" onClick={() => field.onChange(null)}>Clear</Button>
                     )}
                   </div>
+                  <UploadProgress update={teamLogoProgress} error={isLoading ? null : teamLogoError} className="mt-2" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -702,6 +727,7 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
                       <Button type="button" variant="ghost" size="sm" onClick={() => field.onChange(null)}>Clear</Button>
                     )}
                   </div>
+                  <UploadProgress update={teamLogoProgress} error={isLoading ? null : teamLogoError} className="mt-2" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -812,6 +838,8 @@ export function CreateMatchForm({ form, onSubmit, isLoading, onStreamLogoUpload,
               removeStream={remove}
               onLogoUpload={onStreamLogoUpload ? (file) => onStreamLogoUpload(streamIndex, file) : undefined}
               isUploadingLogo={uploadingStreamLogoIndex === streamIndex}
+              logoProgress={uploadingStreamLogoIndex === streamIndex ? streamLogoProgress : null}
+              logoError={uploadingStreamLogoIndex === streamIndex ? streamLogoError : null}
             />
           ))}
           <Button

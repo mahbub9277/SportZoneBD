@@ -7,7 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { cn } from '../lib/utils'
 import type { Notification, NotificationType } from '../features/notifications/notification.types'
-import { buildCloudinaryUrl } from '../utils/cloudinary'
+import { TeamLogoBadge } from '../components/ui/TeamLogoBadge'
 import { decodeVapidPublicKey, serializePushSubscription, supportsWebPush } from '../features/notifications/pushSubscription'
 
 const notificationIcons = {
@@ -227,10 +227,20 @@ export function NotificationsPage({ embedded = false, onClose, onViewAll }: Noti
                     </div>
                     <div className="min-w-0 flex-1">
                       {notification.match && <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-(--text-muted) sm:gap-2">
-                        {notification.match.homeTeamLogo ? <img src={buildCloudinaryUrl(notification.match.homeTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold">{notification.match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+                        <TeamLogoBadge
+                          candidates={[notification.match.homeTeamLogo]} name={notification.match.homeTeamName} fallback="T1"
+                          className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain"
+                          fallbackClassName="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold"
+                          transform={{ width: 40, height: 40, crop: 'fit' }}
+                        />
                         <span className="max-w-32 wrap-break-word">{notification.match.homeTeamName || 'Team 1'}</span>
                         <span className="shrink-0 text-(--accent)">vs</span>
-                        {notification.match.awayTeamLogo ? <img src={buildCloudinaryUrl(notification.match.awayTeamLogo, { width: 40, height: 40, crop: 'fit' })} alt="" className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold">{notification.match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+                        <TeamLogoBadge
+                          candidates={[notification.match.awayTeamLogo]} name={notification.match.awayTeamName} fallback="T2"
+                          className="h-7 w-7 rounded-full bg-(--surface-soft) object-contain"
+                          fallbackClassName="grid h-7 w-7 place-items-center rounded-full bg-(--surface-soft) text-[9px] font-bold"
+                          transform={{ width: 40, height: 40, crop: 'fit' }}
+                        />
                         <span className="max-w-32 wrap-break-word">{notification.match.awayTeamName || 'Team 2'}</span>
                       </div>}
                       {notification.link ? <a href={notification.link} target={notification.link.startsWith('/') ? undefined : '_blank'} rel={notification.link.startsWith('/') ? undefined : 'noreferrer'} className="group/link inline-flex max-w-full items-center gap-1 wrap-break-word text-base font-semibold text-(--text-primary) transition-colors hover:text-(--accent) hover:underline"><span className="wrap-break-word">{notification.title}</span><ArrowUpRight className="h-4 w-4 shrink-0 opacity-70 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" /></a> : <p className="wrap-break-word text-base font-semibold text-(--text-primary)">{notification.title}</p>}

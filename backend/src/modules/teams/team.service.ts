@@ -1,5 +1,6 @@
 import { prisma } from '../../core/prisma.js'
 import { normalizeTeamName } from './teamName.js'
+import { assignedTeamLogoFields } from './teamLogo.js'
 
 export { normalizeTeamName }
 
@@ -72,19 +73,23 @@ export async function resolveTeam(input: { id?: string | null; name?: string | n
     if (existing) return existing
   }
 
+  // A provider crest is never stored on a team record: `logoUrl`/`logoPublicId` hold the project's own
+  // assets, and provider branding belongs to the match row that carries the fixture (see `teamLogo.ts`).
+  const logoFields = assignedTeamLogoFields(input.logoUrl)
+
   try {
     return await prisma.team.upsert({
       where: { normalizedName },
       update: {
         name,
-        ...(input.logoUrl ? { logoUrl: input.logoUrl, logoPublicId: input.logoUrl } : {}),
+        ...logoFields,
         deletedAt: null,
       },
       create: {
         name,
         normalizedName,
-        logoUrl: input.logoUrl ?? null,
-        logoPublicId: input.logoUrl ?? null,
+        logoUrl: logoFields.logoUrl ?? null,
+        logoPublicId: logoFields.logoPublicId ?? null,
       },
     })
   } catch (error) {

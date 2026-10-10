@@ -445,17 +445,20 @@ html.theme-switching * {
 }
 
 /* Player loader: three concentric rings share one heartbeat around the static brand mark, with a soft
-   left/right energy bloom. Only transform and opacity animate, the sizing is fluid so the same loader
-   fits a mini card, a phone, a desktop player and a TV, and `prefers-reduced-motion` keeps every part
-   visible while stopping the motion. */
+   left/right energy bloom. Only transform and opacity animate, the ring thickness scales with the loader
+   itself so the circles stay clearly visible, and `prefers-reduced-motion` keeps every part visible while
+   stopping the motion. */
 .szb-loader {
-  /* Compact on phones, a touch more presence on large screens; never larger than the player allows. */
-  --szb-loader-size: clamp(3.4rem, 9.5vmin, 5.4rem);
+  /* Sized to read at a glance: roughly 1.65x the original loader on phones and a real presence on
+     desktop, with the ring geometry scaled so the circles stay clearly visible. */
+  --szb-loader-size: clamp(5.4rem, 15.6vmin, 8.75rem);
+  /* Thickness follows the loader, so the rings never thin out into hairlines on a small player. */
+  --szb-loader-ring-width: max(2px, calc(var(--szb-loader-size) * 0.029));
 }
 
 @media (min-width: 96rem) {
   .szb-loader {
-    --szb-loader-size: clamp(3.4rem, 9.5vmin, 6.4rem);
+    --szb-loader-size: clamp(5.4rem, 14.5vmin, 10.4rem);
   }
 }
 
@@ -472,33 +475,42 @@ html.theme-switching * {
 
 .szb-loader-ring {
   position: absolute;
-  border: 1px solid;
+  border-style: solid;
+  border-width: var(--szb-loader-ring-width);
   border-radius: 9999px;
   animation: loader-ring 3.4s ease-in-out infinite;
 }
 
-/* Inner ring: strongest and fastest. Middle: softer, half a beat behind. Outer: softest and slowest. */
+/* Inner ring: strongest and fastest. Middle: softer, half a beat behind. Outer: softest and slowest.
+   The sizes leave real air around the brand mark, and each ring carries an outer glow plus an inner rim
+   highlight, which is what makes the circle read as polished rather than as a flat outline. */
 .szb-loader-ring--inner {
-  width: 52%;
-  height: 52%;
-  border-color: #0474c4;
-  box-shadow: 0 0 1.1rem rgba(4, 116, 196, 0.42);
+  width: 58%;
+  height: 58%;
+  border-color: #2a97e2;
+  box-shadow:
+    inset 0 0 0.55rem rgba(42, 151, 226, 0.4),
+    0 0 1.5rem rgba(42, 151, 226, 0.6);
   animation-duration: 3.1s;
 }
 
 .szb-loader-ring--middle {
-  width: 76%;
-  height: 76%;
-  border-color: #176fb5;
-  box-shadow: 0 0 1.4rem rgba(23, 111, 181, 0.3);
+  width: 80%;
+  height: 80%;
+  border-color: #1d82d6;
+  box-shadow:
+    inset 0 0 0.6rem rgba(29, 130, 214, 0.32),
+    0 0 2.05rem rgba(29, 130, 214, 0.5);
   animation-delay: -0.5s;
 }
 
 .szb-loader-ring--outer {
   width: 100%;
   height: 100%;
-  border-color: #06457f;
-  box-shadow: 0 0 1.7rem rgba(6, 69, 127, 0.34);
+  border-color: #0c64b0;
+  box-shadow:
+    inset 0 0 0.65rem rgba(12, 100, 176, 0.28),
+    0 0 2.6rem rgba(12, 100, 176, 0.55);
   animation-duration: 3.7s;
   animation-delay: -1s;
 }
@@ -507,19 +519,24 @@ html.theme-switching * {
 .szb-loader-bloom {
   position: absolute;
   inset-block: 0;
-  inset-inline: -0.75rem;
+  inset-inline: -0.8rem;
   border-radius: 9999px;
   background:
-    radial-gradient(circle at left center, rgba(4, 116, 196, 0.3), transparent 58%),
-    radial-gradient(circle at right center, rgba(23, 111, 181, 0.26), transparent 58%);
+    radial-gradient(circle at left center, rgba(42, 151, 226, 0.42), transparent 58%),
+    radial-gradient(circle at right center, rgba(29, 130, 214, 0.35), transparent 58%);
   animation: loader-bloom 3.8s ease-in-out infinite;
 }
 
 .szb-loader-logo {
   position: relative;
-  width: 34%;
-  height: 34%;
+  width: 43.5%;
+  height: 43.5%;
   object-fit: contain;
+  /* Two cheap shadows on the still image: a soft halo that ties the mark to the rings, and a contact
+     shadow that keeps its contrast on a bright video frame. */
+  filter:
+    drop-shadow(0 0 0.85rem rgba(42, 151, 226, 0.38))
+    drop-shadow(0 0.3rem 0.7rem rgba(2, 8, 18, 0.6));
 }
 
 @keyframes loader-ring {
@@ -555,10 +572,10 @@ html.theme-switching * {
 
 /* =====================================================================================
    TV Mode
-   A separate, deliberately plain shell: the channel list on the left, the player on the
-   right. Everything scales from one variable so 720p, 1080p, 1440p and 4K all look
-   proportionate without a device detector, and only transform/opacity/border/background
-   are animated so weak TV GPUs stay happy.
+   A separate, deliberately plain shell: the player owns the whole viewport and the channel
+   list floats over it as a translucent overlay. Everything scales from one variable so 720p,
+   1080p, 1440p and 4K all look proportionate without a device detector, and only
+   transform/opacity/border/background are animated so weak TV GPUs stay happy.
    ===================================================================================== */
 
 .tv-shell {
@@ -580,7 +597,11 @@ html.theme-switching * {
   /* Positioned so a full-shell overlay (Auto Tune) can be laid over everything TV Mode owns. */
   position: relative;
   display: grid;
-  grid-template-columns: clamp(20em, 27vw, 34em) minmax(0, 1fr);
+  /* The player owns the entire viewport. The channel panel is an overlay above the video, so nothing
+     ever squeezes the player into a column beside it. */
+  grid-template-columns: minmax(0, 1fr);
+  /* The channel panel's width, in one place: the stage overlays that have to sit clear of it read this. */
+  --tv-panel-w: clamp(19em, 26vw, 30em);
   height: 100vh;
   height: 100dvh;
   /* The layout owns the whole viewport, including the parts a notch or a home indicator claims. */
@@ -621,16 +642,35 @@ html.theme-switching * {
   background: var(--tv-accent-strong);
 }
 
-/* ---------------------------------------------------------------- left panel */
-
+/* ---------------------------------------------------------------- left panel
+   The channel panel is an overlay on top of the full-size player, not a sidebar: it is a translucent
+   surface (about 90% transparent) so the video keeps playing underneath it. Only the panel background is
+   transparent — the video surface itself is never dimmed or blurred. Legibility comes from the channel
+   cards, buttons and inputs carrying their own opaque surfaces, so text contrast does not depend on what
+   is playing behind the panel. */
 .tv-panel {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 5;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 0.6em;
+  width: var(--tv-panel-w);
+  max-width: min(88vw, var(--tv-panel-w));
   padding: 0.9em;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
-  background: var(--tv-surface);
+  border-right: 1px solid color-mix(in srgb, var(--tv-border) 38%, transparent);
+  /* One modest blur keeps channel names readable over bright video; the reduced-effects path below drops
+     it for weak TV GPUs and compensates with a slightly stronger tint. */
+  background: color-mix(in srgb, var(--tv-navy-strong) 14%, transparent);
+  backdrop-filter: blur(0.35em) saturate(120%);
+  box-shadow: 0.35em 0 1.4em rgb(2 8 18 / 0.45);
+}
+
+.tv-lite .tv-panel {
+  background: color-mix(in srgb, var(--tv-navy-strong) 42%, transparent);
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 .tv-toolbar {
@@ -1035,6 +1075,20 @@ html.theme-switching * {
   padding: 1em 0.4em;
   font-size: 0.9em;
   color: var(--tv-text);
+}
+
+/* Panel chrome that sits straight on the video gets its own surface or a hairline shadow, so it stays
+   readable over a bright frame without dimming the video itself. */
+.tv-panel .tv-categories-label,
+.tv-panel .tv-panel-title {
+  text-shadow: 0 0.1em 0.35em rgb(2 8 18 / 0.9);
+}
+
+.tv-panel .tv-empty {
+  border: 1px solid color-mix(in srgb, var(--tv-border) 38%, transparent);
+  border-radius: 0.8em;
+  background: color-mix(in srgb, var(--tv-navy-strong) 78%, transparent);
+  text-align: center;
 }
 
 /* ---------------------------------------------------------------- player side */
@@ -1814,32 +1868,38 @@ html.theme-switching * {
 
 /* ---------------------------------------------------------------- immersive player */
 
-/* The panel is hidden, so the player takes the single remaining track. */
-.tv-immersive {
-  grid-template-columns: minmax(0, 1fr);
-}
-
+/* The panel is hidden. The player already owns the whole viewport, so hiding the overlay is all that
+   changes: the video never moves or resizes. */
 .tv-immersive .tv-panel {
   display: none;
+}
+
+/* The stage's own overlays would sit underneath an open panel (it is translucent, not opaque), so they
+   step clear of it while it is shown and slide back when it is hidden. */
+.tv-shell:not(.tv-immersive) .tv-stage-status,
+.tv-shell:not(.tv-immersive) .tv-channel-info {
+  left: calc(var(--tv-panel-w) + 0.9em);
 }
 
 /* ---------------------------------------------------------------- narrow screens */
 
 @media (max-width: 800px) {
   .tv-shell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    /* A phone gets a narrower overlay rather than a stacked layout: the player stays full-viewport. */
+    --tv-panel-w: min(22em, 88vw);
   }
 
   .tv-panel {
-    max-height: 55vh;
-    border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--tv-border) 40%, transparent);
+    /* The floating control row keeps the top strip on a phone, so the panel starts below it: the keypad
+       and panel buttons stay reachable while the panel is open, and nothing overlaps. */
+    inset-block-start: calc(max(0.9em, env(safe-area-inset-top)) + 3.6em);
+    max-width: 88vw;
   }
 
-  .tv-immersive {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
+  /* The video area left beside an 88vw panel is too thin for the live indicator, so it is hidden while
+     the panel is open on a narrow screen and comes back with the panel hidden. */
+  .tv-shell:not(.tv-immersive) .tv-stage-status {
+    display: none;
   }
 }
 
@@ -1981,8 +2041,16 @@ html.theme-switching * {
 .tv-lite .tv-no-signal__effect,
 .tv-lite .tv-stage-status-dot,
 .tv-lite .tv-autotune-progress-fill,
-.tv-lite .tv-control[data-state='scanning'] {
+.tv-lite .tv-control[data-state='scanning'],
+.tv-lite .szb-loader-ring,
+.tv-lite .szb-loader-bloom {
   animation: none;
+}
+
+/* The loader keeps its rings, glow and brand mark on a constrained device — only the motion and the
+   halo are dropped. The contact shadow stays: the mark still has to read over a bright video frame. */
+.tv-lite .szb-loader-logo {
+  filter: drop-shadow(0 0.3rem 0.7rem rgba(2, 8, 18, 0.6));
 }
 
 .tv-lite .tv-autotune-progress-fill {

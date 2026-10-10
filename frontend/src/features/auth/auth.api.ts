@@ -1,7 +1,16 @@
 import { emptyApi } from '../../app/api/emptyApi'
+import type { FetchBaseQueryError } from '@reduxjs/toolkit/query'
+import { apiBaseUrl } from '../../app/api/baseQueryWithReauth'
+import { toTransferPercent } from '../../utils/uploadProgress'
 import type { LoginRequest, LoginResponse, RefreshResponse, User } from './auth.types'
 import type { ApiResponse } from '../../app/api/types.ts'
 import { unwrapApiResponse } from '../../app/api/api.utils'
+
+/** The avatar upload reports transfer progress; any other profile update can just send the FormData. */
+type UpdateProfileArgs = {
+  formData: FormData
+  onProgress?: (percent: number) => void
+}
 type VerifyEmailRequest = {
   email: string
   otp: string
@@ -99,19 +108,62 @@ const authApi = emptyApi.injectEndpoints({
         body: credentials,
       }),
     }),
-    updateProfile: builder.mutation<User, FormData>({
-      query: (formData) => ({
-        url: '/auth/profile',
-        method: 'PATCH',
-        body: formData,
-        // When using FormData, the browser automatically sets the 'Content-Type'
-        // to 'multipart/form-data' with the correct boundary.
-      }),
-      transformResponse: (response: ApiResponse<User | { user: User }>) => {
-        const result = unwrapApiResponse<User | { user: User }>(response)
-        return 'user' in result ? result.user : result
+    updateProfile: builder.mutation<User, FormData | UpdateProfileArgs>({
+      /**
+       * The avatar is the one upload that still travels through the API (it is a user upload, not an
+       * admin asset, and the server owns its validation and transformation). `fetchBaseQuery` cannot
+       * report upload progress, so this single request is sent with `XMLHttpRequest`, which reports the
+       * bytes as they leave the browser. Everything the shared base query does for it is preserved:
+       * the API base URL, the HttpOnly cookie credentials, and a single refresh-and-retry on 401.
+       */
+      async queryFn(args, _api, _extraOptions, baseQuery) {
+        const formData = args instanceof FormData ? args : args.formData
+        const onProgress = args instanceof FormData ? undefined : args.onProgress
+
+        const sendRequest = () => new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('PATCH', `${apiBaseUrl}/auth/profile`)
+          xhr.withCredentials = true
+          if (onProgress) {
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) onProgress(toTransferPercent(event.loaded, event.total))
+            }
+          }
+          xhr.onload = () => {
+            let body: unknown = null
+            try {
+              body = JSON.parse(xhr.responseText)
+            } catch {
+              body = null
+            }
+            resolve({ status: xhr.status, body })
+          }
+          xhr.onerror = () => reject(new Error('Could not reach the server. Check your connection and try again.'))
+          xhr.ontimeout = () => reject(new Error('The upload timed out.'))
+          xhr.onabort = () => reject(new Error('The upload was cancelled.'))
+          xhr.send(formData)
+        })
+
+        let response: { status: number; body: unknown }
+        try {
+          response = await sendRequest()
+          if (response.status === 401) {
+            // The refresh token lives in an HttpOnly cookie, so the shared base query can rotate it.
+            const refresh = await baseQuery({ url: '/auth/refresh', method: 'POST' })
+            if (!refresh.error) response = await sendRequest()
+          }
+        } catch (error) {
+          return { error: { status: 'CUSTOM_ERROR', error: error instanceof Error ? error.message : 'Profile update failed.' } as FetchBaseQueryError }
+        }
+
+        if (response.status < 200 || response.status >= 300) {
+          return { error: { status: response.status, data: response.body ?? { message: 'Profile update failed.' } } as FetchBaseQueryError }
+        }
+
+        const result = unwrapApiResponse<User | { user: User }>(response.body as ApiResponse<User | { user: User }>)
+        return { data: 'user' in result ? result.user : result }
       },
-      async onQueryStarted(_formData, { dispatch, queryFulfilled }) {
+      async onQueryStarted(_args, { dispatch, queryFulfilled }) {
         try {
           const { data: updatedUser } = await queryFulfilled
           dispatch(authApi.util.updateQueryData('getMe', undefined, (cachedUser) => {

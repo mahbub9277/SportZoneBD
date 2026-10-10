@@ -8,6 +8,8 @@ import type { Channel } from '../../../shared/types'
 import { Switch } from '../../../components/ui/Switch'
 import type { Match } from '../../../features/matches/matches.types'
 import { ImagePlus, Loader2, X } from 'lucide-react'
+import { UploadProgress } from '../../../components/ui/UploadProgress'
+import type { MediaUploadProgressUpdate } from '../../../utils/uploadProgress'
 import { QualityPresetSelect } from './QualityPresetSelect'
 import {
   STREAM_SOURCE_TYPE_OPTIONS,
@@ -39,9 +41,13 @@ interface StreamFormProps {
   channels: Channel[]
   onLogoUpload?: (file: File) => void
   isUploadingLogo?: boolean
+  /** Live progress of the logo upload, so the form can show more than a spinner. */
+  logoProgress?: MediaUploadProgressUpdate | null
+  /** Why the last logo upload failed, when it did. */
+  logoError?: string | null
 }
 
-export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLogoUpload, isUploadingLogo = false }: StreamFormProps) {
+export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLogoUpload, isUploadingLogo = false, logoProgress = null, logoError = null }: StreamFormProps) {
   const logoUrl = form.watch('logo')
   const selectableMatches = matches
     .filter((match) => match.status !== 'FINISHED')
@@ -72,6 +78,7 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
                   </label>}
                   {logoUrl && <Button type="button" variant="ghost" size="icon" onClick={() => field.onChange('')} aria-label="Remove channel logo"><X className="h-4 w-4" /></Button>}
                 </div>
+                <UploadProgress update={logoProgress} error={isUploadingLogo ? null : logoError} />
               </div>
             </FormControl>
             <FormMessage />

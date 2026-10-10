@@ -6,7 +6,10 @@ import Cropper, { type Area, type Point } from 'react-easy-crop'
 import { useGetAdminChannelsQuery } from '../../features/admin/channels.api'
 import { useGetMatchesQuery } from '../../features/matches/matches.api'
 import { useCreateEventMutation, useDeleteEventMutation, useDeleteMediaMutation, useGetAdminEventsQuery, useGetMediaLibraryQuery, useLazyGetMediaUsageQuery, useReorderEventsMutation, useUpdateEventMutation, type EventDetail, type EventInput, type MediaAsset } from '../../features/events/events.api'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
+import { getErrorMessage } from '../../utils/get-error-message'
+import { UploadProgress } from '../../components/ui/UploadProgress'
+import type { MediaUploadProgressUpdate } from '../../utils/uploadProgress'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -59,7 +62,7 @@ export default function EventManagementPage() {
   const [reorderEvents, { isLoading: isReordering }] = useReorderEventsMutation()
   const [deleteMedia, { isLoading: isDeletingMedia }] = useDeleteMediaMutation()
   const [checkMediaUsage] = useLazyGetMediaUsageQuery()
-  const [uploadFiles, { isLoading: isUploading }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: uploadProgress, isUploading } = useMediaUploadProgress()
   const [form, setForm] = useState<EventInput>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
@@ -262,8 +265,8 @@ export default function EventManagementPage() {
     event.preventDefault()
     try {
       const [logoUpload, bannerUpload] = await Promise.all([
-        logoFile ? uploadFiles({ files: [logoFile], folder: 'sportzone/events', mediaType: 'LOGO' }).unwrap() : null,
-        bannerFile ? uploadFiles({ files: [bannerFile], folder: 'sportzone/events', mediaType: 'BANNER' }).unwrap() : null,
+        logoFile ? uploadFiles({ files: [logoFile], folder: 'sportzone/events', mediaType: 'LOGO' }) : null,
+        bannerFile ? uploadFiles({ files: [bannerFile], folder: 'sportzone/events', mediaType: 'BANNER' }) : null,
       ])
       const nextForm = {
         ...form,
@@ -312,8 +315,9 @@ export default function EventManagementPage() {
       }
       await deleteMedia(media.id).unwrap()
       toast.success('Media deleted.')
-    } catch {
-      toast.error('Media could not be deleted safely.')
+    } catch (error) {
+      // A media asset that another record still references is refused by the server, not deleted.
+      toast.error(getErrorMessage(error))
     }
   }
 
@@ -346,8 +350,8 @@ export default function EventManagementPage() {
               <div className="space-y-2"><Label htmlFor="event-slug">URL slug</Label><Input id="event-slug" value={form.slug} onChange={(e) => setField('slug', e.target.value)} placeholder="premier-league" required /></div>
               <div className="space-y-2 md:col-span-2"><div className="flex items-center justify-between gap-3"><Label htmlFor="event-description">Description</Label><DescriptionGenerator entityType="EVENT" title={form.name} currentDescription={form.description ?? ''} context={{ status: form.status, isPremium: form.isPremium, showInSidebar: form.showInSidebar }} onGenerated={(description) => setField('description', description)} /></div><Textarea id="event-description" value={form.description ?? ''} onChange={(e) => setField('description', e.target.value)} rows={3} /></div>
 
-              <MediaPicker label="Event logo" icon={<UploadCloud className="h-5 w-5 text-accent" />} preview={logoPreview} previewClassName="h-20 w-20 object-contain" isUploading={isUploading} onSelect={(file) => selectImage(file, 'logo')} onLibrary={() => openMediaLibrary('LOGO')} onRemove={() => removeMediaReference('LOGO')} />
-              <MediaPicker label="Event banner · 16:5 · 1600 × 500" icon={<ImagePlus className="h-5 w-5 text-accent" />} preview={bannerPreview} previewClassName="aspect-[16/5] w-full object-contain object-center" isUploading={isUploading} onSelect={(file) => selectImage(file, 'banner')} onDrop={(file) => selectImage(file, 'banner')} onLibrary={() => openMediaLibrary('BANNER')} onRemove={() => removeMediaReference('BANNER')} />
+              <MediaPicker label="Event logo" icon={<UploadCloud className="h-5 w-5 text-accent" />} preview={logoPreview} previewClassName="h-20 w-20 object-contain" isUploading={isUploading} progress={uploadProgress.update} error={uploadProgress.error} onSelect={(file) => selectImage(file, 'logo')} onLibrary={() => openMediaLibrary('LOGO')} onRemove={() => removeMediaReference('LOGO')} />
+              <MediaPicker label="Event banner · 16:5 · 1600 × 500" icon={<ImagePlus className="h-5 w-5 text-accent" />} preview={bannerPreview} previewClassName="aspect-[16/5] w-full object-contain object-center" isUploading={isUploading} progress={uploadProgress.update} error={uploadProgress.error} onSelect={(file) => selectImage(file, 'banner')} onDrop={(file) => selectImage(file, 'banner')} onLibrary={() => openMediaLibrary('BANNER')} onRemove={() => removeMediaReference('BANNER')} />
               <EventHeroPreview name={form.name} description={form.description ?? ''} logo={logoPreview} banner={bannerPreview} isPremium={form.isPremium} />
 
               <div className="space-y-2"><Label htmlFor="event-status">Status</Label><select id="event-status" value={form.status} onChange={(e) => setField('status', e.target.value as EventInput['status'])} className="flex h-10 w-full rounded-xl border border-border bg-surface-soft px-3 text-sm text-text-primary"><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></div>
@@ -380,14 +384,14 @@ function EventHeroPreview({ name, description, logo, banner, isPremium }: { name
   return <div className="md:col-span-2"><Label>Live Event Hero Preview</Label><div className="relative mt-2 aspect-16/5 min-h-40 w-full overflow-hidden rounded-xl border border-white/10 bg-linear-to-br from-surface-soft via-surface to-accent/10"><img src={banner ? (banner.startsWith('blob:') ? banner : buildCloudinaryUrl(banner, { width: 1600, height: 500, crop: 'fill', gravity: 'center' })) : '/placeholder-image.svg'} alt="" className="absolute inset-0 h-full w-full object-contain object-center" /><div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/40 to-transparent" aria-hidden="true" /><div className="absolute bottom-3 left-3 right-3 flex min-w-0 items-center gap-3 text-white md:bottom-5 md:left-5 md:right-5 md:gap-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/45 drop-shadow-[0_3px_10px_rgba(0,0,0,0.65)] md:h-16 md:w-16">{logo ? <img src={logo.startsWith('blob:') ? logo : buildCloudinaryUrl(logo, { width: 128, height: 128, crop: 'fit' })} alt="" className="h-full w-full object-contain p-1" /> : <LayoutList className="h-6 w-6" />}</div><div className="min-w-0 flex-1 drop-shadow-[0_3px_10px_rgba(0,0,0,0.8)]"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white md:text-xs">Sports event {isPremium && <span className="text-yellow-300">· Premium</span>}</p><p className="truncate text-lg font-bold md:text-2xl">{name || 'Event title'}</p>{description && <p className="line-clamp-1 text-xs text-gray-200 md:text-sm">{description}</p>}</div></div></div></div>
 }
 
-function MediaPicker({ label, icon, preview, previewClassName, isUploading, onSelect, onDrop, onLibrary, onRemove }: { label: string; icon: React.ReactNode; preview: string | null; previewClassName: string; isUploading: boolean; onSelect: (file: File) => void; onDrop?: (file: File) => void; onLibrary: () => void; onRemove: () => void }) {
+function MediaPicker({ label, icon, preview, previewClassName, isUploading, progress, error, onSelect, onDrop, onLibrary, onRemove }: { label: string; icon: React.ReactNode; preview: string | null; previewClassName: string; isUploading: boolean; progress?: MediaUploadProgressUpdate | null; error?: string | null; onSelect: (file: File) => void; onDrop?: (file: File) => void; onLibrary: () => void; onRemove: () => void }) {
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     const file = event.dataTransfer.files?.[0]
     if (file && onDrop) onDrop(file)
   }
 
-  return <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-2xl backdrop-blur-xl" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}><Label>{label}</Label><div className="mt-2 flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={onLibrary}><LayoutList className="mr-1 h-4 w-4" />Select from Library</Button><label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-accent/40 bg-surface-soft/60 px-3 py-2 text-sm text-text-muted transition hover:border-accent hover:text-text-primary">{icon}{isUploading ? 'Uploading...' : 'Upload New Image'}<input type="file" accept="image/*" className="sr-only" disabled={isUploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onSelect(file); e.target.value = '' }} /></label>{preview && <Button type="button" variant="ghost" size="sm" onClick={onRemove}><Trash2 className="mr-1 h-4 w-4" />Remove</Button>}</div>{preview && <img src={preview.startsWith('blob:') ? preview : buildCloudinaryUrl(preview)} alt={`${label} preview`} className={`mt-3 rounded-xl border border-border bg-surface-soft p-1 ${previewClassName}`} />}<p className="mt-2 text-xs text-text-muted">Choose an existing asset or upload a new one.</p></div>
+  return <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-2xl backdrop-blur-xl" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}><Label>{label}</Label><div className="mt-2 flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={onLibrary}><LayoutList className="mr-1 h-4 w-4" />Select from Library</Button><label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-accent/40 bg-surface-soft/60 px-3 py-2 text-sm text-text-muted transition hover:border-accent hover:text-text-primary">{icon}{isUploading ? 'Uploading...' : 'Upload New Image'}<input type="file" accept="image/*" className="sr-only" disabled={isUploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onSelect(file); e.target.value = '' }} /></label>{preview && <Button type="button" variant="ghost" size="sm" onClick={onRemove}><Trash2 className="mr-1 h-4 w-4" />Remove</Button>}</div>{preview && <img src={preview.startsWith('blob:') ? preview : buildCloudinaryUrl(preview)} alt={`${label} preview`} className={`mt-3 rounded-xl border border-border bg-surface-soft p-1 ${previewClassName}`} />}<UploadProgress update={progress ?? null} error={isUploading ? null : error ?? null} className="mt-3" /><p className="mt-2 text-xs text-text-muted">Choose an existing asset or upload a new one.</p></div>
 }
 
 function MediaLibraryModal({ mediaType, filter, search, media, selected, isLoading, isError, isDeleting, onFilterChange, onSearchChange, onSelect, onDelete, onCancel, onConfirm }: { mediaType: 'BANNER' | 'LOGO'; filter: 'ALL' | 'BANNER' | 'LOGO'; search: string; media: MediaAsset[]; selected: MediaAsset | null; isLoading: boolean; isError: boolean; isDeleting: boolean; onFilterChange: (filter: 'ALL' | 'BANNER' | 'LOGO') => void; onSearchChange: (value: string) => void; onSelect: (media: MediaAsset) => void; onDelete: (media: MediaAsset) => Promise<void>; onCancel: () => void; onConfirm: () => void }) {

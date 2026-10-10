@@ -6,14 +6,17 @@ import { ImagePlus, ShieldCheck } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { useUpdateProfileMutation } from '../../features/auth/auth.api'
+import { UploadProgress } from '../../components/ui/UploadProgress'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 
 type AdminRole = string | { name?: string; role?: { name?: string } }
 export function AdminProfilePage() {
   const { user } = useAuth()
-  const [updateProfile, { isLoading: isUploading }] = useUpdateProfileMutation()
+  const [updateProfile, { isLoading: isSavingProfile }] = useUpdateProfileMutation()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
+  const isUploading = isSavingProfile || uploadPercent !== null
 
   const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -30,17 +33,19 @@ export function AdminProfilePage() {
 
     const localUrl = URL.createObjectURL(file)
     setPreviewUrl(localUrl)
+    setUploadPercent(0)
     const formData = new FormData()
     formData.append('avatar', file)
 
     try {
-      await updateProfile(formData).unwrap()
+      await updateProfile({ formData, onProgress: setUploadPercent }).unwrap()
       setPreviewUrl(null)
       toast.success('Profile photo updated.')
     } catch (error) {
       setPreviewUrl(null)
       toast.error(error instanceof Error ? error.message : 'Unable to update profile photo.')
     } finally {
+      setUploadPercent(null)
       URL.revokeObjectURL(localUrl)
     }
   }
@@ -88,6 +93,13 @@ export function AdminProfilePage() {
             <div>
               <p className="wrap-break-word text-3xl font-semibold text-text-primary">{user?.fullName}</p>
               <p className="mt-1 break-all text-sm text-text-muted">{user?.email}</p>
+              {uploadPercent !== null && (
+                <div className="mt-3 max-w-xs">
+                  <UploadProgress
+                    update={{ stage: 'uploading', percent: uploadPercent, fileName: 'Profile photo', fileIndex: 1, fileCount: 1 }}
+                  />
+                </div>
+              )}
             </div>
           </div>
           <div>

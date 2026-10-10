@@ -5,7 +5,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useCreateChannelMutation, useUpdateChannelMutation } from '../../../features/admin/channels.api'
-import { useUploadFilesMutation, useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
+import { useDeleteUploadedFileMutation } from '../../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../../hooks/useMediaUploadProgress'
+import { UploadProgress } from '../../../components/ui/UploadProgress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/Dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../components/ui/Form'
 import { Input } from '../../../components/ui/Input'
@@ -37,7 +39,7 @@ interface ChannelFormModalProps {
 export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChannel, categories }: ChannelFormModalProps) {
   const [createChannel, { isLoading: isCreating }] = useCreateChannelMutation()
   const [updateChannel, { isLoading: isUpdating }] = useUpdateChannelMutation()
-  const [uploadFiles, { isLoading: isUploadingLogo }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: logoProgress, isUploading: isUploadingLogo } = useMediaUploadProgress()
   const [deleteUploadedFile] = useDeleteUploadedFileMutation()
   const [uploadedLogoPreviewUrl, setUploadedLogoPreviewUrl] = useState<string | null>(null)
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
@@ -95,7 +97,7 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
     try {
       const logoFile = values.logo instanceof FileList ? values.logo[0] : undefined
       const uploaded = logoFile
-        ? await uploadFiles({ files: [logoFile], folder: 'sportzone/channels', mediaType: 'LOGO' }).unwrap()
+        ? await uploadFiles({ files: [logoFile], folder: 'sportzone/channels', mediaType: 'LOGO' })
         : null
       uploadedPublicId = uploaded?.uploads[0]?.publicId
       const logo = uploaded?.uploads[0]?.url ?? (typeof values.logo === 'string' ? values.logo : undefined)
@@ -153,6 +155,7 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
                         {logoPreviewUrl && <Button type="button" variant="ghost" size="icon" onClick={() => { setUploadedLogoPreviewUrl(null); onChange(undefined) }} aria-label="Remove channel logo"><X className="h-4 w-4" /></Button>}
                       </div>
                     </div>
+                    <UploadProgress update={logoProgress.update} error={logoProgress.error} className="mt-3" />
                     <p className="mt-2 text-xs text-text-muted">Choose a square PNG, JPG, or WebP logo.</p>
                   </div>
                 </FormControl>

@@ -7,7 +7,8 @@
  * by default), and a fixture that first appears inside 24 hours is still created as a safety fallback.
  *
  * The guard is evaluated per fixture (not per provider query) so scheduler jitter can never leak
- * an out-of-window match.
+ * an out-of-window match, and it is re-evaluated at the moment of the insert, so a sync that runs late
+ * (a retry, a queue backlog, a restart) cannot insert a fixture whose kickoff has already gone by.
  *
  * Since automatic discovery now creates PENDING matches, this horizon is also the review window an
  * admin sees in Admin -> Match Management -> Pending. It stays intentionally bounded (max 14 days)
@@ -29,33 +30,38 @@ export function getMatchDiscoveryWindowMs(env: NodeJS.ProcessEnv = process.env):
 }
 
 export type FixtureCreationDecision =
-  /** Inside the window (or already started with a live/finished provider status): safe to create. */
+  /** Inside the window: safe to create. */
   | 'create'
   /** Kickoff is further away than the configured maximum lead time. */
   | 'too-early'
-  /** Kickoff already passed but the provider still reports it as upcoming: stale provider data. */
-  | 'stale-upcoming'
+  /**
+   * Kickoff has already passed. An expired fixture is never inserted as a new pending match, whatever
+   * status the provider reports: a pending row is a review request for a match that is still to come, and
+   * re-inserting a finished fixture (or one that started while the sync was down) only ever returns old
+   * fixtures to the review queue. Matches that already exist are still updated from provider data — this
+   * only gates the creation of new rows.
+   */
+  | 'expired'
 
 export interface FixtureCreationWindowInput {
   kickoffAt: Date
   now: Date
   maxLeadMs: number
-  /** Status already normalized to UPCOMING | LIVE | FINISHED. */
-  providerStatus: 'UPCOMING' | 'LIVE' | 'FINISHED'
 }
 
 export function evaluateFixtureCreationWindow({
   kickoffAt,
   now,
   maxLeadMs,
-  providerStatus,
 }: FixtureCreationWindowInput): FixtureCreationDecision {
   const leadMs = kickoffAt.getTime() - now.getTime()
 
   if (leadMs > maxLeadMs) return 'too-early'
-  // A fixture that already started is still real data (live/finished); only reject it when the
-  // provider claims it is still upcoming, so we never fabricate a future fixture.
-  if (leadMs < 0 && providerStatus === 'UPCOMING') return 'stale-upcoming'
+  // The comparison is on the kickoff instant itself, so a provider timezone offset is already resolved by
+  // the time this runs: `kickoffAt` is a Date and `now` is the instant the cycle started. Provider status
+  // never widens the window: a fixture that has started is not a review candidate, and the status the
+  // provider reports is normalized onto the match when it is written.
+  if (leadMs <= 0) return 'expired'
 
   return 'create'
 }

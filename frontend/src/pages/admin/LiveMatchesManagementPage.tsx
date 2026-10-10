@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useGetAdminLiveMatchesQuery, useUpdateMatchStatusMutation, useExtendMatchMutation } from '../../features/admin/adminLiveMatches.api'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
-import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { TeamLogoBadge } from '../../components/ui/TeamLogoBadge'
 
 export function LiveMatchesManagementPage() {
   const { data, isLoading, isError } = useGetAdminLiveMatchesQuery({})
@@ -81,10 +81,20 @@ export function LiveMatchesManagementPage() {
                           <div className="min-w-48 space-y-2">
                             <div className="flex items-center gap-2 wrap-break-word"><Play className="h-4 w-4 shrink-0 text-red-500 animate-pulse" />{match.title}</div>
                             <div className="flex items-center gap-2 text-xs text-brand-text-muted">
-                              {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { width: 48, height: 48, crop: 'fit' })} alt="" className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+                              <TeamLogoBadge
+                                candidates={[match.homeTeam?.logoUrl, match.homeTeamLogo]} name={match.homeTeamName} fallback="T1"
+                                className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain"
+                                fallbackClassName="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold"
+                                transform={{ width: 48, height: 48, crop: 'fit' }}
+                              />
                               <span className="max-w-32 wrap-break-word">{match.homeTeamName || 'Team 1'}</span>
                               <span className="text-(--accent)">vs</span>
-                              {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { width: 48, height: 48, crop: 'fit' })} alt="" className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+                              <TeamLogoBadge
+                                candidates={[match.awayTeam?.logoUrl, match.awayTeamLogo]} name={match.awayTeamName} fallback="T2"
+                                className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain"
+                                fallbackClassName="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold"
+                                transform={{ width: 48, height: 48, crop: 'fit' }}
+                              />
                               <span className="max-w-32 wrap-break-word">{match.awayTeamName || 'Team 2'}</span>
                             </div>
                           </div>

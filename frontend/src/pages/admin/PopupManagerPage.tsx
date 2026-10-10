@@ -12,7 +12,8 @@ import { useGetPopupsQuery, useCreatePopupMutation, useUpdatePopupMutation, useD
 import { getErrorMessage } from '../../utils/get-error-message'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { Skeleton } from '../../components/ui/Skeleton'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
+import { UploadProgress } from '../../components/ui/UploadProgress'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
 import { DescriptionGenerator } from '../../components/ai/DescriptionGenerator'
 
@@ -29,13 +30,12 @@ export default function PopupManagerPage() {
   )
   const [uploadedImagePreviewUrl, setUploadedImagePreviewUrl] = useState<string | null>(null)
   const [imageUploadedAt, setImageUploadedAt] = useState<string | null>(null)
-  const [isUploadingImage, setIsUploadingImage] = useState(false)
 
   const { data: popups = [], isLoading: isLoadingPopups } = useGetPopupsQuery()
   const [createPopup, { isLoading: isCreating }] = useCreatePopupMutation()
   const [updatePopup, { isLoading: isUpdating }] = useUpdatePopupMutation()
   const [deletePopup] = useDeletePopupMutation()
-  const [uploadFiles] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: imageUploadProgress, isUploading: isUploadingImage } = useMediaUploadProgress()
 
   const isLoading = isCreating || isUpdating
   const isFormValid = Boolean(form.title.trim() && form.message.trim())
@@ -62,10 +62,8 @@ export default function PopupManagerPage() {
       return
     }
 
-    setIsUploadingImage(true)
-
     try {
-      const result = await uploadFiles({ files: [selectedImageFile], folder: 'sportzone/popups' }).unwrap()
+      const result = await uploadFiles({ files: [selectedImageFile], folder: 'sportzone/popups' })
       const uploadedFile = result.uploads[0]
       const deliveryUrl = uploadedFile?.url
 
@@ -80,8 +78,6 @@ export default function PopupManagerPage() {
       toast.success('Image uploaded and attached to popup.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Image upload failed.')
-    } finally {
-      setIsUploadingImage(false)
     }
   }
 
@@ -217,6 +213,7 @@ export default function PopupManagerPage() {
                   <UploadCloud className="h-4 w-4" />
                   {isUploadingImage ? 'Uploading...' : 'Upload image'}
                 </Button>
+                <UploadProgress update={imageUploadProgress.update} error={imageUploadProgress.error} className="mt-2" />
               </div>
               {(selectedImagePreviewUrl || form.imageUrl) && (
                 <div className="rounded-2xl border border-(--border) bg-(--surface)/80 p-3">

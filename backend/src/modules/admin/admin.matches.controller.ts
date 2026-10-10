@@ -8,10 +8,19 @@ import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceDeleted, emitAdminResourceUpdated, emitMatchStatusUpdated } from '../../core/socketManager.js'
 import { notifyMatchStarted } from '../../services/notification.service.js'
 import { cleanupMatch } from '../../services/match-cleanup.service.js'
+import { cleanupAssetIfUnused } from '../../services/asset-cleanup.service.js'
+import { releasedAssets } from '../../services/assetReference.js'
 import { writeAuditLog } from '../../core/audit.js'
 import { AppError } from '../../core/errors.js'
 import { resolveTeam } from '../teams/team.service.js'
 import { resolveFinishedMatchRetentionMinutes } from '../../services/finishedMatchRetention.js'
+import { parsePendingMatchFilters } from './pendingMatches.js'
+import {
+  buildAcceptablePendingWhere,
+  buildRejectablePendingWhere,
+  classifyPendingReviewOutcome,
+  summarizePendingReviewOutcomes,
+} from './pendingMatchReview.js'
 
 export const getLiveMatches = asyncHandler(async (req: Request, res: Response) => {
   const paginatedQuery = {
@@ -164,7 +173,15 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
     const { streams: streamsJSON, homeTeamId, awayTeamId, ...matchData } = req.body as any
     const existingMatch = await prisma.match.findUnique({
       where: { id },
-      select: { status: true, title: true, kickoffAt: true, startTime: true },
+      select: {
+        status: true,
+        title: true,
+        kickoffAt: true,
+        startTime: true,
+        homeTeamLogo: true,
+        awayTeamLogo: true,
+        streams: { where: { deletedAt: null }, select: { id: true, logo: true } },
+      },
     })
 
     if (!existingMatch) {
@@ -282,6 +299,17 @@ export const updateMatch = asyncHandler(async (req: Request, res: Response) => {
       return res.status(404).json(errorResponse('Match not found after update.'))
     }
 
+    // Editing a match can replace a team logo or drop a stream, which leaves the previous asset with no
+    // reference from this match. `cleanupAssetIfUnused` re-checks every other record first, so an asset
+    // another match, team or stream still uses is never deleted; cleanup failures never fail the update.
+    const released = releasedAssets(
+      [existingMatch.homeTeamLogo, existingMatch.awayTeamLogo, ...existingMatch.streams.map((stream) => stream.logo)],
+      [updatedMatch.homeTeamLogo, updatedMatch.awayTeamLogo, ...(updatedMatch.streams ?? []).map((stream) => stream.logo)],
+    )
+    if (released.length > 0) {
+      await Promise.allSettled(released.map((asset) => cleanupAssetIfUnused(asset)))
+    }
+
     await writeAuditLog('Match updated', {
       matchId: updatedMatch.id,
       title: updatedMatch.title,
@@ -362,6 +390,11 @@ export const getFinishedMatches = asyncHandler(async (req: Request, res: Respons
 })
 
 export const getPendingMatches = asyncHandler(async (req: Request, res: Response) => {
+  const filters = parsePendingMatchFilters(req.query as { kickoffFrom?: unknown; kickoffTo?: unknown })
+  if (!filters.ok) {
+    return res.status(400).json(errorResponse(filters.message))
+  }
+
   const paginatedQuery = {
     page: Number(req.query.page) || 1,
     limit: Number(req.query.limit) || 10,
@@ -371,19 +404,25 @@ export const getPendingMatches = asyncHandler(async (req: Request, res: Response
 
   const { items, meta } = await getPaginatedData({
     model: 'match',
-    query: { ...paginatedQuery, where: { status: 'PENDING', deletedAt: null } },
-    searchableFields: ['title', 'tournamentName', 'homeTeamName', 'awayTeamName'],
+    query: { ...paginatedQuery, where: filters.filter },
+    // The provider fixture key is searchable too, so a reviewer can paste the id they are chasing.
+    searchableFields: ['title', 'tournamentName', 'homeTeamName', 'awayTeamName', 'providerFixtureKey'],
   })
-  res.status(200).json(successResponse({ items, meta }, 'Pending matches retrieved'));
+  res.status(200).json(successResponse(
+    { items, meta: { ...meta, kickoffFrom: filters.range.from, kickoffTo: filters.range.to } },
+    'Pending matches retrieved',
+  ));
 })
 
 export const acceptPendingMatch = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
+  const now = new Date()
 
   // One conditional update decides the outcome, so a double click or an accept racing a reject can
-  // only ever be applied once: the row must still be PENDING and still not deleted.
+  // only ever be applied once: the row must still be PENDING, not deleted, and not already started.
+  // The same condition is used by the bulk endpoint (see `buildAcceptablePendingWhere`).
   const accepted = await prisma.match.updateMany({
-    where: { id, status: 'PENDING', deletedAt: null },
+    where: buildAcceptablePendingWhere(id, now),
     data: { status: 'UPCOMING' },
   })
   if (accepted.count === 0) {
@@ -416,7 +455,7 @@ export const rejectPendingMatch = asyncHandler(async (req: Request, res: Respons
   // by automatic discovery for good (see the rejected-fixture lookup in the automation service).
   // The conditional update makes a repeated click idempotent instead of re-deciding the fixture.
   const rejected = await prisma.match.updateMany({
-    where: { id, status: 'PENDING', deletedAt: null },
+    where: buildRejectablePendingWhere(id),
     data: { status: 'REJECTED', deletedAt: new Date() },
   })
   if (rejected.count === 0) {
@@ -434,6 +473,77 @@ export const rejectPendingMatch = asyncHandler(async (req: Request, res: Respons
   emitAdminResourceDeleted('Match', id)
   return res.json(successResponse({ id }, 'Match rejected'))
 })
+
+/**
+ * The rows a bulk review needs: what each requested fixture looked like before the update and what it
+ * looks like after it, so the response reports what really happened per item.
+ */
+const readPendingReviewRows = (ids: string[]) => prisma.match.findMany({
+  where: { id: { in: ids } },
+  select: { id: true, status: true, deletedAt: true, kickoffAt: true, providerFixtureKey: true },
+})
+
+/**
+ * Applies one review decision to a bounded batch of pending fixtures.
+ *
+ * Both bulk endpoints run the exact conditional update the single-row endpoints run, so the business rules
+ * cannot diverge, and the two reads around it turn the outcome into per-item facts: a repeat request, a
+ * fixture another reviewer decided first, a fixture whose kickoff has passed, and an unknown id are
+ * reported separately instead of being counted as successes.
+ */
+async function runBulkPendingReview(req: Request, res: Response, decision: 'accept' | 'reject') {
+  const ids = [...new Set((req.body as { ids: string[] }).ids)]
+  const now = new Date()
+
+  const before = await readPendingReviewRows(ids)
+  const beforeById = new Map(before.map((row) => [row.id, row]))
+
+  const changed = decision === 'accept'
+    ? await prisma.match.updateMany({
+      where: buildAcceptablePendingWhere(ids, now),
+      data: { status: 'UPCOMING' },
+    })
+    : await prisma.match.updateMany({
+      where: buildRejectablePendingWhere(ids),
+      data: { status: 'REJECTED', deletedAt: now },
+    })
+
+  const after = await readPendingReviewRows(ids)
+  const afterById = new Map(after.map((row) => [row.id, row]))
+
+  const results = ids.map((id) => ({
+    id,
+    providerFixtureKey: afterById.get(id)?.providerFixtureKey ?? beforeById.get(id)?.providerFixtureKey ?? null,
+    outcome: classifyPendingReviewOutcome(beforeById.get(id) ?? null, afterById.get(id) ?? null, decision, now),
+  }))
+  const summary = summarizePendingReviewOutcomes(results.map((result) => result.outcome))
+
+  // One cache invalidation and one audit entry for the whole batch: the per-item work is already bounded
+  // by the request cap, and a reviewer needs the outcome list, not 200 separate log rows.
+  await invalidateTags(['matches', 'AdminStats'])
+  await writeAuditLog(
+    decision === 'accept' ? 'Pending matches bulk accepted' : 'Pending matches bulk rejected',
+    { ...summary, databaseChanges: changed.count, items: results },
+  )
+
+  for (const result of results) {
+    if (result.outcome === 'accepted') {
+      emitAdminResourceUpdated('Match', result.id, { status: 'UPCOMING' })
+      emitMatchStatusUpdated({ id: result.id, status: 'UPCOMING' })
+    } else if (result.outcome === 'rejected') {
+      emitAdminResourceDeleted('Match', result.id)
+    }
+  }
+
+  const message = decision === 'accept'
+    ? `${summary.accepted} of ${summary.requested} pending match(es) approved for publishing.`
+    : `${summary.rejected} of ${summary.requested} pending match(es) rejected.`
+  return res.json(successResponse({ ...summary, databaseChanges: changed.count, results }, message))
+}
+
+export const bulkAcceptPendingMatches = asyncHandler(async (req: Request, res: Response) => runBulkPendingReview(req, res, 'accept'))
+
+export const bulkRejectPendingMatches = asyncHandler(async (req: Request, res: Response) => runBulkPendingReview(req, res, 'reject'))
 
 export const updateMatchStatus = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params

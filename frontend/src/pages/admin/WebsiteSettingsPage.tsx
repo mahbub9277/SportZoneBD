@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useGetAdminSettingsQuery, useUpsertAdminSettingMutation } from '@/features/admin/admin.api'
-import { useDeleteUploadedFileMutation, useUploadFilesMutation } from '@/features/admin/uploads.api'
+import { useDeleteUploadedFileMutation } from '@/features/admin/uploads.api'
+import { useMediaUploadProgress } from '@/hooks/useMediaUploadProgress'
+import { UploadProgress } from '@/components/ui/UploadProgress'
 import { Switch } from '@/components/ui/Switch'
 import { DescriptionGenerator } from '@/components/ai/DescriptionGenerator'
 
@@ -36,7 +38,7 @@ const defaultForm: WebsiteSettingsForm = {
 export default function WebsiteSettingsPage() {
   const { data: settings = [], isLoading } = useGetAdminSettingsQuery()
   const [upsertSetting, { isLoading: isSaving }] = useUpsertAdminSettingMutation()
-  const [uploadFiles, { isLoading: isUploadingVideo }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: videoUploadProgress, isUploading: isUploadingVideo } = useMediaUploadProgress()
   const [deleteUploadedFile] = useDeleteUploadedFileMutation()
 
   const [form, setForm] = useState<WebsiteSettingsForm>(defaultForm)
@@ -93,7 +95,7 @@ export default function WebsiteSettingsPage() {
 
     const toastId = toast.loading('Uploading pre-match video...')
     try {
-      const result = await uploadFiles({ files: [file], folder: PRE_START_VIDEO_FOLDER }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: PRE_START_VIDEO_FOLDER })
       const uploaded = result.uploads[0]
       if (!uploaded) throw new Error(result.failedUploads[0] ?? 'The upload did not complete.')
 
@@ -281,6 +283,7 @@ export default function WebsiteSettingsPage() {
               <p className="text-xs font-medium text-(--text-muted)/70">
                 {isUploadingVideo ? 'Uploading…' : `MP4 or WebM, up to ${formatMegabytes(PRE_START_VIDEO_MAX_BYTES)}.`}
               </p>
+              <UploadProgress update={videoUploadProgress.update} error={isUploadingVideo ? null : videoUploadProgress.error} className="mt-2" />
               {videoError && <p className="text-xs font-medium text-(--danger)" role="alert">{videoError}</p>}
             </div>
           </CardContent>

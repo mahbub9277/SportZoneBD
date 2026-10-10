@@ -4,7 +4,7 @@ import { Button } from '../../../components/ui/Button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../../components/ui/DropdownMenu'
 import type { Match } from '../../../features/matches/matches.types'
 import { formatMatchKickoff } from '../../../utils/matchDateTime'
-import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { resolveTeamLogoUrl } from '../../../utils/teamLogo'
 
 const teamLogoTransform = { width: 96, height: 96, crop: 'fill' as const, gravity: 'auto' as const, quality: 'auto' as const, format: 'auto' as const }
 
@@ -28,30 +28,36 @@ export const MatchRow = memo(function MatchRow({ match, onEdit, onDelete }: Matc
     }
   }
 
+  // A logo the project may not hotlink resolves to null here, so the row keeps its initials fallback.
+  const homeLogo = resolveTeamLogoUrl(match.homeTeamLogo, teamLogoTransform)
+  const awayLogo = resolveTeamLogoUrl(match.awayTeamLogo, teamLogoTransform)
+  const homeLogoSmall = resolveTeamLogoUrl(match.homeTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })
+  const awayLogoSmall = resolveTeamLogoUrl(match.awayTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })
+
   return (
     <tr className="h-16 border-b border-(--border)/80 transition-colors hover:bg-(--accent)/5">
       <td className="p-2 align-middle">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-28 shrink-0 items-center justify-center gap-1 rounded-xl border border-(--border) bg-(--surface-soft) px-1 text-[10px] font-bold text-(--text-muted)">
-            {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, teamLogoTransform)} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+            {homeLogo ? <img src={homeLogo} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
             <span className="text-(--accent)">VS</span>
-            {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, teamLogoTransform)} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+            {awayLogo ? <img src={awayLogo} alt="" className="h-8 w-8 rounded-full bg-surface object-cover" /> : <span>{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
           </div>
           <div className="min-w-0">
             <div className="truncate font-semibold text-(--text-primary)">{match.title}</div>
             <div className="flex min-w-0 items-center gap-2 text-xs text-(--text-muted)">
               <div className="flex shrink-0 items-center gap-1">
-                {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+                {homeLogoSmall ? <img src={homeLogoSmall} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
                 <span className="max-w-32 wrap-break-word">{match.homeTeamName || 'Team 1'}</span>
               </div>
               <span className="shrink-0 text-(--accent)">vs</span>
               <div className="flex min-w-0 items-center gap-1">
-                {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { ...teamLogoTransform, width: 56, height: 56 })} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+                {awayLogoSmall ? <img src={awayLogoSmall} alt="" className="h-5 w-5 rounded-full bg-surface object-cover" /> : <span className="grid h-5 w-5 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
                 <span className="max-w-32 wrap-break-word">{match.awayTeamName || 'Team 2'}</span>
               </div>
             </div>
             <div className="truncate text-[10px] uppercase tracking-[0.08em] text-(--accent)">
-              {match.sport || 'Sport review'}{match.tournamentName ? ` · ${match.tournamentName}` : ''}
+              {match.sport || 'Sport review'}{match.tournamentName ? ` · ${match.tournamentName}` : ''}{match.round != null ? ` · Round ${match.round}` : ''}
             </div>
           </div>
         </div>

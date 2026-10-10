@@ -1,6 +1,7 @@
 import { emptyApi } from '../../app/api/emptyApi'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse } from '../../app/api/types'
+import { toTransferPercent, type MediaUploadProgressUpdate } from '../../utils/uploadProgress'
 
 export interface UploadedFile {
   fileName: string
@@ -10,7 +11,7 @@ export interface UploadedFile {
   size: number
 }
 
-interface UploadResponse {
+export interface UploadResponse {
   uploads: UploadedFile[]
   failedUploads: string[]
 }
@@ -48,6 +49,20 @@ interface CloudinaryUploadResult {
   signature: string
 }
 
+/**
+ * The stages a direct upload really goes through are defined (with their captions) in
+ * `utils/uploadProgress.ts`, so the progress maths and wording live in one testable place.
+ */
+export type { MediaUploadProgressUpdate, MediaUploadStage } from '../../utils/uploadProgress'
+
+export interface UploadFilesArgs {
+  files: File[]
+  folder?: string
+  mediaType?: 'BANNER' | 'LOGO' | 'VIDEO'
+  /** Called as the upload advances; the caller owns the UI state. */
+  onProgress?: (update: MediaUploadProgressUpdate) => void
+}
+
 const CHUNKED_UPLOAD_THRESHOLD = 100 * 1024 * 1024
 const UPLOAD_CHUNK_BYTES = 20 * 1024 * 1024
 
@@ -75,6 +90,7 @@ function uploadCloudinaryChunk(
   end: number,
   uploadId: string,
   signal: AbortSignal,
+  onTransfer?: (loadedBytes: number) => void,
 ): Promise<CloudinaryUploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -91,6 +107,14 @@ function uploadCloudinaryChunk(
     if (chunked) {
       xhr.setRequestHeader('X-Unique-Upload-Id', uploadId)
       xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${file.size}`)
+    }
+
+    // Real byte-level progress of this request. `event.loaded` counts the body of this request only, so
+    // the chunk offset is added back to report progress across the whole file.
+    if (onTransfer) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onTransfer(start + event.loaded)
+      }
     }
 
     const abortUpload = () => xhr.abort()
@@ -122,16 +146,21 @@ function uploadCloudinaryChunk(
   })
 }
 
-async function uploadCloudinaryFile(file: File, authorization: UploadAuthorization, signal: AbortSignal): Promise<CloudinaryUploadResult> {
+async function uploadCloudinaryFile(
+  file: File,
+  authorization: UploadAuthorization,
+  signal: AbortSignal,
+  onTransfer?: (loadedBytes: number) => void,
+): Promise<CloudinaryUploadResult> {
   const uploadId = crypto.randomUUID()
   if (file.size <= CHUNKED_UPLOAD_THRESHOLD) {
-    return uploadCloudinaryChunk(file, authorization, 0, file.size - 1, uploadId, signal)
+    return uploadCloudinaryChunk(file, authorization, 0, file.size - 1, uploadId, signal, onTransfer)
   }
 
   let result: CloudinaryUploadResult | null = null
   for (let start = 0; start < file.size; start += UPLOAD_CHUNK_BYTES) {
     const end = Math.min(start + UPLOAD_CHUNK_BYTES, file.size) - 1
-    result = await uploadCloudinaryChunk(file, authorization, start, end, uploadId, signal)
+    result = await uploadCloudinaryChunk(file, authorization, start, end, uploadId, signal, onTransfer)
   }
   if (!result) throw new Error('Cloudinary did not return a completed upload.')
   return result
@@ -146,19 +175,21 @@ function toCustomError(error: unknown) {
 
 export const uploadsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
-    uploadFiles: builder.mutation<UploadResponse, { files: File[]; folder?: string; mediaType?: 'BANNER' | 'LOGO' | 'VIDEO' }>({
-      async queryFn({ files, folder, mediaType }, api, _extraOptions, baseQuery) {
+    uploadFiles: builder.mutation<UploadResponse, UploadFilesArgs>({
+      async queryFn({ files, folder, mediaType, onProgress }, api, _extraOptions, baseQuery) {
         if (!files.length || files.length > 10) return { error: toCustomError(new Error('Select between one and ten files.')) }
         const uploads: UploadedFile[] = []
         const failedUploads: string[] = []
 
-        for (const file of files) {
+        for (const [index, file] of files.entries()) {
+          const position = { fileName: file.name, fileIndex: index + 1, fileCount: files.length }
           const purpose = getUploadPurpose(file, folder ?? '', mediaType)
           if (!purpose) {
             failedUploads.push(`${file.name}: This upload purpose is not supported.`)
             continue
           }
 
+          onProgress?.({ ...position, stage: 'preparing', percent: 0 })
           const signatureResponse = await baseQuery({
             url: '/admin/uploads/cloudinary/signature',
             method: 'POST',
@@ -172,7 +203,16 @@ export const uploadsApi = emptyApi.injectEndpoints({
               throw new Error('Selected file exceeds the authorized upload size.')
             }
 
-            const cloudinaryResult = await uploadCloudinaryFile(file, authorization, api.signal)
+            // The percentage is reported on change only: `progress` fires far more often than the value
+            // actually moves, and every report is a React state update.
+            let reportedPercent = -1
+            const cloudinaryResult = await uploadCloudinaryFile(file, authorization, api.signal, (loadedBytes) => {
+              const percent = toTransferPercent(loadedBytes, file.size)
+              if (percent === reportedPercent) return
+              reportedPercent = percent
+              onProgress?.({ ...position, stage: 'uploading', percent })
+            })
+            onProgress?.({ ...position, stage: 'processing', percent: 100 })
             const completionResponse = await baseQuery({
               url: '/admin/uploads/cloudinary/complete',
               method: 'POST',
@@ -193,6 +233,7 @@ export const uploadsApi = emptyApi.injectEndpoints({
             const uploaded = unwrapApiResponse<UploadedFile>(completionResponse.data as ApiResponse<UploadedFile>)
             if (!uploaded?.url || !uploaded.publicId) throw new Error('Verified Cloudinary asset metadata was incomplete.')
             uploads.push(uploaded)
+            onProgress?.({ ...position, stage: 'done', percent: 100 })
           } catch (error) {
             failedUploads.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`)
           }

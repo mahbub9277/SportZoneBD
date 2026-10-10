@@ -5,7 +5,7 @@ import { ShieldCheck } from 'lucide-react'
 import type { Match } from '../features/matches/matches.types'
 import { Card, CardContent } from './ui/Card'
 import { cn } from '../lib/utils'
-import { buildCloudinaryUrl } from '../utils/cloudinary'
+import { selectTeamLogo } from '../utils/teamLogo'
 import { getMatchStatus } from '../features/matches/matchOrdering'
 import { getMatchCompetitionLabel } from '../features/matches/matchCompetition'
 import { formatMatchKickoffDate, formatMatchKickoffTime } from '../utils/matchDateTime'
@@ -33,23 +33,17 @@ const getTeamName = (value: string | null | undefined, fallback: string) => {
   return trimmed && trimmed.length > 0 ? trimmed : fallback
 }
 
-const buildTeamVisual = (name: string, fallbackText: string, logo?: string | null) => {
-  const normalizedLogo = logo?.trim()
-  let imageUrl: string | null = null
-  if (normalizedLogo) {
-    if (/^[a-z][a-z\d+.-]*:/i.test(normalizedLogo)) {
-      try {
-        const url = new URL(normalizedLogo)
-        if (url.protocol === 'http:' || url.protocol === 'https:') {
-          imageUrl = buildCloudinaryUrl(normalizedLogo, { width: 96, height: 96, crop: 'fit', quality: 'auto', format: 'auto' })
-        }
-      } catch {
-        imageUrl = null
-      }
-    } else {
-      imageUrl = buildCloudinaryUrl(normalizedLogo, { width: 96, height: 96, crop: 'fit', quality: 'auto', format: 'auto' })
-    }
-  }
+const TEAM_LOGO_TRANSFORM = { width: 96, height: 96, crop: 'fit' as const, quality: 'auto' as const, format: 'auto' as const }
+
+/**
+ * The card's logo for one side.
+ *
+ * Both references go through the shared resolver rather than being picked with `||`: the team record's logo
+ * is the one the ingestion path also prefers, a fixture whose own logo is a provider crest cannot shadow an
+ * assigned logo, and a reference that may not be hotlinked is dropped instead of requested.
+ */
+const buildTeamVisual = (name: string, fallbackText: string, logos: Array<string | null | undefined>) => {
+  const imageUrl = selectTeamLogo(logos, TEAM_LOGO_TRANSFORM).url
 
   return { name: getTeamName(name, fallbackText), logo: imageUrl }
 }
@@ -82,8 +76,8 @@ export const MatchCardDisplay = memo(function MatchCardDisplay({ match, onOpen, 
   const competitionLabel = getMatchCompetitionLabel(match)
   const streamCount = match.streams?.filter((stream) => stream.enabled !== false && stream.isEnabled !== false).length ?? 0
 
-  const homeTeam = buildTeamVisual(match.homeTeamName ?? match.homeTeam?.name ?? '', 'Team 1', match.homeTeamLogo || match.homeTeam?.logoUrl)
-  const awayTeam = buildTeamVisual(match.awayTeamName ?? match.awayTeam?.name ?? '', 'Team 2', match.awayTeamLogo || match.awayTeam?.logoUrl)
+  const homeTeam = buildTeamVisual(match.homeTeamName ?? match.homeTeam?.name ?? '', 'Team 1', [match.homeTeam?.logoUrl, match.homeTeamLogo])
+  const awayTeam = buildTeamVisual(match.awayTeamName ?? match.awayTeam?.name ?? '', 'Team 2', [match.awayTeam?.logoUrl, match.awayTeamLogo])
 
   return (
     <div className="h-full w-full min-w-0">

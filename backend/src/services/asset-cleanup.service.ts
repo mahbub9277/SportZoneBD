@@ -1,63 +1,54 @@
 import prisma from '../core/prisma.js'
-import { buildCloudinarySecureUrl, deleteFileFromCloudinary } from './upload.service.js'
+import { Prisma } from '@prisma/client'
+import { getAssetIdentity, referenceOr } from './assetReference.js'
+import { deleteFileFromCloudinary } from './upload.service.js'
 
 const assetMatches = (value: string | null | undefined, asset: string): boolean => Boolean(value && value.trim() === asset.trim())
 
-const getAssetVariants = (asset: string): string[] => {
-  const value = asset.trim()
-  const secureUrl = buildCloudinarySecureUrl(value)
-  return [...new Set([value, secureUrl].filter((candidate): candidate is string => Boolean(candidate)))]
-}
-
 export const isAssetReferenced = async (asset: string): Promise<boolean> => {
-  const value = asset.trim()
-  if (!value) return false
-  const variants = getAssetVariants(value)
+  const identity = getAssetIdentity(asset)
+  if (!identity) return false
 
-  const [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights, banners] = await Promise.all([
-    prisma.user.count({ where: { deletedAt: null, avatar: { in: variants } } }),
-    prisma.channelCategory.count({ where: { image: { in: variants } } }),
-    prisma.channel.count({ where: { logo: { in: variants } } }),
-    prisma.team.count({ where: { deletedAt: null, OR: [{ logoUrl: { in: variants } }, { logoPublicId: { in: variants } }] } }),
-    prisma.match.count({ where: { deletedAt: null, OR: [{ homeTeamLogo: { in: variants } }, { awayTeamLogo: { in: variants } }] } }),
-    prisma.stream.count({ where: { deletedAt: null, logo: { in: variants } } }),
-    prisma.event.count({ where: { deletedAt: null, OR: [{ logo: { in: variants } }, { banner: { in: variants } }] } }),
-    prisma.popup.count({ where: { deletedAt: null, imageUrl: { in: variants } } }),
-    prisma.advertisement.count({ where: { deletedAt: null, imageUrl: { in: variants } } }),
+  const references = await Promise.all([
+    prisma.user.count({ where: { deletedAt: null, OR: referenceOr<Prisma.UserWhereInput>(['avatar'], identity) } }),
+    prisma.channelCategory.count({ where: { OR: referenceOr<Prisma.ChannelCategoryWhereInput>(['image'], identity) } }),
+    prisma.channel.count({ where: { OR: referenceOr<Prisma.ChannelWhereInput>(['logo'], identity) } }),
+    prisma.team.count({
+      where: { deletedAt: null, OR: referenceOr<Prisma.TeamWhereInput>(['logoUrl', 'logoPublicId'], identity) },
+    }),
+    prisma.match.count({
+      where: { deletedAt: null, OR: referenceOr<Prisma.MatchWhereInput>(['homeTeamLogo', 'awayTeamLogo'], identity) },
+    }),
+    prisma.stream.count({ where: { deletedAt: null, OR: referenceOr<Prisma.StreamWhereInput>(['logo'], identity) } }),
+    prisma.event.count({
+      where: { deletedAt: null, OR: referenceOr<Prisma.EventWhereInput>(['logo', 'banner'], identity) },
+    }),
+    prisma.popup.count({ where: { deletedAt: null, OR: referenceOr<Prisma.PopupWhereInput>(['imageUrl'], identity) } }),
+    prisma.advertisement.count({
+      where: { deletedAt: null, OR: referenceOr<Prisma.AdvertisementWhereInput>(['imageUrl'], identity) },
+    }),
     prisma.highlight.count({
       where: {
         deletedAt: null,
-        OR: [
-          { thumbnail: { in: variants } },
-          { thumbnailUrl: { in: variants } },
-          { videoId: { in: variants } },
-          { url: { in: variants } },
-        ],
+        OR: referenceOr<Prisma.HighlightWhereInput>(['thumbnail', 'thumbnailUrl', 'videoId', 'url'], identity),
       },
     }),
     prisma.banner.count({
-      where: {
-        deletedAt: null,
-        OR: [
-          { imageUrl: { in: variants } },
-          { imageUrl: { contains: value } },
-          { videoUrl: { in: variants } },
-          { videoUrl: { contains: value } },
-          { posterUrl: { in: variants } },
-          { posterUrl: { contains: value } },
-        ],
-      },
+      where: { deletedAt: null, OR: referenceOr<Prisma.BannerWhereInput>(['imageUrl', 'videoUrl', 'posterUrl'], identity) },
     }),
   ])
 
-  return [users, categories, channels, teams, matches, streams, events, popups, advertisements, highlights, banners].some((count) => count > 0)
+  return references.some((count) => count > 0)
 }
 
 export const cleanupAssetIfUnused = async (asset: string | null | undefined): Promise<void> => {
   if (!asset?.trim() || await isAssetReferenced(asset)) return
 
+  const identity = getAssetIdentity(asset)
+  if (!identity) return
+
   await prisma.mediaAsset.updateMany({
-    where: { deletedAt: null, OR: [{ url: { in: getAssetVariants(asset ?? '') } }, { publicId: { in: getAssetVariants(asset ?? '') } }] },
+    where: { deletedAt: null, OR: referenceOr<Prisma.MediaAssetWhereInput>(['url', 'publicId'], identity) },
     data: { deletedAt: new Date() },
   })
   await deleteFileFromCloudinary(asset)

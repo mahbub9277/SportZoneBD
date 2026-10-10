@@ -12,6 +12,7 @@ import type { User } from '../../../features/auth/auth.types'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/Avatar'
 import { Spinner } from '../../../components/ui/Spinner'
+import { UploadProgress } from '../../../components/ui/UploadProgress'
 import { Label } from '../../../components/ui/Label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../../components/ui/Dialog'
 import { Slider } from '../../../components/ui/Slider'
@@ -37,12 +38,14 @@ type ProfileFormValues = z.infer<typeof profileSchema>
 
 interface EditProfileFormProps {
   user: User
+  onCancel: () => void;
   onSubmit: (formData: FormData) => { abort: () => void };
   isLoading: boolean
-  onCancel: () => void;
+  /** Live transfer percentage of the avatar upload, or null when the update carries no new file. */
+  uploadPercent?: number | null
 }
 
-export function EditProfileForm({ user, onSubmit, isLoading, onCancel }: EditProfileFormProps) {
+export function EditProfileForm({ user, onSubmit, isLoading, uploadPercent = null, onCancel }: EditProfileFormProps) {
   // State for image cropping
   const [imageToCrop, setImageToCrop] = useState<string | null>(null)
   const [crop, setCrop] = useState({ x: 0, y: 0 })
@@ -214,6 +217,12 @@ export function EditProfileForm({ user, onSubmit, isLoading, onCancel }: EditPro
               <Label htmlFor="avatar-upload">Change Avatar (Max 5MB)</Label>
               <Input id="avatar-upload" type="file" accept="image/*" onChange={handleFileChange} />
               <FormMessage>{form.formState.errors.avatarFile?.message as React.ReactNode}</FormMessage>
+              {uploadPercent !== null && (
+                <UploadProgress
+                  className="mt-2"
+                  update={{ stage: 'uploading', percent: uploadPercent, fileName: 'Profile photo', fileIndex: 1, fileCount: 1 }}
+                />
+              )}
             </div>
           </motion.div>
 

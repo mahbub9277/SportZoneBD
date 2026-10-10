@@ -92,6 +92,9 @@ function EventPageContent({
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
   const [isBannerVisible, setIsBannerVisible] = useState(true)
   const [subscriptionReturnPath, setSubscriptionReturnPath] = useState<string | undefined>()
+  // A stored event asset that no longer exists in Cloudinary (the object was removed): the hero keeps its
+  // styled backdrop instead of showing a broken image. Keyed by URL so the next event still gets its own.
+  const [failedAssets, setFailedAssets] = useState<Record<string, boolean>>({})
 
   const eventDetail: EventDetail = event as EventDetail
   const eventChannels: EventDetail['eventChannels'] = eventDetail?.eventChannels ?? []
@@ -135,10 +138,10 @@ function EventPageContent({
       <AnimatePresence initial={false}>
         {isBannerVisible && <motion.div key="event-hero" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="w-full overflow-hidden">
         <motion.section className="relative isolate origin-top min-h-48 w-full aspect-16/5 overflow-hidden rounded-xl bg-linear-to-br from-surface-soft via-surface to-accent/10 shadow-[0_18px_50px_rgba(2,6,23,0.14)] sm:min-h-64 md:min-h-0 lg:translate-y-2 lg:scale-[0.97]">
-          {event.banner && <img src={buildCloudinaryUrl(event.banner, { width: 1600, height: 500, crop: 'fill', gravity: 'center' })} alt={`${event.name} banner`} className="absolute inset-0 z-0 h-full w-full object-contain object-center" />}
+          {event.banner && !failedAssets[event.banner] && <img src={buildCloudinaryUrl(event.banner, { width: 1600, height: 500, crop: 'fill', gravity: 'center' })} alt={`${event.name} banner`} loading="lazy" decoding="async" onError={() => setFailedAssets((current) => ({ ...current, [event.banner as string]: true }))} className="absolute inset-0 z-0 h-full w-full object-contain object-center" />}
           <div className="absolute inset-0 z-1 bg-linear-to-t from-black/80 via-black/40 to-transparent" aria-hidden="true" />
           <div className="absolute bottom-2 left-2 right-2 z-10 flex min-w-0 max-w-full items-end gap-2 md:bottom-4 md:left-4 md:right-4 md:gap-3">
-            <div className="premium-border relative shrink-0 rounded-xl bg-surface/70 p-1.5 shadow-lg"><div className="grid h-12 w-12 place-items-center rounded-lg bg-surface-soft/80 sm:h-14 sm:w-14 md:h-18 md:w-18">{event.logo ? <img src={buildCloudinaryUrl(event.logo, { width: 144, height: 144, crop: 'fit' })} alt={`${event.name} logo`} className="h-full w-full rounded-lg object-contain" /> : <Tv className="h-6 w-6 text-white md:h-8 md:w-8" />}</div>{event.isPremium && <span className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-yellow-400 text-slate-950 shadow-[0_3px_10px_rgba(250,204,21,0.55)] md:h-7 md:w-7" title="Premium event"><Crown className="h-3.5 w-3.5 md:h-4 md:w-4" /></span>}</div>
+            <div className="premium-border relative shrink-0 rounded-xl bg-surface/70 p-1.5 shadow-lg"><div className="grid h-12 w-12 place-items-center rounded-lg bg-surface-soft/80 sm:h-14 sm:w-14 md:h-18 md:w-18">{event.logo && !failedAssets[event.logo] ? <img src={buildCloudinaryUrl(event.logo, { width: 144, height: 144, crop: 'fit' })} alt={`${event.name} logo`} loading="lazy" decoding="async" onError={() => setFailedAssets((current) => ({ ...current, [event.logo as string]: true }))} className="h-full w-full rounded-lg object-contain" /> : <Tv className="h-6 w-6 text-white md:h-8 md:w-8" />}</div>{event.isPremium && <span className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-yellow-400 text-slate-950 shadow-[0_3px_10px_rgba(250,204,21,0.55)] md:h-7 md:w-7" title="Premium event"><Crown className="h-3.5 w-3.5 md:h-4 md:w-4" /></span>}</div>
             <div className="min-w-0 flex-1 pb-0.5 drop-shadow-[0_3px_10px_rgba(0,0,0,0.8)] md:max-w-3xl md:pb-1"><h1 className="truncate text-lg font-bold tracking-tight text-white sm:text-xl md:text-2xl">{event.name}</h1>{event.description && <p className="mt-0.5 line-clamp-1 max-w-2xl text-xs leading-4 text-gray-200 sm:text-sm md:line-clamp-2 md:leading-5">{event.description}</p>}</div>
             </div>
         </motion.section>

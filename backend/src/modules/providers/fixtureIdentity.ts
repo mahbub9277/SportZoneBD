@@ -76,6 +76,48 @@ export function isFixtureRejected(
   return lookup.keys.has(providerFixtureKey) || lookup.teams.has(teamsIdentity)
 }
 
+/**
+ * Indexes stored rows by their unique provider key.
+ *
+ * The cycle's window query only returns live rows whose kickoff falls inside the discovery window, but
+ * the unique index does not: a reviewed rejection keeps its provider key after being soft-deleted, and a
+ * row created for an earlier kickoff sits outside today's window. Reading the keys a cycle is about to
+ * write turns those rows into the "existing match" the ingestion loop already knows how to update,
+ * instead of an insert that fails on the unique constraint on every single cycle.
+ */
+export function buildProviderKeyOwners<S extends { providerFixtureKey: string | null }>(
+  rows: readonly S[],
+): Map<string, S> {
+  const owners = new Map<string, S>()
+  for (const row of rows) {
+    const key = row.providerFixtureKey?.trim()
+    if (key) owners.set(key, row)
+  }
+  return owners
+}
+
+/**
+ * Whether a database error is the duplicate the fixture sync expects.
+ *
+ * Only the provider key may be treated as an expected duplicate: it is the one unique column the
+ * discovery insert writes, so a conflict on anything else is a real defect and has to keep propagating.
+ * Prisma reports the conflicting columns in `meta.target`; a conflict without that evidence is not
+ * verified either, so it propagates as well rather than being silently swallowed.
+ */
+export function isProviderFixtureKeyConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const candidate = error as { code?: unknown; meta?: { target?: unknown } }
+  if (candidate.code !== 'P2002') return false
+
+  const target = candidate.meta?.target
+  if (typeof target === 'string') return target.includes('providerFixtureKey')
+  if (Array.isArray(target)) {
+    return target.some((entry) => typeof entry === 'string' && entry.includes('providerFixtureKey'))
+  }
+  return false
+}
+
 export interface ExistingMatchRow {
   id: string
   providerFixtureKey: string | null

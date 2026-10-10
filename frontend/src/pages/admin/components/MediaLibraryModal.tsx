@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { getErrorMessage } from '../../../utils/get-error-message'
 import { useDeleteMediaMutation, useGetMediaLibraryQuery, useLazyGetMediaUsageQuery, type MediaAsset } from '../../../features/events/events.api'
 
 interface MediaLibraryModalProps {
@@ -59,8 +60,9 @@ export function MediaLibraryModal({ mediaType, onCancel, onConfirm }: MediaLibra
       await deleteMedia(item.id).unwrap()
       if (selected?.id === item.id) setSelected(null)
       toast.success('Media deleted.')
-    } catch {
-      toast.error('Media could not be deleted safely.')
+    } catch (error) {
+      // The server refuses a delete that would break a live reference, and its message says which.
+      toast.error(getErrorMessage(error))
     }
   }
 

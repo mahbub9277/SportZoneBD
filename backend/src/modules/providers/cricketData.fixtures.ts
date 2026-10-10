@@ -46,6 +46,29 @@ interface CricketTeam {
   providerId: string | null
 }
 
+/**
+ * The competition a cricket fixture belongs to, taken only from what the provider states.
+ *
+ * `/currentMatches` publishes `series_id` but no `series` field, while the fixture `name` always carries
+ * the competition as its trailing segment ("Western Australia vs Queensland, 3rd Match, Sheffield Shield
+ * 2026-27"). Reading it from there is provider data, not an invention, and it is what keeps the real
+ * competition (and the series-based eligibility rule) working for every fixture. When neither field
+ * carries a competition the plain sport label is used, exactly as before.
+ */
+export function readCricketSeries(entry: Record<string, unknown>): string | null {
+  const series = typeof entry.series === 'string' ? entry.series.trim() : ''
+  if (series) return series
+
+  const name = typeof entry.name === 'string' ? entry.name.trim() : ''
+  if (!name) return null
+  const segments = name.split(',').map((segment) => segment.trim()).filter(Boolean)
+  if (segments.length < 2) return null
+
+  const competition = segments[segments.length - 1]
+  // A trailing segment only describes a competition when it carries something other than a number.
+  return /[a-z]/i.test(competition) ? competition : null
+}
+
 function readTeamInfo(entry: Record<string, unknown>): CricketTeam[] {
   if (!Array.isArray(entry.teamInfo)) return []
   return entry.teamInfo.filter(isRecord).map((team) => ({
@@ -65,7 +88,7 @@ export function normalizeCricketMatch(entry: Record<string, unknown>): Canonical
   const awayName = teamInfo[1]?.name ?? names[1]?.trim()
   if (!homeName || !awayName) return null
 
-  const series = typeof entry.series === 'string' && entry.series.trim() ? entry.series.trim() : 'Cricket'
+  const series = readCricketSeries(entry) ?? 'Cricket'
 
   return {
     provider: PROVIDER,
@@ -75,12 +98,18 @@ export function normalizeCricketMatch(entry: Record<string, unknown>): Canonical
     kickoffAt: parseCricketUtc(entry.dateTimeGMT ?? entry.date, 'kickoff time'),
     competitionCode: providerIdentifier(entry.series_id) ?? series,
     competitionName: series,
-    // CricketData publishes the series, not a season, so no season label is invented here.
+    // CricketData publishes the series, not a season, so no season label is invented here. It publishes
+    // no matchday either: the series has no league round.
     season: null,
+    round: null,
     homeTeamName: homeName,
     awayTeamName: awayName,
-    homeTeamCrest: teamInfo[0]?.crest ?? null,
-    awayTeamCrest: teamInfo[1]?.crest ?? null,
+    // CricketData's team images are served from its own CDN (`g.cricapi.com`) and are not licensed for
+    // hotlinking, so they are deliberately not copied into a match's logo fields. A team's logo comes from
+    // SportZoneBD's own approved assets (the admin-managed Team records in Cloudinary), and a fixture
+    // whose teams have no asset keeps the initials fallback the admin list already renders.
+    homeTeamCrest: null,
+    awayTeamCrest: null,
     homeTeamProviderId: teamInfo[0]?.providerId ?? null,
     awayTeamProviderId: teamInfo[1]?.providerId ?? null,
   }
@@ -96,9 +125,13 @@ export function normalizeCricketFixtures(value: unknown): CanonicalFixture[] {
 
   for (const entry of value.data) {
     if (!isRecord(entry)) continue
+    // The competition the fixture really belongs to: the provider's `series` when it has one, otherwise
+    // the competition segment of the provider's own fixture name. Category C (the marquee short formats)
+    // depends on it, so reading it here is what stops a real T10/Hundred fixture being dropped as unknown.
+    const series = readCricketSeries(entry)
     // Business rule (Step 6): only A/B fixtures, plus marquee C fixtures, reach the pending review
     // queue. D fixtures (unknown or unsupported formats) are never imported automatically.
-    if (!isCricketCategoryEligible(classifyCricketFixture({ matchType: entry.matchType, series: entry.series }))) {
+    if (!isCricketCategoryEligible(classifyCricketFixture({ matchType: entry.matchType, series }))) {
       categorySkipped += 1
       continue
     }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_BULK_REVIEW_IDS } from './pendingMatchReview.js'
 
 const truthyStrings = ['true', '1', 'on', 'yes']
 
@@ -7,6 +8,11 @@ export const matchSchema = z.object({
   tournamentName: z.string().trim().max(255).nullable().optional(),
   /** Season label as the competition states it (for example "2026/2027"); optional and never invented. */
   season: z.string().trim().max(32).nullable().optional(),
+  /** League round/matchday as a number; empty means "not stated" and is stored as null, never as 0. */
+  round: z.preprocess(
+    (val) => val === '' || val === null || val === undefined ? null : Number(val),
+    z.number({ invalid_type_error: 'Round must be a number.' }).int().min(1).max(200).nullable().optional(),
+  ),
   homeTeamName: z.string().trim().max(255).nullable().optional(),
   awayTeamName: z.string().trim().max(255).nullable().optional(),
   homeTeamId: z.string().uuid().nullable().optional().or(z.literal('')),
@@ -33,4 +39,9 @@ export const matchSchema = z.object({
     return val
   }, z.boolean()).default(false),
   streams: z.string().optional(),
+})
+
+/** The ids a bulk review may carry, deduplicated by the controller before use. */
+export const bulkReviewSchema = z.object({
+  ids: z.array(z.string().uuid('Every id must be a match id.')).min(1, 'Select at least one match.').max(MAX_BULK_REVIEW_IDS),
 })

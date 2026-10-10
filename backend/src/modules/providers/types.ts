@@ -42,6 +42,11 @@ export interface CanonicalFixture {
    * API-Football's season year). Null when the provider does not publish one, so nothing is invented.
    */
   season: string | null
+  /**
+   * Round or matchday exactly as the provider states it (football-data.org's `matchday`). Null when the
+   * provider publishes none, so a round is never inferred from a competition name or a stage label.
+   */
+  round: number | null
   homeTeamName: string
   awayTeamName: string
   homeTeamCrest: string | null

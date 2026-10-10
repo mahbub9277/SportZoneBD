@@ -11,15 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Button } from '../../components/ui/Button' 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '../../components/ui/Dialog'
 import { CreateMatchForm, type CreateMatchFormValues } from './components/CreateMatchForm'
-import { useUploadFilesMutation } from '../../features/admin/uploads.api'
+import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
 import { formatMatchKickoff, parseMatchDateTime } from '../../utils/matchDateTime'
-import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { TeamLogoBadge } from '../../components/ui/TeamLogoBadge'
 
 export function UpcomingMatchesManagementPage() {
   const { data, isLoading, isError } = useGetAdminUpcomingMatchesQuery({})
   const [updateStatus, { isLoading: isUpdating }] = useUpdateMatchStatusMutation()
   const [createMatch, { isLoading: isCreating }] = useCreateMatchMutation()
-  const [uploadFiles, { isLoading: isUploadingStreamLogo }] = useUploadFilesMutation()
+  const { upload: uploadFiles, progress: streamLogoProgress, isUploading: isUploadingStreamLogo } = useMediaUploadProgress()
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [uploadingStreamLogoIndex, setUploadingStreamLogoIndex] = useState<number | null>(null)
@@ -30,6 +30,7 @@ export function UpcomingMatchesManagementPage() {
     defaultValues: {
       title: '',
       season: '',
+      round: '',
       kickoffDate: '', // New field
       kickoffTime: '', // New field
       sport: 'CRICKET',
@@ -82,7 +83,7 @@ export function UpcomingMatchesManagementPage() {
   const handleStreamLogoUpload = async (streamIndex: number, file: File) => {
     setUploadingStreamLogoIndex(streamIndex)
     try {
-      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos', mediaType: 'LOGO' }).unwrap()
+      const result = await uploadFiles({ files: [file], folder: 'sportzone/stream-logos', mediaType: 'LOGO' })
       const logoUrl = result.uploads[0]?.url
       if (!logoUrl) throw new Error('Cloudinary did not return a logo URL.')
       form.setValue(`streams.${streamIndex}.logo`, logoUrl, { shouldDirty: true, shouldValidate: true })
@@ -134,7 +135,7 @@ export function UpcomingMatchesManagementPage() {
                     <DialogTitle className="text-xl font-bold text-brand-text-primary">Create New Match</DialogTitle>
                     <DialogDescription className="text-sm text-brand-text-muted">Fill in the details to add a new match.</DialogDescription>
                   </DialogHeader>
-                  <CreateMatchForm form={form} onSubmit={handleCreateMatch} isLoading={isCreating || isUploadingStreamLogo} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill />
+                  <CreateMatchForm form={form} onSubmit={handleCreateMatch} isLoading={isCreating || isUploadingStreamLogo} onStreamLogoUpload={handleStreamLogoUpload} uploadingStreamLogoIndex={uploadingStreamLogoIndex} showAiAutofill streamLogoProgress={streamLogoProgress.update} streamLogoError={streamLogoProgress.error} />
                 </DialogContent>
               </Dialog>
             </motion.div>
@@ -179,10 +180,20 @@ export function UpcomingMatchesManagementPage() {
                           <div className="min-w-48 space-y-2">
                             <div className="wrap-break-word">{match.title}</div>
                             <div className="flex items-center gap-2 text-xs text-brand-text-muted">
-                              {match.homeTeamLogo ? <img src={buildCloudinaryUrl(match.homeTeamLogo, { width: 48, height: 48, crop: 'fit' })} alt="" className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.homeTeamName?.slice(0, 2).toUpperCase() || 'T1'}</span>}
+                              <TeamLogoBadge
+                                candidates={[match.homeTeam?.logoUrl, match.homeTeamLogo]} name={match.homeTeamName} fallback="T1"
+                                className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain"
+                                fallbackClassName="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold"
+                                transform={{ width: 48, height: 48, crop: 'fit' }}
+                              />
                               <span className="max-w-32 wrap-break-word">{match.homeTeamName || 'Team 1'}</span>
                               <span className="text-(--accent)">vs</span>
-                              {match.awayTeamLogo ? <img src={buildCloudinaryUrl(match.awayTeamLogo, { width: 48, height: 48, crop: 'fit' })} alt="" className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain" /> : <span className="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold">{match.awayTeamName?.slice(0, 2).toUpperCase() || 'T2'}</span>}
+                              <TeamLogoBadge
+                                candidates={[match.awayTeam?.logoUrl, match.awayTeamLogo]} name={match.awayTeamName} fallback="T2"
+                                className="h-6 w-6 rounded-full bg-(--surface-soft) object-contain"
+                                fallbackClassName="grid h-6 w-6 place-items-center rounded-full bg-(--surface-soft) text-[8px] font-bold"
+                                transform={{ width: 48, height: 48, crop: 'fit' }}
+                              />
                               <span className="max-w-32 wrap-break-word">{match.awayTeamName || 'Team 2'}</span>
                             </div>
                           </div>

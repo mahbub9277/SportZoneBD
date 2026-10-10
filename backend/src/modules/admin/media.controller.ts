@@ -4,6 +4,7 @@ import asyncHandler from '../../utils/asyncHandler.js'
 import { AppError } from '../../core/errors.js'
 import { successResponse } from '../../core/api-response.js'
 import { deleteFileFromCloudinary } from '../../services/upload.service.js'
+import { isAssetReferenced } from '../../services/asset-cleanup.service.js'
 import * as service from './media.service.js'
 
 const mediaTypeSchema = z.enum(['BANNER', 'LOGO'])
@@ -26,6 +27,14 @@ const deleteMedia = asyncHandler(async (req: Request, res: Response) => {
   if (!usage) throw new AppError(404, 'Media asset not found.')
   if (usage.events.length > 0) {
     throw new AppError(409, `Media is currently used by ${usage.events.length} event${usage.events.length === 1 ? '' : 's'}. Remove it from those events before deleting.`)
+  }
+  // The event list above is not the whole picture: the same asset can be referenced by a channel, a
+  // channel category, a stream, a team, a match, a popup, an advertisement, a highlight, a banner or a
+  // user avatar. The full reference check runs before anything is deleted, so a media-library delete can
+  // never break an image that is still in use somewhere else.
+  const reference = usage.media.publicId?.trim() || usage.media.url?.trim() || ''
+  if (reference && await isAssetReferenced(reference)) {
+    throw new AppError(409, 'This media asset is still used by another active resource. Remove it there before deleting it from the library.')
   }
   await service.softDeleteMedia(req.params.id)
   await deleteFileFromCloudinary(usage.media.publicId)

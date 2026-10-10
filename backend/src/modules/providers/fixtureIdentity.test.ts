@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  buildProviderKeyOwners,
   buildRejectedFixtureLookup,
   getTeamsIdentity,
   isFixtureRejected,
+  isProviderFixtureKeyConflict,
   isRejectedRow,
   normalizeFixtureName,
   resolveExistingFixture,
@@ -126,4 +128,39 @@ test('rows without teams never create a phantom team identity', () => {
 
   assert.equal(rejected.teams.size, 0)
   assert.equal(isFixtureRejected(rejected, 'football-data-org:1', getTeamsIdentity('Liverpool', 'Manchester City')), false)
+})
+
+test('a stored row the discovery window cannot see still owns its provider key', () => {
+  // Two shapes the cycle's window query removes: a row created for an earlier kickoff, and a reviewed
+  // rejection that keeps its unique key after being soft-deleted.
+  const rows = [
+    row({ id: 'yesterdays-kickoff', providerFixtureKey: 'football-data-org:555', kickoffAt: new Date('2026-10-09T15:30:00.000Z') }),
+    row({ id: 'rejected', providerFixtureKey: 'football-data-org:556', status: 'REJECTED', deletedAt: new Date('2026-10-08T09:00:00.000Z') }),
+    row({ id: 'manual-match', providerFixtureKey: null }),
+  ]
+
+  const owners = buildProviderKeyOwners(rows)
+  assert.equal(owners.get('football-data-org:555')?.id, 'yesterdays-kickoff')
+  assert.equal(owners.get('football-data-org:556')?.id, 'rejected')
+  // A manual match has no provider key, so it can never be mistaken for a provider fixture.
+  assert.equal(owners.size, 2)
+
+  // Why the owner lookup is needed at all: the identity tier only matches inside its window.
+  assert.equal(
+    resolveExistingFixture(fixture('Liverpool', 'Manchester City', '2026-10-25T15:30:00.000Z'), 'football-data-org:777', rows, { identityWindowMs: 48 * HOUR }),
+    null,
+  )
+})
+
+test('only the provider key constraint counts as the expected duplicate', () => {
+  assert.equal(isProviderFixtureKeyConflict({ code: 'P2002', meta: { target: ['providerFixtureKey'] } }), true)
+  assert.equal(isProviderFixtureKeyConflict({ code: 'P2002', meta: { target: 'providerFixtureKey' } }), true)
+  // A conflict on another unique column is a real defect and has to keep propagating.
+  assert.equal(isProviderFixtureKeyConflict({ code: 'P2002', meta: { target: ['normalizedName'] } }), false)
+  // Prisma reports the conflicting columns; without them the conflict is not verified.
+  assert.equal(isProviderFixtureKeyConflict({ code: 'P2002' }), false)
+  assert.equal(isProviderFixtureKeyConflict({ code: 'P2003', meta: { target: ['providerFixtureKey'] } }), false)
+  assert.equal(isProviderFixtureKeyConflict(new Error('Unique constraint failed on the fields: (`providerFixtureKey`)')), false)
+  assert.equal(isProviderFixtureKeyConflict(null), false)
+  assert.equal(isProviderFixtureKeyConflict(undefined), false)
 })
