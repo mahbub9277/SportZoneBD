@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { authenticate, optionalProtect, requireRole } from '../../core/middleware/index.js'
+import { authenticate, optionalProtect, requirePermission } from '../../core/middleware/index.js'
 import * as controller from './channel.controller.js'
 import { cacheMiddleware } from '../../core/middleware/cache.middleware.js'
 
@@ -13,7 +13,7 @@ router.get('/', publicCacheMiddleware, controller.getPublicChannels)
 router.get('/by-ids', publicCacheMiddleware, controller.getChannelsByIds) // New public route to get multiple channels by IDs
 
 // --- Admin Routes ---
-const adminOnly = requireRole(['admin', 'super_admin'])
+const adminOnly = requirePermission('admin.channels.manage')
 
 // Category Management
 router.post('/categories', authenticate, adminOnly, controller.createCategory)

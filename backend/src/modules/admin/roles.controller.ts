@@ -6,6 +6,9 @@ import { prisma } from '../../core/prisma.js'
 import { successResponse, errorResponse } from '../../core/api-response.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
+import { defaultRoles } from '../../core/rbacConfig.js'
+
+const reservedRoleNames = new Set(defaultRoles.map((role) => role.name.toLowerCase()))
 
 const roleSchema = z.object({
   name: z.string().trim().min(2, 'Role name must be at least 2 characters.'),
@@ -24,6 +27,13 @@ const getRoles = asyncHandler(async (_req: Request, res: Response) => {
 const createRole = asyncHandler(async (req: Request, res: Response) => {
   try {
     const validatedData = roleSchema.parse(req.body)
+
+    // A custom role may not shadow a system role: the front-end role checks are case-insensitive,
+    // so a role called "Admin" would otherwise open the admin console shell while the API denied
+    // every call. Reject it at the source instead.
+    if (reservedRoleNames.has(validatedData.name.toLowerCase())) {
+      return res.status(409).json(errorResponse('This role name is reserved for a system role.'))
+    }
 
     const existingRole = await prisma.role.findFirst({
       where: { name: validatedData.name, deletedAt: null }, // Ensure we don't conflict with soft-deleted roles

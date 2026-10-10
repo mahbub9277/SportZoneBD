@@ -13,7 +13,8 @@ import { AppError, BadRequestError, UnauthorizedError } from '../../core/errors.
 import { uploadStreamToCloudinary } from '../../services/upload.service.js'
 import { cleanupReplacedAsset } from '../../services/asset-cleanup.service.js'
 import { z } from 'zod';
-import { adminLoginSchema, forgotPasswordSchema, loginSchema, registerSchema, resendOtpSchema, resetPasswordSchema, verifyEmailSchema } from './auth.routes.js';
+import { adminLoginSchema, consoleLoginSchema, forgotPasswordSchema, loginSchema, registerSchema, resendOtpSchema, resetPasswordSchema, verifyEmailSchema } from './auth.routes.js';
+import { STAFF_ROLE_NAMES as STAFF_CONSOLE_ROLES } from '../../core/access.js';
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? process.env.BASE_URL ?? 'http://localhost:5174'
 const ACCESS_TOKEN_COOKIE = 'accessToken'
@@ -181,6 +182,30 @@ export async function loginUser(req: Request, res: Response) {
 export async function loginAdmin(req: Request, res: Response) {
   const { email, password } = req.body as z.infer<typeof adminLoginSchema>
 
+  const account = await verifyConsoleCredentials(res, email, password, 'Admin')
+  if (!account) return
+
+  if (!account.roles.includes('admin') && !account.roles.includes('super_admin')) {
+    return res.status(403).json(errorResponse('You do not have permission to access the admin panel.'))
+  }
+
+  const userProfile = await getUserProfile(account.id)
+  await createSessionAndSetCookies(res, account.id)
+  return res.status(200).json(successResponse({ user: userProfile }, 'Admin login successful'))
+}
+
+/**
+ * Verifies credentials for a console (non-public) sign-in and refuses accounts that must not sign in.
+ *
+ * On failure the error response has already been sent and `null` is returned, so callers only have to
+ * decide whether the verified account is allowed into *their* console.
+ */
+async function verifyConsoleCredentials(
+  res: Response,
+  email: string,
+  password: string,
+  accountLabel: string,
+): Promise<{ id: string; roles: string[] } | null> {
   const user = await prisma.user.findUnique({
     where: { email },
     include: {
@@ -192,25 +217,67 @@ export async function loginAdmin(req: Request, res: Response) {
   })
 
   if (!user || !user.passwordHash || !(await comparePassword(password, user.passwordHash))) {
-    return res.status(401).json(errorResponse('Invalid credentials'))
+    res.status(401).json(errorResponse('Invalid credentials'))
+    return null
   }
 
   if (user.deletedAt || !user.isActive) {
-    return res.status(401).json(errorResponse('Admin account is not active.'))
+    res.status(401).json(errorResponse(`${accountLabel} account is not active.`))
+    return null
   }
 
   if (user.isSuspended || user.isBanned) {
-    return res.status(403).json(errorResponse('Admin account access is restricted.'))
+    res.status(403).json(errorResponse(`${accountLabel} account access is restricted.`))
+    return null
   }
 
-  const userRoles = user.roles.map((userRole: { role: { name: string } }) => userRole.role.name)
-  if (!userRoles.includes('admin') && !userRoles.includes('super_admin')) {
-    return res.status(403).json(errorResponse('You do not have permission to access the admin panel.'))
+  return { id: user.id, roles: user.roles.map((userRole: { role: { name: string } }) => userRole.role.name) }
+}
+
+export async function loginModerator(req: Request, res: Response) {
+  const { email, password } = req.body as z.infer<typeof consoleLoginSchema>
+
+  const account = await verifyConsoleCredentials(res, email, password, 'Moderator')
+  if (!account) return
+
+  if (!account.roles.includes('moderator')) {
+    return res.status(403).json(errorResponse('You do not have permission to access the moderator console.'))
   }
 
-  const userProfile = await getUserProfile(user.id)
-  await createSessionAndSetCookies(res, user.id)
-  return res.status(200).json(successResponse({ user: userProfile }, 'Admin login successful'))
+  const userProfile = await getUserProfile(account.id)
+  await createSessionAndSetCookies(res, account.id)
+  return res.status(200).json(successResponse({ user: userProfile }, 'Moderator login successful'))
+}
+
+export async function loginStaff(req: Request, res: Response) {
+  const { email, password } = req.body as z.infer<typeof consoleLoginSchema>
+
+  const account = await verifyConsoleCredentials(res, email, password, 'Staff')
+  if (!account) return
+
+  // The shared staff console is for administrator-made roles only. Seeded system roles either belong
+  // to a dedicated console (admin, moderator) or to the public application (user, premium_user), so
+  // they are refused here and the client sends them to the entry point that matches.
+  if (account.roles.some((role) => (STAFF_CONSOLE_ROLES as readonly string[]).includes(role))) {
+    return res.status(403).json(errorResponse('Please sign in through your administrator or moderator console.'))
+  }
+
+  if (account.roles.length === 0) {
+    return res.status(403).json(errorResponse('You do not have access to the staff console.'))
+  }
+
+  const systemRoles = await prisma.role.findMany({
+    where: { name: { in: account.roles }, isSystem: true },
+    select: { name: true },
+  })
+  const customRoles = account.roles.filter((role) => !systemRoles.some((systemRole) => systemRole.name === role))
+  if (customRoles.length === 0) {
+    return res.status(403).json(errorResponse('You do not have access to the staff console.'))
+  }
+
+  const userProfile = await getUserProfile(account.id)
+  await createSessionAndSetCookies(res, account.id)
+  return res.status(200).json(successResponse({ user: userProfile }, 'Staff login successful'))
 }
 
 export async function verifyEmail(req: Request, res: Response) {

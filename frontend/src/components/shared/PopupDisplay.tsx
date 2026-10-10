@@ -25,10 +25,18 @@ const POPUP_IMAGE_TRANSFORM = { width: 1280, height: 720, crop: 'fill' as const,
  * eligibility when the earliest dismissal expires, which is what makes a popup eligible again after
  * six hours without a reload.
  */
+/**
+ * URL prefixes of the operations consoles. Public-site overlays do not belong on top of them.
+ */
+const OPERATIONS_CONSOLES = ['/admin', '/moderator', '/staff'];
+
 export function PopupDisplay() {
   const location = useLocation();
   const { isAdmin } = useAuth();
-  const shouldSkipPopups = isAdmin || location.pathname.startsWith('/admin');
+  const isInsideConsole = OPERATIONS_CONSOLES.some(
+    (prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`),
+  );
+  const shouldSkipPopups = isAdmin || isInsideConsole;
 
   const { data: popups, isSuccess } = useGetActivePopupsQuery(undefined, {
     skip: shouldSkipPopups,

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { getStreams, createStream, updateStream, deleteStream, getStreamById } from './streams.controller.js'
-import { requireRole } from '../../core/middleware/index.js'
+import { requirePermission } from '../../core/middleware/index.js'
 import { validateBody } from '../../core/validation.js'
 import { z } from 'zod'
 
@@ -22,7 +22,7 @@ const streamSchema = z.object({
 
 const streamsRouter = Router()
 
-streamsRouter.use(requireRole(['admin', 'super_admin']))
+streamsRouter.use(requirePermission('admin.streams.manage'))
 
 streamsRouter.route('/')
   .get(getStreams)

@@ -28,7 +28,7 @@ type PublicUser = {
   updatedAt: Date
 }
 
-export function sanitizeUser(user: PublicUser & { deletedAt?: Date | null, roles?: any[], subscription?: any | null }): PublicUser & { roles?: any[], subscription?: any | null } {
+export function sanitizeUser(user: PublicUser & { deletedAt?: Date | null, roles?: any[], subscription?: any | null, permissions?: string[] }): PublicUser & { roles?: any[], subscription?: any | null, permissions?: string[] } {
   const { deletedAt, ...publicData } = user
   return publicData
 }

@@ -1,9 +1,20 @@
+interface RolePermission {
+  key: string;
+}
+
 interface Role {
   id: string;
   name: string;
   description?: string;
+  /** Present when the API flattens a role; the profile nests these fields under `role`. */
+  isSystem?: boolean;
+  /** Permission keys granted by this role, as resolved by the backend. */
+  permissions?: RolePermission[];
   role?: {
+    id?: string;
     name: string;
+    isSystem?: boolean;
+    permissions?: RolePermission[];
   };
 }
 

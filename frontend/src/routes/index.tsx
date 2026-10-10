@@ -38,6 +38,11 @@ const LoginPage = lazyRoute(() => import('@/pages/auth/LoginPage'), 'LoginPage')
 const UserLayout = lazyRoute(() => import('@/hooks/common/layouts/UserLayout'), 'UserLayout')
 const AdminLayout = lazyRoute(() => import('@/hooks/common/layouts/AdminLayout'), 'default')
 const AdminLoginPage = lazyRoute(() => import('@/pages/admin/AdminLoginPage'), 'AdminLoginPage')
+const ModeratorLoginPage = lazyRoute(() => import('@/pages/moderator/ModeratorLoginPage'), 'ModeratorLoginPage')
+const StaffLoginPage = lazyRoute(() => import('@/pages/staff/StaffLoginPage'), 'StaffLoginPage')
+const ModeratorLayout = lazyRoute(() => import('@/features/console/ModeratorLayout'), 'ModeratorLayout')
+const StaffLayout = lazyRoute(() => import('@/features/console/StaffLayout'), 'StaffLayout')
+const ConsoleHomePage = lazyRoute(() => import('@/features/console/ConsoleHomePage'), 'ConsoleHomePage')
 const AdminDashboardPage = lazyRoute(() => import('@/pages/admin/DashboardPage'), 'AdminDashboardPage')
 const MatchManagementPage = lazyRoute(() => import('@/pages/admin/MatchManagementPage'), 'MatchManagementPage')
 const UserManagementPage = lazyRoute(() => import('@/pages/admin/UserManagementPage'), 'UserManagementPage')
@@ -103,7 +108,36 @@ const StandingsPage = lazyRoute(() => import('@/pages/explore/StandingsPage'), '
 const SubscriptionsPage = lazyRoute(() => import('@/pages/SubscriptionsPage'), 'SubscriptionsPage')
 const EventPage = lazyRoute(() => import('@/pages/events/EventPage'), 'EventPage')
 import type { RootState } from '@/app/store' // Import RootState from store
+import type { RouteObject } from 'react-router-dom'
 import type { User } from '@/features/auth/auth.types'
+
+/**
+ * Wraps module routes so a user who lacks the matching permission is sent to the unauthorized page
+ * instead of reaching a page whose API calls would all fail. The backend remains the authority; this
+ * only makes direct URL access degrade cleanly.
+ */
+const withPermission = (permission: string, routes: RouteObject[]): RouteObject => ({
+  element: <ProtectedRoute requiredPermissions={[permission]} />,
+  children: routes,
+})
+
+/**
+ * The project-management modules shared by the moderator and staff consoles. Each group is guarded by
+ * the same permission the backend enforces on the endpoints those pages call.
+ */
+const consoleModuleRoutes = (): RouteObject[] => [
+  withPermission('admin.matches.manage', [
+    { path: 'matches', element: <MatchManagementPage /> },
+    { path: 'live-matches', element: <LiveMatchesManagementPage /> },
+    { path: 'upcoming-matches', element: <UpcomingMatchesManagementPage /> },
+    { path: 'finished-matches', element: <FinishedMatchesManagementPage /> },
+  ]),
+  withPermission('admin.streams.manage', [{ path: 'streams', element: <StreamsManagementPage /> }]),
+  withPermission('admin.highlights.manage', [{ path: 'highlights', element: <HighlightsManagementPage /> }]),
+  withPermission('admin.channels.manage', [{ path: 'channels', element: <ChannelManagementPage /> }]),
+  withPermission('admin.events.manage', [{ path: 'events', element: <EventManagementPage /> }]),
+  withPermission('admin.banners.manage', [{ path: 'banner-manager', element: <BannerManagementPage /> }]),
+]
 
 /**
  * A component for guest-only routes.
@@ -306,6 +340,57 @@ export const router = createBrowserRouter([
         ],
       },
       {
+        // The moderator console is its own route tree: a moderator never renders an admin layout, and
+        // entering an admin URL directly is rejected by the admin guard above.
+        element: <ProtectedRoute allowedExperiences={['moderator']} loginPath="/moderator/login" />,
+        children: [
+          {
+            path: '/moderator',
+            element: <ModeratorLayout />,
+            children: [
+              {
+                index: true,
+                element: (
+                  <ConsoleHomePage
+                    title="Moderator dashboard"
+                    subtitle="Manage the matches, streams and channels your account has been granted."
+                    emptyTitle="No modules assigned"
+                    emptyMessage="Your moderator account does not currently have any modules assigned. Ask an administrator to review your role permissions."
+                  />
+                ),
+              },
+              { path: 'profile', element: <AdminProfilePage /> },
+              ...consoleModuleRoutes(),
+            ],
+          },
+        ],
+      },
+      {
+        // Shared console for administrator-made custom roles (for example an editor).
+        element: <ProtectedRoute allowedExperiences={['staff']} loginPath="/staff/login" />,
+        children: [
+          {
+            path: '/staff',
+            element: <StaffLayout />,
+            children: [
+              {
+                index: true,
+                element: (
+                  <ConsoleHomePage
+                    title="Staff dashboard"
+                    subtitle="The tools your role has been granted."
+                    emptyTitle="Access not configured"
+                    emptyMessage="Your role does not grant access to any console modules yet. An administrator can add permissions to your role before you can use this console."
+                  />
+                ),
+              },
+              { path: 'profile', element: <AdminProfilePage /> },
+              ...consoleModuleRoutes(),
+            ],
+          },
+        ],
+      },
+      {
         // Route for users who are authenticated but not authorized for a specific page
         path: '/unauthorized', element: <UnauthorizedPage />,
       },
@@ -320,6 +405,18 @@ export const router = createBrowserRouter([
         element: <AuthLayout />,
         action: adminLoginAction, // Add the action handler here
         Component: AdminLoginPage,
+      },
+      {
+        // Dedicated login route for moderators.
+        path: '/moderator/login',
+        element: <AuthLayout />,
+        Component: ModeratorLoginPage,
+      },
+      {
+        // Shared login route for administrator-made custom roles.
+        path: '/staff/login',
+        element: <AuthLayout />,
+        Component: StaffLoginPage,
       },
     ], // All other routes become children of RootLayout
   },

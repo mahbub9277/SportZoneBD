@@ -26,6 +26,7 @@ import { useDeleteUploadedFileMutation } from '../../features/admin/uploads.api'
 
 import { useNavigate } from 'react-router-dom' // Import useNavigate
 import { motion } from 'framer-motion'
+import { useConsoleBase } from '../../features/console/consoleBase'
 import { formatMatchDateTimeInput, parseMatchDateTime } from '../../utils/matchDateTime'
 import { parseMatchRound } from '../../utils/matchRound'
 
@@ -107,6 +108,9 @@ type MatchFormData = CreateMatchFormValues
 
 export function MatchManagementPage() {
   const navigate = useNavigate(); // Initialize useNavigate
+  // The console the page is rendered in decides where a sibling module lives: /admin for
+  // administrators, /moderator (or /staff) for the scoped consoles.
+  const consoleBase = useConsoleBase();
   const initialFilters = {
     searchTerm: '',
     statusFilter: 'All',
@@ -312,7 +316,7 @@ export function MatchManagementPage() {
           <p className="mt-1 text-(--text-muted)">Create, edit, and manage all matches on the platform.</p>
         </div>
         <div className="flex gap-2"> {/* Added a div to group buttons */}
-          <Button variant="outline" className="gap-2 border-(--accent)/40 text-(--accent) hover:border-(--accent) hover:bg-(--accent)/10" onClick={() => navigate('/admin/streams')}>
+          <Button variant="outline" className="gap-2 border-(--accent)/40 text-(--accent) hover:border-(--accent) hover:bg-(--accent)/10" onClick={() => navigate(`${consoleBase}/streams`)}>
             Manage Stream URLs
           </Button>
           <Button className="gap-2 bg-(--accent) text-slate-950 hover:bg-(--accent-strong)" onClick={handleOpenCreate}>

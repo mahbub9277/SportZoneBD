@@ -1,11 +1,11 @@
 import { Router } from 'express'
-import { authenticate, requireRole } from '../../core/middleware/index.js'
+import { authenticate, requirePermission } from '../../core/middleware/index.js'
 import { cacheMiddleware } from '../../core/middleware/cache.middleware.js'
 import * as controller from './event.controller.js'
 
 const router = Router()
 const publicCache = cacheMiddleware(300, ['events', 'event-sidebar'])
-const adminOnly = requireRole(['admin', 'super_admin'])
+const adminOnly = requirePermission('admin.events.manage')
 
 router.get('/sidebar', publicCache, controller.getSidebarEvents)
 router.get('/admin/list', authenticate, adminOnly, cacheMiddleware(300, ['events']), controller.getAdminEvents)

@@ -38,6 +38,24 @@ const authApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<LoginResponse> | LoginResponse) => unwrapApiResponse<LoginResponse>(response),
       invalidatesTags: ['User'], // Invalidate user to refetch profile data
     }),
+    moderatorLogin: builder.mutation<LoginResponse, LoginRequest>({
+      query: (credentials) => ({
+        url: '/auth/moderator/login',
+        method: 'POST',
+        body: credentials,
+      }),
+      transformResponse: (response: ApiResponse<LoginResponse> | LoginResponse) => unwrapApiResponse<LoginResponse>(response),
+      invalidatesTags: ['User'],
+    }),
+    staffLogin: builder.mutation<LoginResponse, LoginRequest>({
+      query: (credentials) => ({
+        url: '/auth/staff/login',
+        method: 'POST',
+        body: credentials,
+      }),
+      transformResponse: (response: ApiResponse<LoginResponse> | LoginResponse) => unwrapApiResponse<LoginResponse>(response),
+      invalidatesTags: ['User'],
+    }),
     refreshSession: builder.query<RefreshResponse, { includeUser?: boolean } | void>({
       query: (arg) => ({
         url: '/auth/refresh',
@@ -182,4 +200,4 @@ const authApi = emptyApi.injectEndpoints({
 
 // Export the auto-generated hook for the `login` mutation
 export { authApi }
-export const { useLoginMutation, useAdminLoginMutation, useRefreshSessionQuery, useRegisterMutation, useVerifyEmailMutation, useResendOtpMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation, useGetMeQuery, useUpdateProfileMutation } = authApi
+export const { useLoginMutation, useAdminLoginMutation, useModeratorLoginMutation, useStaffLoginMutation, useRefreshSessionQuery, useRegisterMutation, useVerifyEmailMutation, useResendOtpMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation, useGetMeQuery, useUpdateProfileMutation } = authApi

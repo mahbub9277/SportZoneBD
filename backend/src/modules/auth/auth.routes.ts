@@ -10,6 +10,8 @@ import {
   registerUser,
   loginUser,
   loginAdmin,
+  loginModerator,
+  loginStaff,
   verifyEmail,
   resendOtp,
   forgotPassword,
@@ -36,6 +38,15 @@ export const loginSchema = z.object({
 })
 
 export const adminLoginSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(1),
+});
+
+/**
+ * Shared body shape for the console sign-in endpoints (moderator and staff). The admin endpoint keeps
+ * its own exported schema so existing callers and tests are unaffected.
+ */
+export const consoleLoginSchema = z.object({
   email: z.string().trim().email(),
   password: z.string().min(1),
 });
@@ -69,6 +80,10 @@ authRouter.post('/register', validateBody(registerSchema), asyncHandler(register
 authRouter.post('/login', validateBody(loginSchema), asyncHandler(loginUser))
 
 authRouter.post('/admin/login', validateBody(adminLoginSchema), asyncHandler(loginAdmin));
+
+authRouter.post('/moderator/login', validateBody(consoleLoginSchema), asyncHandler(loginModerator));
+
+authRouter.post('/staff/login', validateBody(consoleLoginSchema), asyncHandler(loginStaff));
 
 authRouter.post('/verify-email', validateBody(verifyEmailSchema), asyncHandler(verifyEmail))
 

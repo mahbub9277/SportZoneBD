@@ -1,17 +1,19 @@
 import { Router } from 'express'
-import { authenticate, requireRole } from '../../core/middleware/index.js'
+import { authenticate, requirePermission, requireRole } from '../../core/middleware/index.js';
 import { uploadsController } from './uploads.controller.js'
 import { uploadLimiter } from '../../middleware/rateLimiter.js'
 
 const uploadsRouter = Router()
 
-uploadsRouter.post('/cloudinary/signature', uploadLimiter, authenticate, requireRole(['admin', 'super_admin']), uploadsController.createCloudinaryUploadSignature)
-uploadsRouter.post('/cloudinary/complete', uploadLimiter, authenticate, requireRole(['admin', 'super_admin']), uploadsController.completeCloudinaryUpload)
+const canManageMedia = requirePermission('admin.media.manage');
+
+uploadsRouter.post('/cloudinary/signature', uploadLimiter, authenticate, canManageMedia, uploadsController.createCloudinaryUploadSignature)
+uploadsRouter.post('/cloudinary/complete', uploadLimiter, authenticate, canManageMedia, uploadsController.completeCloudinaryUpload)
 
 uploadsRouter.delete(
   '/file',
   authenticate,
-  requireRole(['admin', 'super_admin']),
+  canManageMedia,
   uploadsController.deleteUploadedFile,
 )
 

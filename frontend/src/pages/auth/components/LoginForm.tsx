@@ -11,6 +11,7 @@ import { Input } from '../../../components/ui/Input'
 import { useLoginMutation } from '../../../features/auth/auth.api.ts'
 import { useAppDispatch } from '../../../app/hooks'
 import { setCredentials } from '../../../features/auth/authSlice'
+import { EXPERIENCE_HOME, resolveAuthExperience } from '../../../features/auth/roleExperience'
 import { Checkbox } from '../../../components/ui/Checkbox'
 import { AlertCircle, Eye, EyeOff } from 'lucide-react'
 
@@ -71,12 +72,8 @@ export function LoginForm() {
         return
       }
 
-      const isAdmin = user?.roles?.some((role) => {
-        const roleName = (role.role?.name || role.name || '').toLowerCase();
-        return roleName === 'admin' || roleName === 'super_admin';
-      });
-
-      navigate(isAdmin ? '/admin' : '/', { replace: true })
+      const experience = resolveAuthExperience(user);
+      navigate(EXPERIENCE_HOME[experience], { replace: true })
     } catch {
       // Error is handled by the apiError display
     }

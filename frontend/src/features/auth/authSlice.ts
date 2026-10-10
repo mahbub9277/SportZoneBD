@@ -84,6 +84,8 @@ const authSlice = createSlice({
         isAnyOf( // Using isAnyOf for multiple successful auth endpoints
           authApi.endpoints.login.matchFulfilled,
           authApi.endpoints.adminLogin.matchFulfilled,
+          authApi.endpoints.moderatorLogin.matchFulfilled,
+          authApi.endpoints.staffLogin.matchFulfilled,
           authApi.endpoints.verifyEmail.matchFulfilled,
           authApi.endpoints.getMe.matchFulfilled,
         ),

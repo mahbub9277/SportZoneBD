@@ -2,10 +2,13 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
 import { Spinner } from '../ui/Spinner';
 import { selectCurrentUser, selectIsAuthenticated, selectIsInitializing } from '../../features/auth/auth.slice';
+import { resolveAuthExperience, type AuthExperience } from '../../features/auth/roleExperience';
 
 interface ProtectedRouteProps {
   allowedRoles?: string[];
   requiredPermissions?: string[]; // New prop for granular permissions
+  /** Which console the route belongs to. Derived from the user's resolved roles, never from a URL. */
+  allowedExperiences?: AuthExperience[];
   loginPath?: string;
   unauthorizedPath?: string;
 }
@@ -13,6 +16,7 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({
   allowedRoles,
   requiredPermissions,
+  allowedExperiences,
   loginPath = '/login',
   unauthorizedPath = '/unauthorized',
 }: ProtectedRouteProps) {
@@ -52,7 +56,14 @@ export function ProtectedRoute({
     }
   }
 
-  // 3. Check Permissions (if requiredPermissions are specified)
+  // 3. Check the console the route belongs to (if specified)
+  if (allowedExperiences && allowedExperiences.length > 0) {
+    if (!allowedExperiences.includes(resolveAuthExperience(user))) {
+      return <Navigate to={unauthorizedPath} state={{ from: location }} replace />;
+    }
+  }
+
+  // 4. Check Permissions (if requiredPermissions are specified)
   if (requiredPermissions && requiredPermissions.length > 0) {
     const userPermissions = user.permissions ?? [];
     const hasRequiredPermissions = requiredPermissions.every(permission => userPermissions.includes(permission));

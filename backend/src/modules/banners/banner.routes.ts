@@ -1,12 +1,12 @@
 import { Router } from 'express'
-import { authenticate, requireRole } from '../../core/middleware/index.js'
+import { authenticate, requirePermission } from '../../core/middleware/index.js'
 import * as controller from './banner.controller.js'
 
 export const publicBannersRouter = Router()
 publicBannersRouter.get('/active', controller.getActiveBanners)
 
 export const adminBannersRouter = Router()
-adminBannersRouter.use(authenticate, requireRole(['admin', 'super_admin']))
+adminBannersRouter.use(authenticate, requirePermission('admin.banners.manage'))
 adminBannersRouter.get('/', controller.getAdminBanners)
 adminBannersRouter.post('/', controller.createBanner)
 adminBannersRouter.patch('/reorder', controller.reorderBanners)

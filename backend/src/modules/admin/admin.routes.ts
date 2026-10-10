@@ -18,7 +18,9 @@ export const adminRouter: ExpressRouter = Router()
 
 // All routes in this file are automatically prefixed with `/api/v1/admin`.
 // Authentication is already applied by the top-level admin route in the main API router.
-adminRouter.use(requireRole(['admin', 'super_admin']))
+// Moderators are admitted here only because every route below decides for itself which permission it
+// needs; a moderator without that permission is rejected by `requirePermission` further down.
+adminRouter.use(requireRole(['admin', 'super_admin', 'moderator']))
 
 // Dashboard
 adminRouter.get('/dashboard/stats', requirePermission('admin.dashboard.view'), getDashboardStats)
@@ -31,9 +33,9 @@ adminRouter.use('/users', requirePermission('admin.users.manage'), usersRouter)
 adminRouter.use('/roles', requirePermission('admin.users.manage'), rolesRouter) // Assuming role management is part of user management
 adminRouter.get('/permissions', requirePermission('admin.users.manage'), getPermissions)
 
-// Uploads
+// Uploads & Media
 adminRouter.use('/uploads', uploadsRouter)
-adminRouter.use('/media', mediaRouter)
+adminRouter.use('/media', requirePermission('admin.media.manage'), mediaRouter)
 adminRouter.use('/banners', adminBannersRouter)
 
 // Matches
@@ -42,10 +44,11 @@ adminRouter.use('/matches', requirePermission('admin.matches.manage'), adminMatc
 // Payments
 adminRouter.get('/payments', requirePermission('admin.payments.view'), getAllPayments)
 
-// Content Management
-adminRouter.use('/advertisements', requirePermission('admin.matches.manage'), advertisementsRouter)
-adminRouter.use('/popups', requirePermission('admin.matches.manage'), popupsRouter)
-adminRouter.use('/email-templates', requirePermission('admin.matches.manage'), emailTemplatesRouter)
+// Content Management. Split out of `admin.matches.manage` so match moderators do not inherit
+// authority over advertisements, popups and email templates.
+adminRouter.use('/advertisements', requirePermission('admin.content.manage'), advertisementsRouter)
+adminRouter.use('/popups', requirePermission('admin.content.manage'), popupsRouter)
+adminRouter.use('/email-templates', requirePermission('admin.content.manage'), emailTemplatesRouter)
 
 // Settings
 adminRouter.get('/settings', requirePermission('admin.settings.manage'), settingsController.getSettings)

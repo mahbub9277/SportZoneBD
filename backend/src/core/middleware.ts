@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { ZodError } from 'zod'
 import { AppError, UnauthorizedError, ForbiddenError, PremiumRequiredError } from './errors.js'
+import { permissionsAllow, rolesAllow } from './access.js'
 import { verifyAccessToken } from './auth.js'
 import { cache } from './cache.js'
 import { prisma } from './prisma.js'
@@ -226,9 +227,8 @@ export function requireRole(requiredRoles: string | string[]) {
     }
 
     const rolesToCheck = Array.isArray(requiredRoles) ? requiredRoles : [requiredRoles]
-    const hasRequiredRole = user.roles.some((role: string) => rolesToCheck.includes(role))
 
-    if (!hasRequiredRole) {
+    if (!rolesAllow(user.roles, rolesToCheck)) {
       next(new ForbiddenError(`Requires one of the following roles: ${rolesToCheck.join(', ')}`))
       return
     }
@@ -250,7 +250,7 @@ export function requirePermission(requiredPermission: string) {
       next(new UnauthorizedError('Authentication required, user permissions not found.'))
       return
     }
-    if (!userPermissions.includes(requiredPermission)) {
+    if (!permissionsAllow(userPermissions, [requiredPermission])) {
       next(new ForbiddenError(`Forbidden: Missing required permission: ${requiredPermission}`))
       return
     }
@@ -270,11 +270,7 @@ export function authorize(requiredPermissions: string[]) {
       return next(new UnauthorizedError('Authentication required'))
     }
 
-    const userPermissions = user.permissions
-
-    const hasAllPermissions = requiredPermissions.every((p) => userPermissions.includes(p))
-
-    if (!hasAllPermissions) {
+    if (!permissionsAllow(user.permissions, requiredPermissions)) {
       return next(new AppError(403, 'Forbidden: Missing required permissions'))
     }
     next()

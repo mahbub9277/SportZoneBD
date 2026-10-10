@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
 import { UserForm } from './components/UserForm'
 import { userSchema, type UserFormValues } from './components/user.schema'
+import { getErrorMessage } from '../../utils/get-error-message'
 import { motion } from 'framer-motion'
 
 function UserRow({ user, onEdit, onDelete, onSuspend, onUnsuspend }: { user: User; onEdit: (user: User) => void; onDelete: (user: User) => void; onSuspend: (user: User) => void; onUnsuspend: (user: User) => void; }) {
@@ -150,8 +151,9 @@ export function UserManagementPage() {
         toast.success(`User "${values.fullName}" created successfully.`);
         setIsCreateModalOpen(false);
       }
-    } catch {
-      toast.error('An error occurred. Please try again.');
+    } catch (error) {
+      // The server is the authority on which roles may be handed out, so surface its reason.
+      toast.error(getErrorMessage(error));
     }
   };
 

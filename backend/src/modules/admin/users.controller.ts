@@ -6,6 +6,7 @@ import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
 import { publicUserSelect } from '../users/user.utils.js'
 import { hashPassword } from '../../core/auth.js'
+import { findUngrantableRole } from '../../core/access.js'
 export const updateUserSchema = z
   .object({
     fullName: z.string().trim().min(2),
@@ -116,11 +117,23 @@ export async function createUser(req: Request, res: Response): Promise<Response>
 
     // Validate roleIds exist if provided
     if (roleIds && roleIds.length > 0) {
-      const rolesCount = await prisma.role.count({
-        where: { id: { in: roleIds }, deletedAt: null }
+      const roles = await prisma.role.findMany({
+        where: { id: { in: roleIds }, deletedAt: null },
+        select: { name: true },
       })
-      if (rolesCount !== roleIds.length) {
+      if (roles.length !== roleIds.length) {
         return res.status(400).json(errorResponse('One or more role IDs do not exist.'))
+      }
+
+      // The backend is the authority on who may hand out which role: an administrative role can only
+      // be granted by an administrative actor, so a crafted payload from a non-administrative
+      // operator cannot escalate privileges.
+      const actorRoles = (req as Request & { user?: { roles?: string[] } }).user?.roles ?? []
+      const ungrantableRole = findUngrantableRole(actorRoles, roles.map((role) => role.name))
+      if (ungrantableRole) {
+        return res.status(403).json(
+          errorResponse(`You are not allowed to assign the "${ungrantableRole}" role.`),
+        )
       }
     }
 
