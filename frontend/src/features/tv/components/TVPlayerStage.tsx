@@ -1,4 +1,4 @@
-import { ChevronRight, Grid3x3, Lock, Loader2, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronRight, Grid3x3, Lock, Loader2, Maximize, Minimize, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { CustomVideoPlayer } from '../../../components/player/CustomVideoPlayer'
 import { cn } from '../../../lib/utils'
@@ -9,6 +9,11 @@ import { TVChannelKeypad } from './TVChannelKeypad'
 export interface TVTransport {
   playPause: () => void
   isPlaying: boolean
+  /**
+   * The channel this transport belongs to. Playback state is only meaningful for the channel the player
+   * is really on, so the host can tell which card is actually playing.
+   */
+  channelId: string | null
 }
 
 /** How long the channel popup and the control row stay on screen after the last interaction. */
@@ -42,6 +47,11 @@ interface TVPlayerStageProps {
   onChannelPlaybackError: (channelId: string) => void
   onStepChannel: (direction: 1 | -1) => void
   onTransportReady: (transport: TVTransport | null) => void
+  /** Real fullscreen state, owned by the page that also asked for the screen. */
+  isFullscreen: boolean
+  isFullscreenSupported: boolean
+  /** Enters fullscreen when it is off and leaves it when it is on; the control reports which. */
+  onToggleFullscreen: () => void
   onUpgrade: () => void
   /** Hands focus back to the channel browser from an unavailable-channel message. */
   onBackToChannels: () => void
@@ -74,6 +84,9 @@ export function TVPlayerStage({
   onChannelPlaybackError,
   onStepChannel,
   onTransportReady,
+  isFullscreen,
+  isFullscreenSupported,
+  onToggleFullscreen,
   onUpgrade,
   onBackToChannels,
 }: TVPlayerStageProps) {
@@ -85,6 +98,31 @@ export function TVPlayerStage({
   const [idleChannelId, setIdleChannelId] = useState<string | null>(null)
   const channelId = channel?.id ?? null
   const isIdle = Boolean(channelId) && idleChannelId === channelId
+  /** The channel the player is really on, read when a transport arrives. */
+  const transportChannelIdRef = useRef<string | null>(channelId)
+
+  // The ref follows the channel one commit behind on purpose: the player republishes its old transport
+  // during the commit that changes the source, and that stale report must keep the old channel's name.
+  useEffect(() => {
+    transportChannelIdRef.current = channelId
+  }, [channelId])
+
+  const handlePlayerTransport = useCallback(
+    (playerTransport: { playPause: () => void; isPlaying: boolean } | null) => {
+      setTransport(playerTransport ? { ...playerTransport, channelId: transportChannelIdRef.current } : null)
+    },
+    [],
+  )
+
+  /**
+   * A newly tuned channel has not played yet, so a transport that still names another channel is not
+   * published. Deriving this keeps the playing marker honest without an effect having to clear state,
+   * and the first transport that carries the current channel is the one the host accepts.
+   */
+  const publishedTransport = useMemo(
+    () => (transport && transport.channelId === channelId ? transport : null),
+    [channelId, transport],
+  )
   /**
    * The channel popup.
    *
@@ -97,8 +135,8 @@ export function TVPlayerStage({
   // Publish the transport to the page, so the remote's play/pause key works without the page having to
   // reach into the player.
   useEffect(() => {
-    onTransportReady(transport)
-  }, [onTransportReady, transport])
+    onTransportReady(publishedTransport)
+  }, [onTransportReady, publishedTransport])
 
   const clearIdleTimer = useCallback(() => {
     if (idleTimerRef.current !== null) {
@@ -208,10 +246,10 @@ export function TVPlayerStage({
       poster={poster}
       autoPlay
       globalShortcuts={false}
-      onTransportReady={setTransport}
+      onTransportReady={handlePlayerTransport}
       onPlayerError={handlePlayerError}
     />
-  ), [channel?.id, channel?.name, channel?.streamUrl, handlePlayerError, poster])
+  ), [channel?.id, channel?.name, channel?.streamUrl, handlePlayerError, handlePlayerTransport, poster])
 
   // A tap anywhere on the player surface reveals the channel identity again, without touching any player
   // control: this handler never prevents the default or stops propagation. Taps on TV Mode's own buttons
@@ -331,6 +369,22 @@ export function TVPlayerStage({
         >
           {isImmersive ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
         </button>
+        {/* The manual way in and out of fullscreen. It reports the real state, so it never offers to
+            "exit" a screen the browser never handed over. */}
+        {isFullscreenSupported && (
+          <button
+            type="button"
+            data-tv-item
+            data-tv-key="fullscreen"
+            className={cn('tv-control', isFullscreen && 'tv-control-active')}
+            onClick={onToggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            aria-pressed={isFullscreen}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? <Minimize aria-hidden="true" /> : <Maximize aria-hidden="true" />}
+          </button>
+        )}
       </div>
 
       {/* The collapsed panel leaves this tab behind: pinned to the far left, a little below the top of

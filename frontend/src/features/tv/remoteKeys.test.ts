@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { actionFromRemote, digitFromRemote } from './remoteKeys.ts'
+import { actionFromRemote, channelStepDirection, digitFromRemote } from './remoteKeys.ts'
 
 test('the standard remote keys map onto the TV Mode actions', () => {
   assert.equal(actionFromRemote({ key: 'ArrowUp' }), 'up')
@@ -49,6 +49,31 @@ test('a remote that reports Unidentified is understood from its code', () => {
   assert.equal(actionFromRemote({ key: 'ArrowUp', code: 'Enter' }), 'up')
   // Nothing usable at all is not an action.
   assert.equal(actionFromRemote({ key: 'Unidentified', code: 'Unidentified' }), null)
+})
+
+test('a channel button reported as an arrow key still zaps', () => {
+  // Some TV browsers put the D-pad direction in `key` while `code` still names the channel button.
+  // The dedicated button has to win, or CH+ moves the list focus instead of the channel.
+  assert.equal(actionFromRemote({ key: 'ArrowUp', code: 'ChannelUp' }), 'channelUp')
+  assert.equal(actionFromRemote({ key: 'ArrowDown', code: 'ChannelDown' }), 'channelDown')
+  assert.equal(actionFromRemote({ key: 'ArrowUp', code: 'PageUp' }), 'channelUp')
+  assert.equal(actionFromRemote({ key: 'ArrowDown', code: 'PageDown' }), 'channelDown')
+  // The media keys are dedicated too, so play/pause survives the same reporting quirk.
+  assert.equal(actionFromRemote({ key: 'Enter', code: 'MediaPlayPause' }), 'playPause')
+  // A plain arrow keeps navigating the list.
+  assert.equal(actionFromRemote({ key: 'ArrowUp', code: 'ArrowUp' }), 'up')
+  assert.equal(actionFromRemote({ key: 'ArrowDown', code: 'ArrowDown' }), 'down')
+})
+
+test('CH+ steps forward and CH- steps back, like the Next channel button', () => {
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'ChannelUp' })), 1)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'ChannelDown' })), -1)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'PageUp' })), 1)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'PageDown' })), -1)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'MediaTrackNext' })), -1)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'ArrowUp' })), null)
+  assert.equal(channelStepDirection(actionFromRemote({ key: 'Enter' })), null)
+  assert.equal(channelStepDirection(null), null)
 })
 
 test('digits are read from the key or from a numeric code', () => {

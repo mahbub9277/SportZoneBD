@@ -173,6 +173,49 @@ export async function notifyHighlightAdded(highlight: { id: string; title: strin
   })
 }
 
+/**
+ * The recipients of an audience segment.
+ *
+ * One definition, used both by the preview an operator sees before sending and by the fan-out itself, so
+ * the number in the confirmation and the number of people actually targeted can never disagree.
+ */
+export function notificationAudienceWhere(targetAudience?: 'ALL' | 'PREMIUM' | 'FREE'): Prisma.UserWhereInput {
+  return {
+    isActive: true,
+    isSuspended: false,
+    isBanned: false,
+    deletedAt: null,
+    ...(targetAudience === 'PREMIUM'
+      ? { subscriptions: { some: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
+      : targetAudience === 'FREE'
+        ? { subscriptions: { none: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
+        : {}),
+  }
+}
+
+/**
+ * How many recipients a segment holds, and how many of them have a push subscription.
+ *
+ * Real counts from real rows: the preview an operator confirms against is the same audience the send
+ * resolves, and the push figure is the subset that could actually receive a push.
+ */
+export async function previewNotificationAudience(
+  targetAudience?: 'ALL' | 'PREMIUM' | 'FREE',
+): Promise<{ recipients: number; pushEligibleRecipients: number }> {
+  const where = notificationAudienceWhere(targetAudience)
+  const [recipients, pushEligibleRecipients] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.count({
+      where: {
+        ...where,
+        pushSubscriptions: { some: { isActive: true, deletedAt: null } },
+      },
+    }),
+  ])
+
+  return { recipients, pushEligibleRecipients }
+}
+
 export async function createAdminBroadcastNotification(payload: {
   userId?: string
   title: string
@@ -183,17 +226,7 @@ export async function createAdminBroadcastNotification(payload: {
   channel?: 'IN_APP' | 'PUSH' | 'BOTH'
 }): Promise<number> {
   const channel = payload.channel ?? 'BOTH'
-  const targetWhere: Prisma.UserWhereInput = {
-    isActive: true,
-    isSuspended: false,
-    isBanned: false,
-    deletedAt: null,
-    ...(payload.targetAudience === 'PREMIUM'
-      ? { subscriptions: { some: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-      : payload.targetAudience === 'FREE'
-        ? { subscriptions: { none: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-        : {}),
-  }
+  const targetWhere = notificationAudienceWhere(payload.targetAudience)
 
   let recipientCount = 0
   for await (const targetUsers of iterateBroadcastUsers(targetWhere, payload.userId)) {

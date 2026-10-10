@@ -10,7 +10,8 @@ import {
   deleteNotification,
   deleteAllNotifications,
 } from './notification.controller.js'
-import { authenticate, requireRole } from '../../core/middleware/index.js'
+import { authenticate, requirePermission } from '../../core/middleware/index.js'
+import { campaignLimiter } from '../../middleware/rateLimiter.js'
 
 const notificationsRouter = Router()
 
@@ -23,7 +24,9 @@ notificationsRouter.post('/push/register', registerPushSubscription as RequestHa
 notificationsRouter.post('/push/unregister', unregisterPushSubscription as RequestHandler)
 notificationsRouter.post('/mark-all-as-read', markAllNotificationsAsRead as RequestHandler)
 notificationsRouter.delete('/', deleteAllNotifications as RequestHandler)
-notificationsRouter.post('/broadcast', requireRole(['admin', 'super_admin']), broadcastSystemNotification as RequestHandler)
+// A campaign is a moderation operation: it needs the send permission (administrators hold it) and it is
+// rate controlled, so a repeated or accidental mass send is stopped rather than merely discouraged.
+notificationsRouter.post('/broadcast', requirePermission('admin.push.send'), campaignLimiter, broadcastSystemNotification as RequestHandler)
 notificationsRouter.patch('/:id/mark-as-read', markNotificationAsRead as RequestHandler)
 notificationsRouter.delete('/:id', deleteNotification as RequestHandler)
 

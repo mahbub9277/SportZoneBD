@@ -193,6 +193,74 @@ test('the recovery channel wraps past the failed one and skips ineligible channe
   assert.equal(nextPlayableChannelId([], 'a'), null)
 })
 
+test('a failure on channel 10 continues with channel 11 instead of restarting at channel 1', () => {
+  // The regression: the failed channel is the one the caller excludes, so measuring the walk from the
+  // filtered candidate list lost its position and the recovery restarted at the top of the catalogue.
+  const channels = buildTVChannels([
+    category('cat-all', 'All', [
+      ...Array.from({ length: 12 }, (_, index) => ({ id: `c${index + 1}`, name: `Channel ${index + 1}` })),
+    ]),
+  ])
+
+  const failedIds = new Set<string>()
+  const eligible = (channel: { id: string }) => !failedIds.has(channel.id)
+
+  failedIds.add('c10')
+  assert.equal(nextPlayableChannelId(channels, 'c10', eligible), 'c11')
+  assert.equal(nextPlayableChannelId(channels, 'c11', eligible), 'c12')
+
+  // Only once the end of the list is reached does the walk wrap to the beginning.
+  failedIds.add('c11')
+  assert.equal(nextPlayableChannelId(channels, 'c12', eligible), 'c1')
+})
+
+test('a failure on a channel the catalogue itself cannot play still continues forward', () => {
+  // The other half of the same bug: an unavailable channel is missing from the playable subset, so
+  // locating it there lost its position and the recovery restarted at the top of the list.
+  const channels = buildTVChannels([
+    category('cat-all', 'All', [
+      ...Array.from({ length: 9 }, (_, index) => ({ id: `c${index + 1}`, name: `Channel ${index + 1}` })),
+      { id: 'c10', name: 'Channel 10', url: null },
+      { id: 'c11', name: 'Channel 11' },
+      { id: 'c12', name: 'Channel 12' },
+    ]),
+  ])
+
+  assert.equal(channels[9].isLive, false)
+  assert.equal(nextPlayableChannelId(channels, 'c10'), 'c11', 'channel 10 continues with channel 11')
+  assert.equal(nextPlayableChannelId(channels, 'c12'), 'c1', 'the walk wraps only at the end of the list')
+})
+
+test('recovery skips an unavailable channel and a premium channel the viewer cannot watch', () => {
+  const channels = buildTVChannels([
+    category('cat-all', 'All', [
+      { id: 'c1', name: 'Channel 1' },
+      { id: 'c2', name: 'Channel 2' },
+      // No stream: the catalogue itself says this one cannot play.
+      { id: 'c3', name: 'Channel 3', url: null },
+      { id: 'c4', name: 'Channel 4', isPremium: true },
+      { id: 'c5', name: 'Channel 5' },
+    ]),
+  ])
+
+  assert.equal(nextPlayableChannelId(channels, 'c1'), 'c2')
+  assert.equal(
+    nextPlayableChannelId(channels, 'c2'),
+    'c4',
+    'the channel with no stream is never a recovery candidate',
+  )
+  assert.equal(
+    nextPlayableChannelId(channels, 'c4', (channel) => !channel.isPremium),
+    'c5',
+    'a premium channel the viewer may not watch is skipped',
+  )
+  assert.equal(
+    nextPlayableChannelId(channels, 'c5', (channel) => !channel.isPremium),
+    'c1',
+    'the walk wraps only after reaching the end',
+  )
+})
+
 test('an empty or missing catalogue produces no channels and no categories', () => {
   assert.deepEqual(buildTVChannels(undefined), [])
   assert.deepEqual(buildTVChannels([]), [])

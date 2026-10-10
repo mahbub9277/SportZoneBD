@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MODERATOR_PERMISSIONS, defaultPermissions, defaultRoles, rolePermissions } from './rbacConfig.js'
+import { MODERATOR_PERMISSIONS, defaultPermissions, defaultRoles, rolePermissions, type PermissionKey } from './rbacConfig.js'
 
 const permissionKeys = new Set(defaultPermissions.map((permission) => permission.key))
 
@@ -38,12 +38,11 @@ test('a moderator is limited to the project-management permission set', () => {
   assert.deepEqual([...rolePermissions.moderator].sort(), [...MODERATOR_PERMISSIONS].sort())
 })
 
-test('a moderator never receives administrative, billing, settings or engagement authority', () => {
+test('a moderator never receives administrative, settings, content or playback authority', () => {
   const forbidden = [
     'admin.dashboard.view',
     'admin.users.manage',
     'admin.settings.manage',
-    'admin.payments.view',
     'admin.content.manage',
     'content.live.watch',
   ]
@@ -56,6 +55,26 @@ test('a moderator never receives administrative, billing, settings or engagement
   }
 })
 
+test('a moderator holds the moderation operations and nothing that writes them', () => {
+  const moderationOperations: PermissionKey[] = [
+    'admin.reports.manage',
+    'admin.payments.view',
+    'admin.payments.review',
+    'admin.premium.view',
+    'admin.push.send',
+    'admin.email.send',
+    'admin.activity.view',
+  ]
+
+  for (const permission of moderationOperations) {
+    assert.ok(
+      rolePermissions.moderator.includes(permission),
+      `moderator needs ${permission} to run the moderation console`,
+    )
+    assert.ok(permissionKeys.has(permission), `${permission} must be declared in the seed`)
+  }
+})
+
 test('admins keep every permission they had before the moderator permissions were split out', () => {
   const preExisting = [
     'admin.dashboard.view',
@@ -63,6 +82,7 @@ test('admins keep every permission they had before the moderator permissions wer
     'admin.matches.manage',
     'admin.settings.manage',
     'admin.payments.view',
+    'admin.content.manage',
     'content.highlights.view',
   ]
 
@@ -76,4 +96,32 @@ test('admins keep every permission they had before the moderator permissions wer
   }
 
   assert.ok(rolePermissions.super_admin.includes('content.live.watch'), 'super admin keeps live content access')
+})
+
+test('an administrator holds every moderation operation the moderator route gates ask for', () => {
+  // Report review, manual payment decisions, premium records, campaigns and the audit view used to be
+  // role-gated; they are permission-gated now, so an administrator must hold each one or their access
+  // would have been silently reduced.
+  const moderationOperations = [
+    'admin.reports.manage',
+    'admin.payments.view',
+    'admin.payments.review',
+    'admin.premium.view',
+    'admin.push.send',
+    'admin.email.send',
+    'admin.activity.view',
+  ]
+
+  for (const roleName of ['admin', 'super_admin'] as const) {
+    for (const permission of moderationOperations) {
+      assert.ok(
+        rolePermissions[roleName].includes(permission as (typeof rolePermissions.admin)[number]),
+        `${roleName} lost ${permission}`,
+      )
+    }
+  }
+})
+
+test('the moderator permission list is the single source for the seeded moderator role', () => {
+  assert.deepEqual([...rolePermissions.moderator].sort(), [...new Set(MODERATOR_PERMISSIONS)].sort())
 })

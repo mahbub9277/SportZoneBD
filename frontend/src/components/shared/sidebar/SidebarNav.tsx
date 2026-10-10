@@ -5,6 +5,7 @@ import { cva } from 'class-variance-authority'
 import { cn } from '../../../lib/utils'
 import { useGetSidebarEventsQuery } from '../../../features/events/events.api'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { requestTVFullscreenFromActivation } from '../../../features/tv/tvFullscreen'
 
 const navLinkVariants = cva(
   'relative flex items-center gap-2.5 rounded-xl px-2.75 py-2.5 text-sm font-semibold leading-none text-text-muted transition duration-200 ease-in-out hover:bg-surface-soft hover:text-text-primary',
@@ -33,7 +34,20 @@ export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNav
     <nav className="mt-4 grid items-start gap-1.5 text-sm font-medium">
       <h3 className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted sm:text-[11px]">Main</h3>
       <NavItem href="/" label="Home" icon={Home} end onClick={onNavigate} />
-      <NavItem href="/tv" label="TV Mode" icon={Tv} onClick={onNavigate} />
+      {/*
+        TV Mode asks for fullscreen during this click. It is the only user gesture the page gets: the
+        route is code-split, so it mounts long after this event and browsers refuse a fullscreen request
+        that is not made during a gesture.
+      */}
+      <NavItem
+        href="/tv"
+        label="TV Mode"
+        icon={Tv}
+        onClick={() => {
+          onNavigate?.()
+          requestTVFullscreenFromActivation()
+        }}
+      />
       <NavItem href="/matches" label="All Matches" icon={Swords} onClick={onNavigate} />
       <NavItem href="/channels" label="TV Channels" icon={Radio} onClick={onNavigate} />
       <NavItem href="/categories" label="Categories" icon={LayoutGrid} onClick={onNavigate} />

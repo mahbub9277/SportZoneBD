@@ -10,6 +10,7 @@ import {
   clearHistory,
   getAllPayments,
   getPendingVerifications,
+  getPremiumMembers,
   processVerification,
   verifyManualPayment,
   getManualPaymentConfig,
@@ -17,7 +18,7 @@ import {
   verifyPaymentSchema,
 } from './payment.controller.js'
 import type { RequestHandler } from 'express'
-import { authenticate, requireRole } from '../../core/middleware/index.js'
+import { authenticate, requirePermission } from '../../core/middleware/index.js'
 
 export const paymentRouter: ExpressRouter = Router()
 
@@ -47,12 +48,15 @@ paymentRouter.get('/manual-config', authenticate, getManualPaymentConfig as Requ
 // This route handles webhooks from payment providers
 paymentRouter.post('/webhook/:provider', handleWebhook as RequestHandler);
 
-// Admin-only route to get all payments
-paymentRouter.get('/', requireRole(['admin', 'super_admin']), getAllPayments as RequestHandler)
+// Payment records and the review queue. Both are gated by permission rather than by role name, so the
+// same moderator console that lists payments is the only way in and the backend decides for itself.
+paymentRouter.get('/', requirePermission('admin.payments.view'), getAllPayments as RequestHandler)
 
-// Admin-only routes for manual verification
-paymentRouter.get('/manual-verification', requireRole(['admin', 'super_admin']), getPendingVerifications as RequestHandler)
-paymentRouter.patch('/manual-verification/:id', requireRole(['admin', 'super_admin']), processVerification as RequestHandler)
+paymentRouter.get('/manual-verification', requirePermission('admin.payments.review'), getPendingVerifications as RequestHandler)
+paymentRouter.patch('/manual-verification/:id', requirePermission('admin.payments.review'), processVerification as RequestHandler)
+
+// Read-only premium membership view: subscription records joined with the payments behind them.
+paymentRouter.get('/premium-members', requirePermission('admin.premium.view'), getPremiumMembers as RequestHandler)
 
 // This route will be called by the frontend to get the user's payment history.
 paymentRouter.get('/history', authenticate, getHistory as RequestHandler)

@@ -1,12 +1,14 @@
 import type { NextFunction, Request, Response } from 'express'
+import crypto from 'crypto'
 import { prisma } from '../../core/prisma.js'
 import asyncHandler from '../../utils/asyncHandler.js'
 import { errorResponse, successResponse, type PaginationMeta } from '../../core/api-response.js'
 import { z } from 'zod'
-import { createAdminBroadcastNotification } from '../../services/notification.service.js'
+import { createAdminBroadcastNotification, previewNotificationAudience } from '../../services/notification.service.js'
+import { recordModerationEvent } from '../../core/moderationAudit.js'
 
 interface RequestWithUser extends Request {
-  user?: { id: string }
+  user?: { id: string; fullName?: string | null }
 }
 
 /**
@@ -226,8 +228,21 @@ export const markNotificationAsRead = asyncHandler(async (req: RequestWithUser, 
   return res.status(200).json(successResponse(null, 'Notification marked as read.'))
 })
 
+/**
+ * Starts a push/in-app campaign.
+ *
+ * The recipient count that comes back is what the queue actually accepted — a recipient whose identical
+ * message is already queued is deduplicated and not counted — so nothing here claims a delivery that only
+ * happened at queue time. The campaign is recorded in the audit trail with the authenticated sender, the
+ * audience and that accepted count, which is also the campaign history the console lists.
+ */
 export const broadcastSystemNotification = asyncHandler(async (req: RequestWithUser, res: Response) => {
   const { title, body, type, userId, link, targetAudience, channel } = req.body ?? {}
+  const actorId = req.user?.id
+
+  if (!actorId) {
+    return res.status(401).json(errorResponse('Authentication required.'))
+  }
 
   if (typeof title !== 'string' || title.trim().length < 3) {
     return res.status(400).json(errorResponse('Notification title is required.'))
@@ -235,6 +250,14 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
 
   if (typeof body !== 'string' || body.trim().length < 3) {
     return res.status(400).json(errorResponse('Notification body is required.'))
+  }
+
+  if (title.trim().length > 120) {
+    return res.status(400).json(errorResponse('Notification title must be 120 characters or fewer.'))
+  }
+
+  if (body.trim().length > 500) {
+    return res.status(400).json(errorResponse('Notification body must be 500 characters or fewer.'))
   }
 
   if (userId && typeof userId !== 'string') {
@@ -252,15 +275,47 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
     return res.status(400).json(errorResponse('Invalid notification delivery channel.'))
   }
 
+  const audience = (targetAudience as 'ALL' | 'PREMIUM' | 'FREE' | undefined) ?? 'ALL'
+  const deliveryChannel = (channel as 'IN_APP' | 'PUSH' | 'BOTH' | undefined) ?? 'BOTH'
+  const preview = await previewNotificationAudience(audience)
+
   const createdCount = await createAdminBroadcastNotification({
     userId: typeof userId === 'string' ? userId : undefined,
     title: title.trim(),
     body: body.trim(),
     type: typeof type === 'string' ? type : 'info',
     link: typeof link === 'string' ? link.trim() : undefined,
-    targetAudience: targetAudience as 'ALL' | 'PREMIUM' | 'FREE' | undefined,
-    channel: channel as 'IN_APP' | 'PUSH' | 'BOTH' | undefined,
+    targetAudience: audience,
+    channel: deliveryChannel,
   })
 
-  return res.status(201).json(successResponse({ createdCount }, 'Notification broadcast queued successfully.'))
+  const campaignId = crypto.randomUUID()
+  const auditEventId = await recordModerationEvent({
+    action: 'push.campaign.sent',
+    actorId,
+    actorName: req.user?.fullName ?? null,
+    entityId: campaignId,
+    requestId: (req as RequestWithUser & { id?: string }).id ?? null,
+    details: {
+      title: title.trim(),
+      audience,
+      channel: deliveryChannel,
+      audienceSize: preview.recipients,
+      pushEligibleRecipients: preview.pushEligibleRecipients,
+      queuedRecipients: createdCount,
+      targetedUser: typeof userId === 'string' ? userId : null,
+    },
+  })
+
+  return res.status(201).json(successResponse({
+    campaignId,
+    auditEventId,
+    audience,
+    channel: deliveryChannel,
+    audienceSize: preview.recipients,
+    pushEligibleRecipients: preview.pushEligibleRecipients,
+    queuedRecipients: createdCount,
+    /** Queued, not delivered: the worker reports per-recipient outcomes that no campaign record holds. */
+    deliveryConfirmed: false,
+  }, 'Notification campaign queued successfully.'))
 })

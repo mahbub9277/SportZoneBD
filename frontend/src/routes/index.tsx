@@ -43,6 +43,12 @@ const StaffLoginPage = lazyRoute(() => import('@/pages/staff/StaffLoginPage'), '
 const ModeratorLayout = lazyRoute(() => import('@/features/console/ModeratorLayout'), 'ModeratorLayout')
 const StaffLayout = lazyRoute(() => import('@/features/console/StaffLayout'), 'StaffLayout')
 const ConsoleHomePage = lazyRoute(() => import('@/features/console/ConsoleHomePage'), 'ConsoleHomePage')
+const ModeratorDashboardPage = lazyRoute(() => import('@/pages/moderator/ModeratorDashboardPage'), 'ModeratorDashboardPage')
+const ModerationReportsPage = lazyRoute(() => import('@/pages/moderator/ModerationReportsPage'), 'ModerationReportsPage')
+const ModerationActivityPage = lazyRoute(() => import('@/pages/moderator/ModerationActivityPage'), 'ModerationActivityPage')
+const ModerationPremiumMembersPage = lazyRoute(() => import('@/pages/moderator/ModerationPremiumMembersPage'), 'ModerationPremiumMembersPage')
+const PushCampaignPage = lazyRoute(() => import('@/pages/moderator/PushCampaignPage'), 'PushCampaignPage')
+const EmailCampaignPage = lazyRoute(() => import('@/pages/moderator/EmailCampaignPage'), 'EmailCampaignPage')
 const AdminDashboardPage = lazyRoute(() => import('@/pages/admin/DashboardPage'), 'AdminDashboardPage')
 const MatchManagementPage = lazyRoute(() => import('@/pages/admin/MatchManagementPage'), 'MatchManagementPage')
 const UserManagementPage = lazyRoute(() => import('@/pages/admin/UserManagementPage'), 'UserManagementPage')
@@ -126,6 +132,15 @@ const withPermission = (permission: string, routes: RouteObject[]): RouteObject 
  * the same permission the backend enforces on the endpoints those pages call.
  */
 const consoleModuleRoutes = (): RouteObject[] => [
+  // Moderation operations: reports, manual payment review, payment records, premium members, campaigns and
+  // the activity audit. Each group is guarded by the same permission the backend enforces on its endpoints.
+  withPermission('admin.reports.manage', [{ path: 'reports', element: <ModerationReportsPage /> }]),
+  withPermission('admin.payments.review', [{ path: 'payment-review', element: <ManualVerificationPage /> }]),
+  withPermission('admin.payments.view', [{ path: 'payments', element: <PaymentsManagementPage /> }]),
+  withPermission('admin.premium.view', [{ path: 'premium-members', element: <ModerationPremiumMembersPage /> }]),
+  withPermission('admin.push.send', [{ path: 'push-campaigns', element: <PushCampaignPage /> }]),
+  withPermission('admin.email.send', [{ path: 'email-campaigns', element: <EmailCampaignPage /> }]),
+  withPermission('admin.activity.view', [{ path: 'activity', element: <ModerationActivityPage /> }]),
   withPermission('admin.matches.manage', [
     { path: 'matches', element: <MatchManagementPage /> },
     { path: 'live-matches', element: <LiveMatchesManagementPage /> },
@@ -350,14 +365,7 @@ export const router = createBrowserRouter([
             children: [
               {
                 index: true,
-                element: (
-                  <ConsoleHomePage
-                    title="Moderator dashboard"
-                    subtitle="Manage the matches, streams and channels your account has been granted."
-                    emptyTitle="No modules assigned"
-                    emptyMessage="Your moderator account does not currently have any modules assigned. Ask an administrator to review your role permissions."
-                  />
-                ),
+                element: <ModeratorDashboardPage />,
               },
               { path: 'profile', element: <AdminProfilePage /> },
               ...consoleModuleRoutes(),

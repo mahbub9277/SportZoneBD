@@ -14,6 +14,8 @@ interface UserPayload {
   avatar: string | null
   roles: string[]
   permissions: string[]
+  /** The session this request authenticated with. Handlers that act on the session itself read it here. */
+  sessionId?: string
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -108,6 +110,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       avatar: user.avatar,
       roles: user.roles.map((r) => r.role.name),
       permissions: [...new Set(user.roles.flatMap((r) => r.role.permissions.map((p) => p.key)))],
+      sessionId: session.id,
     }
 
     next()

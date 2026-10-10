@@ -196,19 +196,34 @@ export function stepChannelId(channels: TVChannel[], currentId: string | null, d
 /**
  * The channel an automatic recovery should move to after `failedId` would not play.
  *
- * It walks the same playable catalogue as zapping, wrapping at the end, but it only ever returns a
- * channel the caller still considers eligible, and it returns null rather than the failed channel:
- * a recovery that re-tunes the source that just failed is worse than leaving the error UI in place.
+ * It walks forward from the failed channel's own position in the *full ordered catalogue*, skipping every
+ * candidate that cannot play or that the caller still rules out, and wrapping to the beginning only once
+ * the end of the list is reached. Locating the failed channel in the caller's filtered candidates instead
+ * is what used to send a failure on channel 10 straight back to channel 1: the failed channel is exactly
+ * the one the caller excludes, so it was never found and the walk restarted from the top. The full
+ * catalogue is also the only list that contains a channel the catalogue itself reports as unavailable,
+ * which is the other half of the same bug.
+ *
+ * It returns null rather than the failed channel — a recovery that re-tunes the source that just failed is
+ * worse than leaving the error UI in place — and null when nothing at all is eligible, which is what
+ * bounds the recovery loop.
  */
 export function nextPlayableChannelId(
   channels: TVChannel[],
   failedId: string | null,
   isEligible: (channel: TVChannel) => boolean = () => true,
 ): string | null {
-  const candidates = playableChannels(channels).filter(isEligible)
-  if (candidates.length === 0) return null
+  if (channels.length === 0) return null
 
-  const index = candidates.findIndex((channel) => channel.id === failedId)
-  const next = candidates[index === -1 ? 0 : (index + 1) % candidates.length]
-  return next.id === failedId ? null : next.id
+  const failedIndex = channels.findIndex((channel) => channel.id === failedId)
+
+  for (let step = 1; step <= channels.length; step += 1) {
+    const candidate = channels[(failedIndex + step) % channels.length]
+    if (candidate.id === failedId) continue
+    if (!isChannelPlayable(candidate)) continue
+    if (!isEligible(candidate)) continue
+    return candidate.id
+  }
+
+  return null
 }

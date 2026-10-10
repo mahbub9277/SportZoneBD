@@ -5,6 +5,7 @@ import { AppError } from '../../core/errors.js';
 import logger from '../../core/logger.js';
 import { getPaginatedData } from '../../services/pagination.service.js';
 import { invalidateTags } from '../../core/cache.js';
+import { canReviewSubmission } from '../../core/moderationRules.js';
  
 const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10);
 
@@ -88,30 +89,64 @@ export async function createManualPayment(args: { userId: string; subscriptionPl
   }
 }
 
-export async function completePaymentAndUpdateSubscription(args: { paymentId: string; reviewerId: string }) {
+export interface PaymentReviewDecision {
+  paymentId: string
+  userId: string
+  action: 'approve' | 'reject'
+  before: PaymentStatus
+  after: PaymentStatus
+  amount: string
+  currency: string
+  planName: string | null
+  transactionId: string
+  subscriptionId: string | null
+  reason: string | null
+}
+
+export interface PaymentReviewResult {
+  payment: Awaited<ReturnType<typeof prisma.payment.findUnique>>
+  decision: PaymentReviewDecision
+}
+
+/**
+ * Approves a pending manual payment and applies its subscription, atomically.
+ *
+ * The claim is a compare-and-set on `PENDING_REVIEW`, so two reviewers racing on the same submission
+ * cannot both win: the loser's `updateMany` matches no row and is rejected. The reviewer is recorded on
+ * the payment itself, and the submission owner is checked against the reviewer inside the same
+ * transaction — a reviewer can never approve their own payment, and no client-supplied identity takes
+ * part in either rule.
+ */
+export async function completePaymentAndUpdateSubscription(args: { paymentId: string; reviewerId: string }): Promise<PaymentReviewResult> {
   const { paymentId, reviewerId } = args;
 
-  const user = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
       where: { id: paymentId },
       select: {
         userId: true,
         status: true,
+        amount: true,
+        currency: true,
+        transactionId: true,
         subscriptionPlanId: true,
         subscriptionPlan: { select: { name: true, durationDays: true } },
       },
     });
 
     if (!payment) throw new AppError(404, 'Payment not found.');
+    if (!canReviewSubmission(reviewerId, payment.userId)) {
+      throw new AppError(403, 'You cannot review a payment you submitted yourself.');
+    }
     if (payment.status !== 'PENDING_REVIEW') throw new AppError(400, 'This payment is no longer pending review.');
     if (!payment.subscriptionPlan || !payment.subscriptionPlanId) throw new AppError(400, 'Payment is not associated with a subscription plan.');
 
     const claimedPayment = await tx.payment.updateMany({
       where: { id: paymentId, status: 'PENDING_REVIEW' },
-      data: { status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: new Date() },
+      data: { status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: new Date(), verificationResult: 'manual-approved' },
     });
     if (claimedPayment.count === 0) throw new AppError(409, 'Payment is no longer pending review.');
- 
+
     const now = new Date();
     const existingSubscription = await tx.subscription.findFirst({
       where: {
@@ -201,13 +236,33 @@ export async function completePaymentAndUpdateSubscription(args: { paymentId: st
         channel: 'IN_APP',
       },
     });
+    const updatedPayment = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        user: { select: { id: true, fullName: true, email: true } },
+        subscriptionPlan: { select: { id: true, name: true, durationDays: true } },
+      },
+    });
 
-    const updatedUser = await tx.user.findUnique({ where: { id: payment.userId } });
-    return { user: updatedUser, userId: payment.userId };
+    const decision: PaymentReviewDecision = {
+      paymentId,
+      userId: payment.userId,
+      action: 'approve',
+      before: 'PENDING_REVIEW',
+      after: 'APPROVED',
+      amount: payment.amount.toString(),
+      currency: payment.currency,
+      planName: payment.subscriptionPlan.name,
+      transactionId: payment.transactionId,
+      subscriptionId,
+      reason: null,
+    };
+
+    return { payment: updatedPayment, decision };
   });
 
-  await invalidateTags([`user:${user.userId}`, 'user-list']);
-  return user.user
+  await invalidateTags([`user:${result.decision.userId}`, 'user-list']);
+  return result;
 }
 
 /**
@@ -306,40 +361,245 @@ export async function getAllPayments(args: { page: number; limit: number; search
     prisma.payment.count({ where }),
   ]);
 
+  // `reviewedBy` is a bare id column, so the reviewer's name is resolved once per page instead of
+  // leaving the interface showing a uuid.
+  const reviewerIds = [...new Set(items.map((item) => item.reviewedBy).filter((id): id is string => Boolean(id)))];
+  const reviewers = reviewerIds.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: reviewerIds } }, select: { id: true, fullName: true } })
+    : [];
+  const reviewerNames = new Map(reviewers.map((reviewer) => [reviewer.id, reviewer.fullName]));
+
   return {
-    items,
+    items: items.map((item) => ({
+      ...item,
+      reviewedByName: item.reviewedBy ? reviewerNames.get(item.reviewedBy) ?? null : null,
+    })),
     meta: { totalItems, itemCount: items.length, itemsPerPage: limit, totalPages: Math.ceil(totalItems / limit), currentPage: page },
   };
 }
 
+/**
+ * The manual review queue.
+ *
+ * The customer's id is included so the reviewer's own submission can be marked as not reviewable in the
+ * interface; the backend refuses it regardless.
+ */
 export async function getPendingVerifications() {
   return prisma.payment.findMany({
-    where: { status: 'PENDING_REVIEW' },
-    include: { user: { select: { fullName: true, email: true } }, subscriptionPlan: { select: { name: true, price: true, durationDays: true } } },
+    where: { status: 'PENDING_REVIEW', deletedAt: null },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    include: {
+      user: { select: { id: true, fullName: true, email: true } },
+      subscriptionPlan: { select: { id: true, name: true, price: true, durationDays: true } },
+    },
   });
 }
 
-export async function processVerification(paymentId: string, action: 'approve' | 'reject', reviewerId: string, rejectionReason?: string) {
+/**
+ * Records a reviewer's decision on a manual payment submission.
+ *
+ * Both decisions go through the same guards: the submission must still be pending review (checked with a
+ * compare-and-set so a concurrent decision loses), and the reviewer may not be the person who submitted
+ * it. The reviewer, the time and the reason are stored on the payment, and the decision summary is
+ * returned so the caller can write the matching audit event.
+ */
+export async function processVerification(
+  paymentId: string,
+  action: 'approve' | 'reject',
+  reviewerId: string,
+  rejectionReason?: string,
+): Promise<PaymentReviewResult> {
   if (action === 'approve') {
     return completePaymentAndUpdateSubscription({ paymentId, reviewerId });
   }
+
   return prisma.$transaction(async (tx) => {
+    const existing = await tx.payment.findFirst({
+      where: { id: paymentId, deletedAt: null },
+      select: {
+        userId: true,
+        status: true,
+        amount: true,
+        currency: true,
+        transactionId: true,
+        subscriptionPlan: { select: { name: true } },
+      },
+    });
+
+    if (!existing) throw new AppError(404, 'Payment not found.');
+    if (!canReviewSubmission(reviewerId, existing.userId)) {
+      throw new AppError(403, 'You cannot review a payment you submitted yourself.');
+    }
+    if (existing.status !== 'PENDING_REVIEW') throw new AppError(400, 'This payment is no longer pending review.');
+
+    const reason = rejectionReason?.trim() ? rejectionReason.trim().slice(0, 500) : null;
     const result = await tx.payment.updateMany({
       where: { id: paymentId, status: 'PENDING_REVIEW' },
-      data: { status: 'REJECTED', verificationResult: rejectionReason || 'manual-rejected', reviewedBy: reviewerId, reviewedAt: new Date(), rejectionReason },
+      data: { status: 'REJECTED', verificationResult: reason || 'manual-rejected', reviewedBy: reviewerId, reviewedAt: new Date(), rejectionReason: reason },
     });
     if (result.count === 0) throw new AppError(409, 'Payment is no longer pending review.');
-    const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: { subscriptionPlan: true } });
+
+    const payment = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        user: { select: { id: true, fullName: true, email: true } },
+        subscriptionPlan: { select: { id: true, name: true, durationDays: true } },
+      },
+    });
     if (!payment) throw new AppError(404, 'Payment not found.');
+
     await tx.notification.create({
       data: {
         userId: payment.userId,
         title: 'Payment Rejected',
-        body: rejectionReason ? `Your subscription payment was rejected. Reason: ${rejectionReason}` : 'Your subscription payment was rejected.',
+        body: reason ? `Your subscription payment was rejected. Reason: ${reason}` : 'Your subscription payment was rejected.',
         type: 'error',
         channel: 'IN_APP',
       },
     });
-    return payment;
+
+    return {
+      payment,
+      decision: {
+        paymentId,
+        userId: existing.userId,
+        action: 'reject' as const,
+        before: 'PENDING_REVIEW' as PaymentStatus,
+        after: 'REJECTED' as PaymentStatus,
+        amount: existing.amount.toString(),
+        currency: existing.currency,
+        planName: existing.subscriptionPlan?.name ?? null,
+        transactionId: existing.transactionId,
+        subscriptionId: null,
+        reason,
+      },
+    };
   });
+}
+
+/**
+ * Premium members, read-only.
+ *
+ * The membership state is the same authoritative rule the rest of the platform uses: an `ACTIVE`
+ * subscription that has not expired and is not deleted. A submitted or approved payment on its own never
+ * makes anyone premium, which is why the payments are shown as the history behind the membership instead
+ * of being used to decide it.
+ */
+export async function getPremiumMembers(args: { page: number; limit: number; search?: string; status?: string; planId?: string }) {
+  const { page, limit, search, status, planId } = args
+  const normalizedSearch = search?.trim()
+  const now = new Date()
+
+  const statusFilter = status?.trim().toUpperCase()
+  const where = {
+    deletedAt: null,
+    ...(planId ? { planId } : {}),
+    ...(statusFilter === 'ACTIVE' ? { status: 'ACTIVE' as const, expiresAt: { gt: now } } : {}),
+    ...(statusFilter === 'EXPIRED' ? { OR: [{ status: 'EXPIRED' as const }, { status: 'ACTIVE' as const, expiresAt: { lte: now } }] } : {}),
+    ...(statusFilter === 'CANCELLED' ? { status: 'CANCELLED' as const } : {}),
+    ...(statusFilter === 'INACTIVE' ? { status: 'INACTIVE' as const } : {}),
+    ...(normalizedSearch ? {
+      user: {
+        OR: [
+          { fullName: { contains: normalizedSearch, mode: 'insensitive' as const } },
+          { email: { contains: normalizedSearch, mode: 'insensitive' as const } },
+          { username: { contains: normalizedSearch, mode: 'insensitive' as const } },
+        ],
+      },
+    } : {}),
+  }
+
+  const [subscriptions, totalItems] = await prisma.$transaction([
+    prisma.subscription.findMany({
+      where,
+      orderBy: [{ expiresAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * limit,
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        expiresAt: true,
+        autoRenew: true,
+        createdAt: true,
+        // The member's identity only: no password hash, tokens or other credentials are selected.
+        user: { select: { id: true, fullName: true, email: true, avatar: true, isActive: true, isSuspended: true } },
+        plan: { select: { id: true, name: true, price: true, durationDays: true, maxDevices: true } },
+        // The five most recent payments behind the membership, which is the review history a moderator
+        // needs to read. Bounded, so a member with years of history cannot inflate the page.
+        payments: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 5,
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            status: true,
+            provider: true,
+            transactionId: true,
+            createdAt: true,
+            reviewedAt: true,
+            reviewedBy: true,
+            rejectionReason: true,
+            verificationResult: true,
+            paymentMethod: { select: { displayName: true } },
+          },
+        },
+      },
+    }),
+    prisma.subscription.count({ where }),
+  ])
+
+  const items = subscriptions.map((subscription) => {
+    const approved = subscription.payments.filter((payment) => payment.status === 'APPROVED' || payment.status === 'COMPLETED')
+    const rejected = subscription.payments.filter((payment) => payment.status === 'REJECTED')
+    const latestPayment = subscription.payments[0] ?? null
+
+    return {
+      subscriptionId: subscription.id,
+      member: subscription.user,
+      plan: subscription.plan,
+      membership: {
+        status: subscription.status,
+        startedAt: subscription.startedAt,
+        expiresAt: subscription.expiresAt,
+        autoRenew: subscription.autoRenew,
+        isActive: subscription.status === 'ACTIVE' && subscription.expiresAt.getTime() > now.getTime(),
+      },
+      latestPayment: latestPayment
+        ? {
+            ...latestPayment,
+            amount: latestPayment.amount.toString(),
+            /** A payment is only successful once its review approved it. */
+            isVerifiedPayment: latestPayment.status === 'APPROVED' || latestPayment.status === 'COMPLETED',
+            isUnsuccessfulPayment: latestPayment.status === 'REJECTED' || latestPayment.status === 'FAILED' || latestPayment.status === 'REFUNDED',
+            methodLabel: latestPayment.paymentMethod?.displayName ?? latestPayment.provider,
+          }
+        : null,
+      paymentHistory: subscription.payments.map((payment) => ({
+        ...payment,
+        amount: payment.amount.toString(),
+        isVerifiedPayment: payment.status === 'APPROVED' || payment.status === 'COMPLETED',
+        isUnsuccessfulPayment: payment.status === 'REJECTED' || payment.status === 'FAILED' || payment.status === 'REFUNDED',
+        methodLabel: payment.paymentMethod?.displayName ?? payment.provider,
+      })),
+      // Counts over the payments in this page, so the numbers describe exactly the history shown.
+      paymentSummary: {
+        recorded: subscription.payments.length,
+        approved: approved.length,
+        rejected: rejected.length,
+      },
+    }
+  })
+
+  return {
+    items,
+    meta: {
+      totalItems,
+      itemCount: items.length,
+      itemsPerPage: limit,
+      totalPages: Math.max(1, Math.ceil(totalItems / limit)),
+      currentPage: page,
+    },
+  }
 }

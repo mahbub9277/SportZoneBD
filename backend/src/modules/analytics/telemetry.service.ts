@@ -1,4 +1,16 @@
 import { redis } from '../../core/redis.js'
+import {
+  TELEMETRY_BATCH_READ_SCRIPT,
+  TELEMETRY_BATCH_WRITE_SCRIPT,
+  buildTelemetryReadBatch,
+  buildTelemetryWriteBatch,
+  parseTelemetryReadBatch,
+  planResourceReads,
+  planStateCountReads,
+  type TelemetryReadRequest,
+  type TelemetryReadValue,
+  type TelemetryWriteOp,
+} from './telemetryBatch.js'
 import { emitApplicationSettingChanged, emitStreamHealthSummary, getIoInstance, isSocketClusterActive } from '../../core/socketManager.js'
 import logger from '../../core/logger.js'
 import { getRedisErrorCode } from '../../core/redisFailover.js'
@@ -329,22 +341,24 @@ export async function flushTelemetryAggregations(includeCurrentBucket: boolean):
   const counters = hotState.takeCounterDeltas()
   if (buckets.length === 0 && counters.length === 0) return
 
+  const writes: TelemetryWriteOp[] = []
+  for (const bucket of buckets) {
+    const key = bucketKey(bucket.minute)
+    writes.push({ kind: 'hincrby', key, field: 'activeViewers', amount: bucket.deltas.activeViewers })
+    writes.push({ kind: 'hincrby', key, field: 'healthyViewers', amount: bucket.deltas.healthyViewers })
+    writes.push({ kind: 'hincrby', key, field: 'bufferingViewers', amount: bucket.deltas.bufferingViewers })
+    writes.push({ kind: 'hincrby', key, field: 'errorViewers', amount: bucket.deltas.errorViewers })
+    writes.push({ kind: 'expire', key, seconds: COUNTER_TTL_SECONDS })
+  }
+  for (const batch of counters) {
+    const key = counterKey(batch.resource)
+    for (const [field, amount] of batch.fields) writes.push({ kind: 'hincrby', key, field, amount })
+    writes.push({ kind: 'expire', key, seconds: COUNTER_TTL_SECONDS })
+  }
+
   try {
-    const writes: Array<Promise<unknown>> = []
-    for (const bucket of buckets) {
-      const key = bucketKey(bucket.minute)
-      writes.push(redis.hincrby(key, 'activeViewers', bucket.deltas.activeViewers))
-      writes.push(redis.hincrby(key, 'healthyViewers', bucket.deltas.healthyViewers))
-      writes.push(redis.hincrby(key, 'bufferingViewers', bucket.deltas.bufferingViewers))
-      writes.push(redis.hincrby(key, 'errorViewers', bucket.deltas.errorViewers))
-      writes.push(redis.expire(key, COUNTER_TTL_SECONDS))
-    }
-    for (const batch of counters) {
-      const key = counterKey(batch.resource)
-      for (const [field, amount] of batch.fields) writes.push(redis.hincrby(key, field, amount))
-      writes.push(redis.expire(key, COUNTER_TTL_SECONDS))
-    }
-    await Promise.all(writes)
+    // One script call for the whole flush: the increments and their expiries travel together.
+    await runTelemetryWriteBatch(writes)
   } catch (error) {
     // Redis is temporarily unavailable: keep the increments so recovery does not silently lose them.
     hotState.restoreBuckets(buckets as TelemetryBucket[])
@@ -416,33 +430,40 @@ async function runMaintenance(now = Date.now()): Promise<void> {
   }
 }
 
-/** Re-reads the authoritative per-resource values for the resources this process is tracking. */
+/**
+ * Re-reads the authoritative per-resource values for the resources this process is tracking.
+ *
+ * Every tracked resource is read in one script call: the values that used to cost four commands per resource
+ * are one command for the whole set, which is the single largest scheduled read in the backend.
+ */
 async function reconcileTrackedResources(): Promise<void> {
   const tracked = new Set<string>(hotState.listTrackedResources(MAX_PER_RESOURCE_RECONCILE))
   for (const { resource } of hotState.errorCounterSnapshot(MAX_PER_RESOURCE_RECONCILE)) tracked.add(resource)
 
-  for (const resource of tracked) {
-    // Stop mid-way if telemetry was switched off: no further reconciliation reads or writes.
-    if (!isTelemetryEnabled()) return
-    try {
-      const now = Date.now()
-      const [counter, healthy, buffering, errors] = await Promise.all([
-        redis.hgetall(counterKey(resource)),
-        redis.zcount(resourceKey(resource, 'HEALTHY'), now, '+inf'),
-        redis.zcount(resourceKey(resource, 'BUFFERING'), now, '+inf'),
-        redis.zcount(resourceKey(resource, 'ERROR'), now, '+inf'),
-      ])
+  const resources = [...tracked]
+  if (resources.length === 0) return
+  // Re-checked before the read: no reconciliation while telemetry is switched off.
+  if (!isTelemetryEnabled()) return
+
+  const requests = planResourceReads(resources, counterKey, resourceKey)
+
+  try {
+    const values = await runTelemetryReadBatch(Date.now(), requests)
+
+    // The read is one batch, so a Redis failure is a single failure for the whole cycle and one log line.
+    for (const [index, resource] of resources.entries()) {
+      const counters = values[index * 4] as Record<string, string>
       const states: TelemetryResourceStates = {
-        HEALTHY: Math.max(0, Number(healthy) || 0),
-        BUFFERING: Math.max(0, Number(buffering) || 0),
-        ERROR: Math.max(0, Number(errors) || 0),
+        HEALTHY: Number(values[index * 4 + 1]) || 0,
+        BUFFERING: Number(values[index * 4 + 2]) || 0,
+        ERROR: Number(values[index * 4 + 3]) || 0,
       }
       const counterValues: Record<string, number> = {}
-      for (const [field, value] of Object.entries(counter)) counterValues[field] = Number(value) || 0
+      for (const [field, value] of Object.entries(counters)) counterValues[field] = Number(value) || 0
       hotState.reconcileResource(resource, states, counterValues)
-    } catch (error) {
-      logger.warn({ code: getRedisErrorCode(error), resource }, 'Telemetry resource reconciliation failed')
     }
+  } catch (error) {
+    logger.warn({ code: getRedisErrorCode(error), resources: resources.length }, 'Telemetry resource reconciliation failed')
   }
 }
 
@@ -465,21 +486,49 @@ async function migrateLegacyResourceSet(): Promise<void> {
   }
 }
 
-function countKey(key: string, pruneExpired: boolean): Promise<number> {
+/**
+ * Reads the live per-state viewer counts. The score based ZCOUNT is authoritative, pruning is housekeeping.
+ *
+ * The four counts travel in one script call. Pruning still runs first (and only every few minutes), because
+ * trimming a sorted set is a write and belongs on the housekeeping schedule, not in the read path.
+ */
+async function readStateCounts(pruneExpired: boolean): Promise<TelemetryStateCounts> {
   const now = Date.now()
-  return (pruneExpired ? redis.zremrangebyscore(key, 0, now) : Promise.resolve(0))
-    .then(() => redis.zcount(key, now, '+inf'))
-    .then((total: unknown) => Math.max(0, Number(total) || 0))
+
+  if (pruneExpired) {
+    await runTelemetryWriteBatch([
+      { kind: 'pruneExpired', key: ACTIVE_KEY, now },
+      { kind: 'pruneExpired', key: stateKey('HEALTHY'), now },
+      { kind: 'pruneExpired', key: stateKey('BUFFERING'), now },
+      { kind: 'pruneExpired', key: stateKey('ERROR'), now },
+    ])
+  }
+
+  const requests = planStateCountReads(ACTIVE_KEY, stateKey)
+  const values = await runTelemetryReadBatch(now, requests)
+
+  return {
+    total: Number(values[0]) || 0,
+    healthy: Number(values[1]) || 0,
+    buffering: Number(values[2]) || 0,
+    errors: Number(values[3]) || 0,
+  }
 }
 
-/** Reads the live per-state viewer counts. The score based ZCOUNT is authoritative, pruning is housekeeping. */
-function readStateCounts(pruneExpired: boolean): Promise<TelemetryStateCounts> {
-  return Promise.all([
-    countKey(ACTIVE_KEY, pruneExpired),
-    countKey(stateKey('HEALTHY'), pruneExpired),
-    countKey(stateKey('BUFFERING'), pruneExpired),
-    countKey(stateKey('ERROR'), pruneExpired),
-  ]).then(([total, healthy, buffering, errors]) => ({ total, healthy, buffering, errors }))
+/** One script call for a whole batch of reads, parsed back into the order the caller planned. */
+async function runTelemetryReadBatch(
+  now: number,
+  requests: TelemetryReadRequest[],
+): Promise<TelemetryReadValue[]> {
+  const { keys, args } = buildTelemetryReadBatch(now, requests)
+  const reply = await redis.eval(TELEMETRY_BATCH_READ_SCRIPT, keys.length, ...keys, ...args)
+  return parseTelemetryReadBatch(reply, requests)
+}
+
+/** One script call for a whole batch of writes: increments, expiries and trims together. */
+async function runTelemetryWriteBatch(operations: TelemetryWriteOp[]): Promise<void> {
+  const { keys, args } = buildTelemetryWriteBatch(operations)
+  await redis.eval(TELEMETRY_BATCH_WRITE_SCRIPT, keys.length, ...keys, ...args)
 }
 
 // ---------------------------------------------------------------- summary
@@ -542,37 +591,58 @@ function buildSummaryFromHotState(): TelemetrySummary {
   return toSummary(counts, topErroredStreams)
 }
 
-/** Multiple instances: aggregation must come from Redis, because the hot state is per process. */
+/**
+ * Multiple instances: aggregation must come from Redis, because the hot state is per process.
+ *
+ * The whole summary is two script calls — one for the global counts and the resource window, one for the
+ * counters and live state of those resources — instead of one command per resource per read.
+ */
 async function buildSummaryFromRedis(): Promise<TelemetrySummary> {
   void migrateLegacyResourceSet()
-  const counts = await readStateCounts(false)
 
-  const resources = await redis.zrevrange(RESOURCE_SET_V2, 0, RESOURCE_WINDOW - 1) as string[]
-  const inspectableResources = resources.slice(0, RESOURCE_WINDOW)
-  const counters = await Promise.all(inspectableResources.map((resource: string) => redis.hgetall(counterKey(resource))))
-  const errorStreams = inspectableResources
-    .map((resource: string, index: number) => {
-      const counter = (counters[index] ?? {}) as Record<string, string>
+  const headRequests: TelemetryReadRequest[] = [
+    ...planStateCountReads(ACTIVE_KEY, stateKey),
+    { key: RESOURCE_SET_V2, op: 'zrevrange', stop: RESOURCE_WINDOW - 1 },
+  ]
+  const head = await runTelemetryReadBatch(Date.now(), headRequests)
+
+  const counts: TelemetryStateCounts = {
+    total: Number(head[0]) || 0,
+    healthy: Number(head[1]) || 0,
+    buffering: Number(head[2]) || 0,
+    errors: Number(head[3]) || 0,
+  }
+  const resources = (head[4] as string[]).slice(0, RESOURCE_WINDOW)
+
+  const requests = planResourceReads(resources, counterKey, resourceKey)
+  const values = requests.length > 0 ? await runTelemetryReadBatch(Date.now(), requests) : []
+
+  const errorStreams = resources
+    .map((resource, index) => {
+      const counter = (values[index * 4] ?? {}) as Record<string, string>
       const errorCount = Object.entries(counter)
         .filter(([field]) => field.includes('error'))
         .reduce((sum, [, value]) => sum + (Number(value) || 0), 0)
-      return { resource, counter, errorCount }
+      const healthy = Number(values[index * 4 + 1]) || 0
+      const buffering = Number(values[index * 4 + 2]) || 0
+      const errors = Number(values[index * 4 + 3]) || 0
+
+      return {
+        resource,
+        counter,
+        errorCount,
+        activeViewers: healthy + buffering + errors,
+      }
     })
-    .filter((entry: { errorCount: number }) => entry.errorCount > 0)
+    .filter((entry) => entry.errorCount > 0)
 
-  const errorStreamStates = await Promise.all(errorStreams.map(({ resource }: { resource: string }) => Promise.all([
-    countKey(resourceKey(resource, 'HEALTHY'), false),
-    countKey(resourceKey(resource, 'BUFFERING'), false),
-    countKey(resourceKey(resource, 'ERROR'), false),
-  ])))
+  errorStreams.sort((left, right) => right.errorCount - left.errorCount || left.resource.localeCompare(right.resource))
 
-  const topErroredStreams = errorStreams.map(({ resource, counter, errorCount }: { resource: string; counter: Record<string, unknown>; errorCount: number }, index: number) => {
-    const [healthy, buffering, errors] = errorStreamStates[index] as number[]
-    return { resource, errorCount, activeViewers: healthy + buffering + errors, counters: counter as Record<string, string | number> }
-  })
-  topErroredStreams.sort((left: { errorCount: number; resource: string }, right: { errorCount: number; resource: string }) => right.errorCount - left.errorCount || left.resource.localeCompare(right.resource))
+  const topErroredStreams = errorStreams
+    .slice(0, 10)
+    .map(({ resource, counter, errorCount, activeViewers }) => ({ resource, errorCount, activeViewers, counters: counter }))
 
-  return toSummary(counts, topErroredStreams.slice(0, 10))
+  return toSummary(counts, topErroredStreams)
 }
 
 export async function getTelemetryHistory(minutes: number) {

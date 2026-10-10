@@ -28,6 +28,13 @@ const reportCategoryOptions: Array<{ value: ReportCategory; label: string; icon:
 ]
 const emptyReports: ReportItem[] = []
 
+const statusLabels: Record<ReportStatus, string> = {
+  OPEN: 'Open',
+  IN_PROGRESS: 'In progress',
+  RESOLVED: 'Resolved',
+  CLOSED: 'Closed',
+}
+
 export default function ReportsManagementPage() {
   const [query, setQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState<ReportCategory | 'ALL'>('ALL')
@@ -114,9 +121,21 @@ export default function ReportsManagementPage() {
     }
   }
 
-  const handleStatusUpdate = async (reportId: string, nextStatus: ReportStatus) => {
+  const handleStatusUpdate = async (reportId: string, nextStatus: ReportStatus, report?: ReportItem) => {
+    // The backend requires a note for some moves (closing a report), so it is collected before the call.
+    const transition = report?.allowedTransitions?.find((entry) => entry.status === nextStatus)
+    let reason: string | undefined
+    if (transition?.requiresReason) {
+      const note = window.prompt(`Why is this report being moved to ${nextStatus}?`) ?? ''
+      if (!note.trim()) {
+        toast.error('A reason is required for that status change.')
+        return
+      }
+      reason = note.trim()
+    }
+
     try {
-      await updateReportStatus({ id: reportId, status: nextStatus }).unwrap()
+      await updateReportStatus({ id: reportId, status: nextStatus, ...(reason ? { reason } : {}) }).unwrap()
       toast.success('Report status updated.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to update report status.')
@@ -280,17 +299,22 @@ export default function ReportsManagementPage() {
                 <label className="text-xs font-medium uppercase tracking-wide text-(--text-muted)" htmlFor={`status-${report.id}`}>
                   Status
                 </label>
+                {/* Only the moves the backend accepts are offered, so an admin cannot pick one that the
+                    API refuses (resolving the same report twice, for example). */}
                 <select
                   id={`status-${report.id}`}
                   value={report.status}
-                  onChange={(event) => handleStatusUpdate(report.id, event.target.value as ReportStatus)}
+                  onChange={(event) => handleStatusUpdate(report.id, event.target.value as ReportStatus, report)}
                   disabled={isUpdatingStatus}
                   className="rounded-full border border-(--border) bg-(--surface-soft) px-3 py-1.5 text-sm text-(--text-primary)"
                 >
-                  <option value="OPEN">Open</option>
-                  <option value="IN_PROGRESS">In progress</option>
-                  <option value="RESOLVED">Resolved</option>
-                  <option value="CLOSED">Closed</option>
+                  <option value={report.status}>{statusLabels[report.status]}</option>
+                  {(report.allowedTransitions ?? []).map((transition) => (
+                    <option key={transition.status} value={transition.status}>
+                      {statusLabels[transition.status]}
+                      {transition.requiresReason ? ' (reason required)' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

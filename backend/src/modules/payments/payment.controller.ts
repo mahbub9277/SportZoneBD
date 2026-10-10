@@ -7,6 +7,7 @@ import logger from '../../core/logger.js';
 import { z } from 'zod';
 import { prisma } from '../../core/prisma.js';
 import { UnauthorizedError } from '../../core/errors.js';
+import { recordModerationEvent } from '../../core/moderationAudit.js';
 
 export const createIntentSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
@@ -133,12 +134,64 @@ export const getPendingVerifications = asyncHandler(async (req: Request, res: Re
   res.status(200).json(successResponse(payments));
 });
 
+/**
+ * Records a reviewer's decision on a manual payment submission.
+ *
+ * The service owns the transaction, the concurrency guard and the "not your own submission" rule; this
+ * handler only supplies the authenticated reviewer and, once the decision is committed, writes the audit
+ * event that names who decided what. The reviewer id comes from the session, so a client cannot choose it.
+ */
 export const processVerification = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const action = z.enum(['approve', 'reject']).parse(req.body.action);
+  const rejectionReason = typeof req.body.rejectionReason === 'string' ? req.body.rejectionReason : undefined;
   const reviewerId = (req.user as { id: string })?.id;
-  const updatedPayment = await paymentService.processVerification(id, action, reviewerId, req.body.rejectionReason);
-  res.status(200).json(successResponse(updatedPayment));
+
+  if (!reviewerId) {
+    return res.status(401).json(errorResponse('Authentication required.'));
+  }
+
+  const { payment, decision } = await paymentService.processVerification(id, action, reviewerId, rejectionReason);
+
+  await recordModerationEvent({
+    action: action === 'approve' ? 'payment.review.approved' : 'payment.review.rejected',
+    actorId: reviewerId,
+    actorName: (req.user as { fullName?: string | null } | undefined)?.fullName ?? null,
+    entityId: decision.paymentId,
+    outcome: 'success',
+    reason: decision.reason,
+    requestId: (req as Request & { id?: string }).id ?? null,
+    before: { status: decision.before },
+    after: { status: decision.after },
+    details: {
+      customerId: decision.userId,
+      amount: decision.amount,
+      currency: decision.currency,
+      plan: decision.planName,
+      transactionId: decision.transactionId,
+      subscriptionId: decision.subscriptionId,
+    },
+  })
+
+  res.status(200).json(successResponse(payment, 'Payment review recorded.'));
+});
+
+/** Premium members and their payment history, read-only, for moderators and administrators. */
+export const getPremiumMembers = asyncHandler(async (req: Request, res: Response) => {
+  const requestedPage = Number(req.query.page)
+  const requestedLimit = Number(req.query.limit)
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
+  const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, Math.floor(requestedLimit))) : 10
+
+  const members = await paymentService.getPremiumMembers({
+    page,
+    limit,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    planId: typeof req.query.planId === 'string' ? req.query.planId : undefined,
+  })
+
+  res.status(200).json(successResponse(members.items, 'Premium members retrieved successfully.', members.meta));
 });
 
 export const verifyManualPayment = asyncHandler(async (req: Request, res: Response) => {

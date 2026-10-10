@@ -5,6 +5,17 @@ import type { TVCategory, TVChannel } from '../tvChannels'
 import type { AutoTuneStatus } from '../useAutoTune'
 import { TVChannelCard } from './TVChannelCard'
 
+/**
+ * PageUp/PageDown are what a media remote sends for CH+/CH−. An open category menu owns them like the
+ * arrows, so they are translated instead of reaching the shell and zapping a channel behind the menu.
+ */
+const MENU_KEY_ALIASES: Record<string, string> = { PageUp: 'ArrowUp', PageDown: 'ArrowDown' }
+
+const isMenuStepKey = (key: string): boolean =>
+  key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End' || key in MENU_KEY_ALIASES
+
+const toMenuKey = (key: string): string => MENU_KEY_ALIASES[key] ?? key
+
 interface TVChannelPanelProps {
   categories: TVCategory[]
   channels: TVChannel[]
@@ -17,6 +28,8 @@ interface TVChannelPanelProps {
   isPremiumSubscriber: boolean
   /** Auto Tune's state, so the control can report a running scan: the scan itself lives on the page. */
   autoTuneStatus: AutoTuneStatus
+  /** The channel the player reports as really playing, so the card marker is never guessed. */
+  playingChannelId: string | null
   /** Hides the panel and hands the whole viewport to the player, staying inside TV Mode. */
   onEnterPlayerView: () => void
   /** Leaves TV Mode altogether. */
@@ -47,6 +60,7 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   query,
   isPremiumSubscriber,
   autoTuneStatus,
+  playingChannelId,
   onEnterPlayerView,
   onExit,
   onRefresh,
@@ -234,14 +248,14 @@ export const TVChannelPanel = memo(function TVChannelPanel({
               aria-expanded={isCategoryMenuOpen}
               aria-labelledby="tv-category-label"
               onClick={() => setCategoryMenuOpen((open) => !open)}
-              // While the menu is open the arrows belong to the menu, so they must not also zap the list
-              // below or pull focus out of the dropdown.
+              // While the menu is open the arrows and the channel page keys belong to the menu, so they
+              // must not also zap the list below or pull focus out of the dropdown.
               onKeyDown={(event) => {
                 if (!isCategoryMenuOpen) return
-                if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+                if (isMenuStepKey(event.key) || event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   event.stopPropagation()
-                  focusCategoryOption(event.key === 'ArrowUp' ? -1 : 1)
+                  focusCategoryOption(event.key === 'ArrowUp' || event.key === 'PageUp' ? -1 : 1)
                 } else if (event.key === 'Escape') {
                   event.preventDefault()
                   event.stopPropagation()
@@ -261,10 +275,10 @@ export const TVChannelPanel = memo(function TVChannelPanel({
                 aria-labelledby="tv-category-label"
                 ref={categoryMenuRef}
                 onKeyDown={(event) => {
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+                  if (isMenuStepKey(event.key)) {
                     event.preventDefault()
                     event.stopPropagation()
-                    moveCategoryFocus(event.key)
+                    moveCategoryFocus(toMenuKey(event.key))
                   } else if (event.key === 'Escape') {
                     event.preventDefault()
                     event.stopPropagation()
@@ -333,6 +347,7 @@ export const TVChannelPanel = memo(function TVChannelPanel({
             key={channel.id}
             channel={channel}
             selected={channel.id === selectedChannelId}
+            playing={channel.id === playingChannelId}
             locked={channel.isPremium && !isPremiumSubscriber}
             onSelect={onSelectChannel}
           />

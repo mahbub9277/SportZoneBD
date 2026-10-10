@@ -643,11 +643,10 @@ html.theme-switching * {
 }
 
 /* ---------------------------------------------------------------- left panel
-   The channel panel is an overlay on top of the full-size player, not a sidebar: it is a translucent
-   surface (about 90% transparent) so the video keeps playing underneath it. Only the panel background is
-   transparent — the video surface itself is never dimmed or blurred. Legibility comes from the channel
-   cards, buttons and inputs carrying their own opaque surfaces, so text contrast does not depend on what
-   is playing behind the panel. */
+   The channel panel is an overlay on top of the full-size player, but it is a solid Nightfall surface
+   rather than a glass sheet: one opaque dark-navy background so the channel cards, names and numbers
+   keep a stable contrast no matter what is playing behind it. Depth comes from the card surfaces and a
+   single edge shadow, not from transparency. */
 .tv-panel {
   position: absolute;
   inset: 0 auto 0 0;
@@ -659,17 +658,13 @@ html.theme-switching * {
   max-width: min(88vw, var(--tv-panel-w));
   padding: 0.9em;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--tv-border) 38%, transparent);
-  /* One modest blur keeps channel names readable over bright video; the reduced-effects path below drops
-     it for weak TV GPUs and compensates with a slightly stronger tint. */
-  background: color-mix(in srgb, var(--tv-navy-strong) 14%, transparent);
-  backdrop-filter: blur(0.35em) saturate(120%);
+  border-right: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
+  background: var(--tv-surface);
   box-shadow: 0.35em 0 1.4em rgb(2 8 18 / 0.45);
 }
 
 .tv-lite .tv-panel {
-  background: color-mix(in srgb, var(--tv-navy-strong) 42%, transparent);
-  backdrop-filter: none;
+  background: var(--tv-surface);
   box-shadow: none;
 }
 
@@ -927,13 +922,42 @@ html.theme-switching * {
   gap: 0.8em;
   min-height: 8.4em;
   padding: 0.6em 0.8em;
-  border: 1px solid color-mix(in srgb, var(--tv-border) 32%, transparent);
+  /* A controlled 1px edge on the Nightfall border colour: enough to separate two stacked cards,
+     never a glow. */
+  border: 1px solid color-mix(in srgb, var(--tv-border) 52%, transparent);
   border-radius: 0.8em;
+  /* The opaque Nightfall card surface. Nothing behind the panel shows through a card. */
   background: var(--tv-surface-soft);
   color: var(--tv-text);
   text-align: left;
   cursor: pointer;
   transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+/* A channel the catalogue itself says cannot play is dimmed rather than dressed up: the entry stays
+   selectable (so the viewer can see why) but never looks like a working channel. */
+.tv-channel-card[data-tv-available='false'] {
+  border-color: color-mix(in srgb, var(--tv-border) 22%, transparent);
+  background: color-mix(in srgb, var(--tv-surface-soft) 62%, var(--tv-surface));
+}
+
+.tv-channel-card[data-tv-available='false'] .tv-channel-number,
+.tv-channel-card[data-tv-available='false'] .tv-channel-name {
+  color: var(--tv-text);
+  opacity: 0.68;
+}
+
+.tv-channel-card[data-tv-available='false'] .tv-channel-logo {
+  opacity: 0.55;
+}
+
+/* Hover uses the Nightfall hover accent, so a pointer or a mouse-based remote sees the same surface
+   change the focused card gets from its ring. It is declared after the unavailable state so an
+   unavailable card still answers the pointer. */
+.tv-channel-card:hover {
+  border-color: var(--tv-border);
+  background: var(--tv-accent-strong);
+  color: var(--tv-text-strong);
 }
 
 /* The tuned channel is unmistakable without glowing: accent border, a deep navy fill that reads as
@@ -1024,11 +1048,14 @@ html.theme-switching * {
   color: var(--tv-text);
 }
 
+/* Only rendered while the player reports this channel as really playing, so the marker is a fact rather
+   than a decoration. It is drawn in the brightest text colour so it stays distinct from the accent
+   selection edge and the green Live badge. */
 .tv-channel-playing {
   width: 1.3em;
   height: 1.3em;
-  fill: var(--tv-accent);
-  color: var(--tv-accent);
+  fill: var(--tv-text-strong);
+  color: var(--tv-text-strong);
 }
 
 .tv-channel-live {

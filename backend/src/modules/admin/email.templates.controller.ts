@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import crypto from 'crypto'
 import asyncHandler from '../../utils/asyncHandler.js'
 import { prisma } from '../../core/prisma.js'
 import { successResponse, errorResponse } from '../../core/api-response.js'
@@ -6,8 +7,13 @@ import { emailTemplateSchema } from './email.templates.validator.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
 import { Prisma } from '@prisma/client'
-import { sendEmail } from '../../services/email.service.js'
-import { getEmailTemplate } from '../../services/email.templates.js'
+import { recordModerationEvent } from '../../core/moderationAudit.js'
+import {
+  EMAIL_CAMPAIGN_MAX_RECIPIENTS,
+  countEmailAudience,
+  isEmailAudience,
+  sendEmailCampaign,
+} from '../../services/emailCampaign.service.js'
 
 const getEmailTemplates = asyncHandler(async (_req: Request, res: Response) => {
   const templates = await prisma.emailTemplate.findMany({
@@ -15,6 +21,21 @@ const getEmailTemplates = asyncHandler(async (_req: Request, res: Response) => {
     orderBy: { createdAt: 'desc' },
   })
   res.status(200).json(successResponse(templates, 'Email templates retrieved.'))
+})
+
+/**
+ * The enabled templates a campaign may be started from.
+ *
+ * Read-only and intentionally narrow: a sender needs the subject, the body and the audience to preview
+ * what will go out, and nothing about how the template is administered.
+ */
+const getSendableEmailTemplates = asyncHandler(async (_req: Request, res: Response) => {
+  const templates = await prisma.emailTemplate.findMany({
+    where: { deletedAt: null, enabled: true },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, subject: true, body: true, targetAudience: true, link: true, enabled: true, updatedAt: true },
+  })
+  res.status(200).json(successResponse(templates, 'Sendable email templates retrieved.'))
 })
 
 const createEmailTemplate = asyncHandler(async (req: Request, res: Response) => {
@@ -99,35 +120,83 @@ const deleteEmailTemplate = asyncHandler(async (req: Request, res: Response) => 
   }
 })
 
+/**
+ * Starts an email campaign from an enabled template.
+ *
+ * The template decides the audience and the wording, the campaign service decides the limit and the
+ * batching, and the provider decides success: the response reports the messages it accepted and refused,
+ * the recipients that were skipped once the campaign limit was reached, and a few real failure reasons.
+ * The send is recorded in the audit trail with the authenticated sender, so an accidental campaign has an
+ * owner and a time.
+ */
 const sendEmailTemplate = asyncHandler(async (req: Request, res: Response) => {
   const template = await prisma.emailTemplate.findFirst({ where: { id: req.params.id, deletedAt: null, enabled: true } })
   if (!template) return res.status(404).json(errorResponse('Enabled email template not found.'))
-  const targetAudience = template.targetAudience ?? 'ALL'
 
-  const users = await prisma.user.findMany({
-    where: {
-      email: { not: null },
-      isActive: true,
-      isSuspended: false,
-      isBanned: false,
-      deletedAt: null,
-      ...(targetAudience === 'PREMIUM'
-        ? { subscriptions: { some: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-        : targetAudience === 'FREE'
-          ? { subscriptions: { none: { status: 'ACTIVE', expiresAt: { gt: new Date() }, deletedAt: null } } }
-          : {}),
-    },
-    select: { email: true },
+  const audience = isEmailAudience(template.targetAudience) ? template.targetAudience : 'ALL'
+  const result = await sendEmailCampaign({
+    subject: template.subject,
+    body: template.body,
+    link: template.link,
+    audience,
   })
 
-  const results = await Promise.allSettled(users.flatMap((user) => user.email ? [sendEmail({
-    to: user.email,
-    subject: template.subject,
-    text: template.body,
-    html: getEmailTemplate({ title: template.subject, bodyText: template.body, link: template.link ?? undefined }),
-  })] : []))
-  const sentCount = results.filter((result) => result.status === 'fulfilled').length
-  res.status(200).json(successResponse({ sentCount, failedCount: results.length - sentCount }, 'Email campaign completed.'))
+  const actorId = (req as Request & { user?: { id?: string; fullName?: string | null } }).user?.id
+  const campaignId = crypto.randomUUID()
+
+  if (actorId) {
+    await recordModerationEvent({
+      action: 'email.campaign.sent',
+      actorId,
+      actorName: (req as Request & { user?: { fullName?: string | null } }).user?.fullName ?? null,
+      entityId: campaignId,
+      outcome: result.sentCount > 0 ? 'success' : 'failure',
+      requestId: (req as Request & { id?: string }).id ?? null,
+      details: {
+        templateId: template.id,
+        subject: template.subject,
+        audience,
+        totalRecipients: result.totalRecipients,
+        attempted: result.attempted,
+        sentCount: result.sentCount,
+        failedCount: result.failedCount,
+        skippedCount: result.skippedCount,
+        truncated: result.truncated,
+      },
+    })
+  }
+
+  res.status(200).json(successResponse({ campaignId, ...result }, 'Email campaign finished.'))
 })
 
-export const emailTemplatesController = { getEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate, sendEmailTemplate }
+/**
+ * The audience sizes a sender confirms against before starting a campaign.
+ *
+ * Counted from the same audience rule the send resolves, so the confirmation shows real numbers.
+ */
+const getEmailCampaignAudiences = asyncHandler(async (_req: Request, res: Response) => {
+  const [all, premium, free] = await Promise.all([
+    countEmailAudience('ALL'),
+    countEmailAudience('PREMIUM'),
+    countEmailAudience('FREE'),
+  ])
+
+  res.status(200).json(successResponse({
+    maxRecipients: EMAIL_CAMPAIGN_MAX_RECIPIENTS,
+    audiences: [
+      { audience: 'ALL', recipients: all },
+      { audience: 'PREMIUM', recipients: premium },
+      { audience: 'FREE', recipients: free },
+    ],
+  }, 'Email campaign audiences retrieved.'))
+})
+
+export const emailTemplatesController = {
+  getEmailTemplates,
+  getSendableEmailTemplates,
+  getEmailCampaignAudiences,
+  createEmailTemplate,
+  updateEmailTemplate,
+  deleteEmailTemplate,
+  sendEmailTemplate,
+}

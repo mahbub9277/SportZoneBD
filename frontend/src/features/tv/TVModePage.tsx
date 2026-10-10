@@ -19,6 +19,8 @@ import {
 import { readLastTVChannelId, writeLastTVChannelId } from './tvStorage'
 import { useTVFocus } from './useTVFocus'
 import { useAutoTune } from './useAutoTune'
+import { useTVFullscreen } from './useTVFullscreen'
+import { exitTVFullscreen } from './tvFullscreen'
 import { TVChannelPanel } from './components/TVChannelPanel'
 import { TVAutoTuneOverlay } from './components/TVAutoTuneOverlay'
 import { TVPlayerStage, type TVTransport } from './components/TVPlayerStage'
@@ -93,6 +95,17 @@ function TVModeExperience() {
   const transportRef = useRef<TVTransport | null>(null)
   const initialisedRef = useRef(false)
   const orientationRequestedRef = useRef(false)
+
+  /** Fullscreen is real state, never an assumption: the browser confirms it through `fullscreenchange`. */
+  const fullscreen = useTVFullscreen(shellRef)
+
+  /**
+   * The channel the player reports as actually playing.
+   *
+   * It comes from the player's own transport rather than from the selection, so the channel list never
+   * shows a playing marker for a channel that is still loading or has already failed.
+   */
+  const [playingChannelId, setPlayingChannelId] = useState<string | null>(null)
 
   // The automatic-recovery scheduling is deliberately ref-based: it must read the selection, the
   // catalogue and the subscription state as they are when its timeout fires, never as they were when it
@@ -185,6 +198,11 @@ function TVModeExperience() {
 
   const scheduleRecovery = useCallback((failedChannelId: string, delayMs: number) => {
     const cycle = recoveryRef.current ?? { failedIds: new Set<string>(), switches: 0 }
+
+    // The same confirmed failure can be reported more than once. The first report already owns the
+    // pending switch, so a duplicate neither re-arms the timer nor spends another automatic switch.
+    if (cycle.failedIds.has(failedChannelId) && recoveryTimerRef.current !== null) return
+
     cycle.failedIds.add(failedChannelId)
     recoveryRef.current = cycle
 
@@ -265,9 +283,12 @@ function TVModeExperience() {
     onScanStart: cancelRecovery,
   })
 
-  /** Exit leaves TV Mode: it releases any native fullscreen first, then navigates away. */
+  /**
+   * Exit leaves TV Mode: it releases any native fullscreen first, then navigates away. Releasing the
+   * screen before the route changes is what keeps the page underneath from appearing fullscreen.
+   */
   const handleExit = useCallback(() => {
-    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined)
+    void exitTVFullscreen()
     // Return to wherever the viewer came from, using the previous-route record the rest of the app
     // already keeps, and never reloading the page.
     const previous = window.sessionStorage.getItem(PREVIOUS_ROUTE_KEY)
@@ -280,11 +301,12 @@ function TVModeExperience() {
 
   /**
    * The browser/remote Back keeps its hardened priority: native fullscreen first, then the focused-player
-   * layout, and only when neither is active does Back leave TV Mode.
+   * layout, and only when neither is active does Back leave TV Mode. Leaving fullscreen this way is the
+   * viewer's own choice, so TV Mode does not ask for the screen again.
    */
   const handleBack = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => undefined)
+    if (fullscreen.isFullscreen) {
+      fullscreen.exitByViewer()
       return
     }
     if (isImmersive) {
@@ -292,7 +314,7 @@ function TVModeExperience() {
       return
     }
     handleExit()
-  }, [handleExit, isImmersive])
+  }, [fullscreen, handleExit, isImmersive])
 
   const togglePlayback = useCallback(() => {
     transportRef.current?.playPause()
@@ -319,10 +341,16 @@ function TVModeExperience() {
 
   const handleTransportReady = useCallback((transport: TVTransport | null) => {
     transportRef.current = transport
-    // Real playback again means the failure is over: nothing pending is still worth doing, and the
-    // automatic-switch budget is renewed for whatever fails next. The failed channels stay remembered,
-    // which is what makes re-trying one impossible for the rest of the session.
-    if (transport?.isPlaying) {
+
+    // Only a transport that belongs to the channel on screen counts, so a late report from the channel
+    // the viewer just left can never mark the new one as playing.
+    const playing = transport?.isPlaying && transport.channelId === selectedChannelIdRef.current
+    setPlayingChannelId(playing ? transport.channelId : null)
+
+    // Real playback again means the failure is over: the pending switch is dropped and the
+    // automatic-switch budget is renewed for whatever fails next. The remembered failures stay, which is
+    // what keeps an outage from turning into an endless hop between channels that each play briefly.
+    if (playing) {
       clearRecoveryTimer()
       if (recoveryRef.current) recoveryRef.current.switches = 0
     }
@@ -355,6 +383,12 @@ function TVModeExperience() {
     }
   }, [isImmersive])
 
+  /** Where the remote's focus belongs in the current layout: the channel being watched, or the stage. */
+  const restoreFocus = useCallback(() => {
+    if (isImmersive) focusZone('player', 'stage')
+    else focusZone('channels', selectedChannelId ? `channel:${selectedChannelId}` : null)
+  }, [focusZone, isImmersive, selectedChannelId])
+
   /**
    * Focus follows the layout.
    *
@@ -378,6 +412,25 @@ function TVModeExperience() {
     }
     focusZone('channels', selectedChannelId ? `channel:${selectedChannelId}` : null)
   }, [focusZone, isImmersive, isOverlayOpen, selectedChannelId])
+
+  /**
+   * A fullscreen change can hand focus to the fullscreen element, which is outside the shell that owns the
+   * remote's keys — a focused button does not survive the transition in every browser. The viewer's place
+   * is given back when that happens, and only then: focus that is still inside the shell is never moved,
+   * so changing channels or pressing OK is unaffected. While an overlay is open it owns focus and nothing
+   * here may take it.
+   */
+  const previousFullscreenRef = useRef(fullscreen.isFullscreen)
+  useEffect(() => {
+    const changed = previousFullscreenRef.current !== fullscreen.isFullscreen
+    previousFullscreenRef.current = fullscreen.isFullscreen
+    if (!changed || isOverlayOpen) return
+
+    const shell = shellRef.current
+    const active = document.activeElement
+    if (!shell || (active instanceof HTMLElement && shell.contains(active))) return
+    restoreFocus()
+  }, [fullscreen.isFullscreen, isOverlayOpen, restoreFocus])
 
   /**
    * The keypad is an overlay of the stage.
@@ -481,6 +534,7 @@ function TVModeExperience() {
         query={query}
         isPremiumSubscriber={isPremiumSubscriber}
         autoTuneStatus={autoTune.status}
+        playingChannelId={playingChannelId}
         onEnterPlayerView={enterPlayerView}
         onExit={handleExit}
         onRefresh={handleRefresh}
@@ -506,6 +560,9 @@ function TVModeExperience() {
         onChannelPlaybackError={handleChannelPlaybackError}
         onStepChannel={stepChannel}
         onTransportReady={handleTransportReady}
+        isFullscreen={fullscreen.isFullscreen}
+        isFullscreenSupported={fullscreen.isSupported}
+        onToggleFullscreen={fullscreen.toggle}
         onUpgrade={handleUpgrade}
         onBackToChannels={focusChannels}
       />

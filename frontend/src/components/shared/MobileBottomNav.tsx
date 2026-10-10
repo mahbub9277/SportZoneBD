@@ -2,17 +2,20 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { Home, LayoutGrid, Radio, Swords, Tv } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { requestTVFullscreenFromActivation } from '../../features/tv/tvFullscreen'
 
 interface MobileNavItem {
   label: string
   href: string
   icon: LucideIcon
   end?: boolean
+  /** Runs during the tap, which is when a fullscreen request still counts as a user gesture. */
+  onActivate?: () => void
 }
 
 const navItems: MobileNavItem[] = [
   { label: 'Home', href: '/', icon: Home, end: true },
-  { label: 'TV Mode', href: '/tv', icon: Tv },
+  { label: 'TV Mode', href: '/tv', icon: Tv, onActivate: requestTVFullscreenFromActivation },
   { label: 'Matches', href: '/matches', icon: Swords },
   { label: 'Channels', href: '/channels', icon: Radio },
   { label: 'Categories', href: '/categories', icon: LayoutGrid },
@@ -40,6 +43,7 @@ export function MobileBottomNav() {
               key={item.href}
               to={item.href}
               end={item.end}
+              onClick={item.onActivate}
               aria-current={active ? 'page' : undefined}
               aria-label={item.label}
               title={item.label}

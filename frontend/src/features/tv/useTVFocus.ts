@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
-import { actionFromRemote, digitFromRemote } from './remoteKeys.ts'
+import { actionFromRemote, channelStepDirection, digitFromRemote } from './remoteKeys.ts'
 
 /**
  * The TV focus system.
@@ -134,21 +134,26 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
     // One normalized action for the key, whatever the remote called it.
     const action = actionFromRemote({ key: event.key, code: event.code })
 
+    // A held remote button repeats its key: one press is one action, so a repeat cannot run through the
+    // whole channel list or toggle playback twice.
     // Media and channel keys work from anywhere in the shell: they are what a TV remote sends for
     // play/pause and for channel up/down.
+    if (action === 'playPause' || action === 'channelUp' || action === 'channelDown') {
+      event.preventDefault()
+      if (event.repeat) return
+    }
+
     switch (action) {
       case 'playPause':
-        event.preventDefault()
         onTogglePlayback()
         return
-      case 'channelDown':
-        event.preventDefault()
-        onChannelStep(1)
-        return
       case 'channelUp':
-        event.preventDefault()
-        onChannelStep(-1)
+      case 'channelDown': {
+        // CH+ is the next channel and CH- the previous one, exactly as the direction helper defines it.
+        const direction = channelStepDirection(action)
+        if (direction) onChannelStep(direction)
         return
+      }
       case 'back':
         if (isEditable(target)) {
           // Backspace inside text entry stays a delete; Escape is the key that leaves the field.

@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import type { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import prisma from '../../core/prisma.js'
-import { comparePassword, hashPassword, hashOneTimeCode, verifyOneTimeCode, isOneTimeCodeUsable, signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken, isSupersededRefreshToken, nextSessionRefreshCredentials, serializeSessionRefreshCredentials, ACCESS_TOKEN_MAX_AGE_MS, SESSION_MAX_AGE_MS } from '../../core/auth.js';
+import { comparePassword, hashPassword, hashOneTimeCode, verifyOneTimeCode, isOneTimeCodeUsable, signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken, hashRefreshToken, compareRefreshToken, isSupersededRefreshToken, nextSessionRefreshCredentials, serializeSessionRefreshCredentials, ACCESS_TOKEN_MAX_AGE_MS, SESSION_MAX_AGE_MS } from '../../core/auth.js';
 import { successResponse, errorResponse } from '../../core/api-response.js'
 import { publicUserSelect } from '../users/user.utils.js';
 import { getUserProfile } from '../users/user.service.js';
@@ -467,6 +467,35 @@ export async function updateProfile(req: Request, res: Response) {
     logger.error({ error }, 'Failed to update profile');
     throw new AppError(500, 'Failed to update profile.');
   }
+}
+
+/**
+ * Records that the current session is still in use.
+ *
+ * The staff consoles call this on a slow interval while the tab is visible. It writes the session's own
+ * `updatedAt` — the same field a credential refresh touches — and changes nothing else: the expiry, the
+ * refresh credential and the absolute session lifetime are untouched, so a heartbeat can never extend how
+ * long a session is valid.
+ *
+ * The session comes from the authenticated request, never from the client.
+ */
+export async function heartbeatSession(req: Request, res: Response) {
+  const user = (req as Request & { user?: { id?: string; sessionId?: string } }).user
+
+  if (!user?.id || !user.sessionId) {
+    return res.status(401).json(errorResponse('Authentication required'))
+  }
+
+  const result = await prisma.session.updateMany({
+    where: { id: user.sessionId, userId: user.id, deletedAt: null, expiresAt: { gt: new Date() } },
+    data: { updatedAt: new Date() },
+  })
+
+  if (result.count === 0) {
+    return res.status(401).json(errorResponse('This session is no longer active'))
+  }
+
+  return res.status(200).json(successResponse({ recordedAt: new Date().toISOString() }, 'Session activity recorded'))
 }
 
 export async function logoutUser(req: Request, res: Response) {

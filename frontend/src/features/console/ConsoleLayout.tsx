@@ -2,6 +2,7 @@ import { Suspense, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { GlobalLoadingIndicator } from '../../components/shared/GlobalLoadingIndicator'
+import { useSessionHeartbeat } from '../moderation/useSessionHeartbeat'
 import { cn } from '../../lib/utils'
 import { ConsoleBaseContext } from './consoleBase'
 import { ConsoleHeader } from './components/ConsoleHeader'
@@ -26,6 +27,11 @@ interface ConsoleLayoutProps {
  */
 export function ConsoleLayout({ base, loginPath, brandSubtitle, sections }: ConsoleLayoutProps) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+
+  // A staff member working in a console is active by definition: this is what lets the activity view tell
+  // an open console apart from an abandoned tab. It writes one session timestamp every few minutes and
+  // never extends the session itself.
+  useSessionHeartbeat()
 
   return (
     <ConsoleBaseContext.Provider value={base}>

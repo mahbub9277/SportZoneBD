@@ -64,16 +64,49 @@ const KEY_ACTIONS: Record<string, TVRemoteAction> = {
 const DIGIT_KEY = /^[0-9]$/
 const NUMERIC_CODE = /^(?:Digit|Numpad)([0-9])$/
 
-/** The values worth looking at: a usable `key` first, then `code`. */
+/**
+ * The values worth looking at: a usable `key` first, then `code`.
+ *
+ * `code` is only consulted when `key` is missing or `Unidentified`, which is what most TV browsers
+ * report. A remote that does report a usable `key` keeps it, because that is what the platform
+ * actually asked for.
+ */
 const candidates = (input: TVRemoteInput): string[] =>
   [input.key, input.code ?? ''].filter((value) => Boolean(value) && value !== 'Unidentified')
 
+/**
+ * The actions only a media/channel key can produce. A remote's channel buttons are sometimes reported
+ * as a plain arrow in `key` while the `code` still names the real button; when that happens the
+ * dedicated button wins, so CH+ zaps instead of moving the list focus.
+ */
+const DEDICATED_ACTIONS: readonly TVRemoteAction[] = ['channelUp', 'channelDown', 'playPause']
+
 /** The action a remote key means, or null when the key belongs to the page. */
 export function actionFromRemote(input: TVRemoteInput): TVRemoteAction | null {
-  for (const value of candidates(input)) {
+  const values = candidates(input)
+  let firstMatch: TVRemoteAction | null = null
+
+  for (const value of values) {
     const action = KEY_ACTIONS[value]
-    if (action) return action
+    if (!action) continue
+    // A dedicated button named by the code outranks an arrow the browser put in the key.
+    if (DEDICATED_ACTIONS.includes(action)) return action
+    if (!firstMatch) firstMatch = action
   }
+
+  return firstMatch
+}
+
+/**
+ * The channel-step direction a channel action means, or null when the action is not a channel step.
+ *
+ * CH+ is the next channel in catalogue order — the same direction the player's "Next channel" button
+ * uses — and CH− is the previous one. Keeping the direction here means the focus hook cannot drift
+ * from the key table.
+ */
+export function channelStepDirection(action: TVRemoteAction | null): 1 | -1 | null {
+  if (action === 'channelUp') return 1
+  if (action === 'channelDown') return -1
   return null
 }
 

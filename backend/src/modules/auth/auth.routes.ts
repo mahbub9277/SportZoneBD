@@ -20,6 +20,7 @@ import {
   updateProfile,
   logoutUser,
   refreshAccessToken,
+  heartbeatSession,
   googleCallback,
 } from './auth.controller.js'
 
@@ -99,6 +100,10 @@ authRouter.patch('/profile', authenticate, upload.single('avatar'), validateBody
 authRouter.post('/logout', asyncHandler(logoutUser))
 
 authRouter.post('/refresh', asyncHandler(refreshAccessToken))
+
+// Session activity, used by the staff consoles' slow heartbeat. It only records that the session is
+// still in use; it never extends the session.
+authRouter.post('/session/heartbeat', authenticate, asyncHandler(heartbeatSession))
 
 // Google OAuth Routes
 authRouter.get(

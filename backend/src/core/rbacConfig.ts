@@ -31,6 +31,15 @@ export const defaultPermissions = [
   { key: 'admin.media.manage', description: 'Upload and manage media assets' },
   // Engagement/notification content. Deliberately excluded from the moderator permission set.
   { key: 'admin.content.manage', description: 'Manage advertisements, popups and email templates' },
+  // Moderation operations. Each one is a single capability rather than a slice of the admin console:
+  // reviewing reports, deciding manual payments, reading premium records, sending campaigns, and
+  // reading the moderation audit trail.
+  { key: 'admin.reports.manage', description: 'Review and resolve user reports' },
+  { key: 'admin.payments.review', description: 'Decide manual payment submissions' },
+  { key: 'admin.premium.view', description: 'View premium members and subscription records' },
+  { key: 'admin.push.send', description: 'Send push notification campaigns' },
+  { key: 'admin.email.send', description: 'Send email notification campaigns' },
+  { key: 'admin.activity.view', description: 'View moderation activity and audit history' },
   { key: 'moderator.dashboard.view', description: 'View the moderator dashboard' },
   { key: 'content.live.watch', description: 'Watch premium live content' },
   { key: 'content.highlights.view', description: 'View highlights' },
@@ -40,9 +49,27 @@ export type RoleName = (typeof defaultRoles)[number]['name']
 export type PermissionKey = (typeof defaultPermissions)[number]['key']
 
 /**
- * Permissions a moderator may hold. This is the allow-list the role is seeded from; anything not
- * named here (user administration, settings, payments, engagement content, the admin dashboard)
- * stays out of the moderator's reach.
+ * Capabilities that describe the moderation operations a moderator runs.
+ *
+ * They are named separately because the moderator set and the admin set are both built from them: the
+ * two roles hold the same moderation capabilities, while everything else an administrator has stays
+ * out of the moderator's reach.
+ */
+const MODERATION_OPERATION_PERMISSIONS: PermissionKey[] = [
+  'admin.reports.manage',
+  'admin.payments.view',
+  'admin.payments.review',
+  'admin.premium.view',
+  'admin.push.send',
+  'admin.email.send',
+  'admin.activity.view',
+]
+
+/**
+ * Permissions a moderator may hold. This is the allow-list the role is seeded from: the project
+ * management surface plus the moderation operations above. Anything not named here (user
+ * administration, platform settings, engagement content, the admin dashboard, premium playback) stays
+ * out of the moderator's reach, and nothing here can create or edit a payment, plan price or role.
  */
 export const MODERATOR_PERMISSIONS: PermissionKey[] = [
   'moderator.dashboard.view',
@@ -54,6 +81,7 @@ export const MODERATOR_PERMISSIONS: PermissionKey[] = [
   'admin.banners.manage',
   'admin.teams.view',
   'admin.media.manage',
+  ...MODERATION_OPERATION_PERMISSIONS,
 ]
 
 /** Permissions an administrator holds, expressed as the pre-existing set plus everything split out of it. */
@@ -72,18 +100,20 @@ const ADMIN_PERMISSIONS: PermissionKey[] = [
   'admin.media.manage',
   'admin.content.manage',
   'content.highlights.view',
+  ...MODERATION_OPERATION_PERMISSIONS,
 ]
 
 /**
  * The effective permission matrix for the seeded system roles.
  *
- * Admin and super admin keep every permission they had before, plus the permissions split out of
- * `admin.matches.manage`, so their existing access to advertisements, popups and email templates is
- * unchanged. A moderator receives the project-management surface and nothing else.
+ * Admin and super admin keep every permission they had before, including the moderation operations,
+ * so gating report review, manual payment decisions, premium records, campaigns and the audit trail by
+ * permission changes nothing about what an administrator can reach. A moderator receives the
+ * project-management surface plus those moderation operations and nothing else.
  */
 export const rolePermissions: Record<RoleName, PermissionKey[]> = {
-  super_admin: [...ADMIN_PERMISSIONS, 'content.live.watch'],
-  admin: ADMIN_PERMISSIONS,
+  super_admin: [...new Set<PermissionKey>([...ADMIN_PERMISSIONS, 'content.live.watch'])],
+  admin: [...new Set(ADMIN_PERMISSIONS)],
   moderator: MODERATOR_PERMISSIONS,
   premium_user: ['content.live.watch', 'content.highlights.view'],
   user: ['content.highlights.view'],
