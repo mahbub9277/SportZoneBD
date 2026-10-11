@@ -26,8 +26,8 @@ export function ManualVerificationPage() {
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} whileHover={{ y: -4 }}><Card className="border-brand-border bg-brand-surface/50 shadow-xl">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl text-brand-text-primary"><motion.span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 text-white" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}><ShieldCheck className="h-5 w-5" /></motion.span>Manual Payment Verification</CardTitle>
-          <p className="text-sm text-brand-text-muted">Review and process payments that require manual confirmation.</p>
+          <CardTitle className="flex items-center gap-2 text-2xl text-brand-text-primary"><motion.span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 text-white" whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }}><ShieldCheck className="h-5 w-5" /></motion.span>Payment Exceptions</CardTitle>
+          <p className="text-sm text-brand-text-muted">Payments are confirmed automatically with the payment provider and activate Premium on their own. A payment appears here only when it could not be confirmed automatically — an unconfirmed or unmatched payment — and it needs a human decision.</p>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -55,9 +55,9 @@ export function ManualVerificationPage() {
                     </tr>
                   ))
                 ) : isError ? (
-                  <tr><td colSpan={6} className="p-6 text-center text-red-400">Failed to load pending payments.</td></tr>
+                  <tr><td colSpan={6} className="p-6 text-center text-red-400">Failed to load payments.</td></tr>
                 ) : pendingPayments.length === 0 ? (
-                  <tr><td colSpan={6} className="p-6 text-center text-brand-text-muted">No payments are pending manual verification.</td></tr>
+                  <tr><td colSpan={6} className="p-6 text-center text-brand-text-muted">No payments need a decision: every submission has been verified automatically.</td></tr>
                 ) : (
                   pendingPayments.map((payment) => (
                     <tr key={payment.id} className="border-b border-brand-border bg-brand-surface-soft/50 last:border-b-0">

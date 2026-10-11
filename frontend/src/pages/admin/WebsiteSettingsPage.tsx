@@ -25,14 +25,12 @@ type WebsiteSettingsForm = {
   'site.title': string
   'site.description': string
   'site.tagline': string
-  BKASH_MANUAL_PAYMENT_NUMBER: string
 }
 
 const defaultForm: WebsiteSettingsForm = {
   'site.title': '',
   'site.description': '',
   'site.tagline': '',
-  BKASH_MANUAL_PAYMENT_NUMBER: '',
 }
 
 export default function WebsiteSettingsPage() {
@@ -55,7 +53,6 @@ export default function WebsiteSettingsPage() {
       'site.title': settingsMap['site.title'] ?? previous['site.title'] ?? '',
       'site.description': settingsMap['site.description'] ?? previous['site.description'] ?? '',
       'site.tagline': settingsMap['site.tagline'] ?? previous['site.tagline'] ?? '',
-      BKASH_MANUAL_PAYMENT_NUMBER: settingsMap.BKASH_MANUAL_PAYMENT_NUMBER ?? previous.BKASH_MANUAL_PAYMENT_NUMBER ?? '',
     })))
   }, [settingsMap])
 
@@ -67,7 +64,6 @@ export default function WebsiteSettingsPage() {
         { key: 'site.title', value: form['site.title'] },
         { key: 'site.description', value: form['site.description'] },
         { key: 'site.tagline', value: form['site.tagline'] },
-        { key: 'BKASH_MANUAL_PAYMENT_NUMBER', value: form.BKASH_MANUAL_PAYMENT_NUMBER },
       ]
 
       await upsertSetting(settingsToSave).unwrap()
@@ -210,17 +206,6 @@ export default function WebsiteSettingsPage() {
                   className="rounded-lg border-(--border)/60 bg-(--background)/60 px-4 py-2.5 text-base transition hover:border-(--border) focus:bg-(--background) focus:ring-2 focus:ring-(--accent)/30"
                 />
                 <p className="text-xs font-medium text-(--text-muted)/70">Used for SEO and social media metadata.</p>
-              </motion.div>
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="premium-border space-y-3 rounded-xl bg-(--surface-soft)/20 p-4">
-                <Label htmlFor="BKASH_MANUAL_PAYMENT_NUMBER" className="text-sm font-semibold text-(--text-primary)/90">Manual bKash Payment Number</Label>
-                <Input
-                  id="BKASH_MANUAL_PAYMENT_NUMBER"
-                  value={form.BKASH_MANUAL_PAYMENT_NUMBER}
-                  onChange={(event) => setForm((previous) => ({ ...previous, BKASH_MANUAL_PAYMENT_NUMBER: event.target.value }))}
-                  placeholder="01XXXXXXXXX"
-                  className="rounded-lg border-(--border)/60 bg-(--background)/60 px-4 py-2.5 text-base font-mono transition hover:border-(--border) focus:bg-(--background) focus:ring-2 focus:ring-(--accent)/30"
-                />
-                <p className="text-xs font-medium text-(--text-muted)/70">Displayed to users during manual payment checkout.</p>
               </motion.div>
             </div>
           )}

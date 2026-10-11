@@ -42,7 +42,14 @@ apiRouter.use('/auth', authLimiter, authRouter)
 apiRouter.use('/advertisements', publicAdvertisementsRouter)
 apiRouter.use('/popups', publicPopupsRouter)
 apiRouter.use('/subscriptions', (req, res, next) => (req.method === 'GET' || req.method === 'OPTIONS' ? next() : authenticate(req, res, next)), subscriptionRouter)
-apiRouter.use('/payments', paymentLimiter, (req, res, next) => {
+apiRouter.use('/payments', (req, res, next) => {
+  // The provider callback is reached by ZiniPay's servers, not by a customer: it carries its own limit
+  // inside the router and must not be counted against the customer-facing payment budget.
+  if (req.method === 'OPTIONS' || req.path.startsWith('/webhook')) {
+    return next()
+  }
+  return paymentLimiter(req, res, next)
+}, (req, res, next) => {
   if (req.method === 'OPTIONS' || req.path.startsWith('/webhook')) {
     return next()
   }

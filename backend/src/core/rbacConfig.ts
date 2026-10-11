@@ -32,10 +32,10 @@ export const defaultPermissions = [
   // Engagement/notification content. Deliberately excluded from the moderator permission set.
   { key: 'admin.content.manage', description: 'Manage advertisements, popups and email templates' },
   // Moderation operations. Each one is a single capability rather than a slice of the admin console:
-  // reviewing reports, deciding manual payments, reading premium records, sending campaigns, and
-  // reading the moderation audit trail.
+  // reviewing reports, deciding payments the provider could not verify, reading premium records, sending
+  // campaigns, and reading the moderation audit trail.
   { key: 'admin.reports.manage', description: 'Review and resolve user reports' },
-  { key: 'admin.payments.review', description: 'Decide manual payment submissions' },
+  { key: 'admin.payments.review', description: 'Decide payments that could not be verified automatically' },
   { key: 'admin.premium.view', description: 'View premium members and subscription records' },
   { key: 'admin.push.send', description: 'Send push notification campaigns' },
   { key: 'admin.email.send', description: 'Send email notification campaigns' },

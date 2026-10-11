@@ -59,7 +59,7 @@ export const navSections: NavSection[] = [
     links: [
       { label: 'Subscription Plans', mobileLabel: 'Plans', href: '/admin/subscription-plans', icon: 'CreditCard' },
       { label: 'Payments', href: '/admin/payments', icon: 'Receipt' },
-      { label: 'Manual Review', href: '/admin/manual-verification', icon: 'Check' },
+      { label: 'Payment Exceptions', mobileLabel: 'Exceptions', href: '/admin/manual-verification', icon: 'Check' },
     ],
   },
   {

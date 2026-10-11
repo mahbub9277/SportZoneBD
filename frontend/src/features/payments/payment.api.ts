@@ -12,16 +12,30 @@ interface Payment {
   provider: string
   transactionId?: string | null
   createdAt: string
+  verificationResult?: string | null
   subscriptionPlan?: { name: string }
 }
 
-interface ManualPaymentConfig {
-  paymentNumber: string | null
+/** The hosted checkout session the backend created with ZiniPay for one SportZoneBD payment. */
+export interface HostedCheckoutSession {
+  paymentId: string
+  /** The official ZiniPay payment page. The only thing the browser is allowed to trust is the redirect. */
+  paymentUrl: string
+  amount: string
+  currency: string
+  planName: string
+  /** How long the customer has before the invoice should be considered stale (minutes). */
+  expiresInMinutes: number
 }
 
-interface ManualPaymentPayload {
-  subscriptionPlanId: string;
-  transactionId: string;
+/** `status` is the provider's own invoice state after a server-side check. */
+export type HostedCheckoutStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'UNKNOWN'
+
+export interface HostedCheckoutState {
+  status: HostedCheckoutStatus
+  /** A sentence from the backend, safe to show as-is. */
+  message: string
+  payment: Payment
 }
 
 interface CompletePaymentPayload {
@@ -36,14 +50,27 @@ export const paymentApi = emptyApi.injectEndpoints({
       transformResponse: (response: { data: SubscriptionPlan[] }) => response.data,
       providesTags: (result) => (result ? [...result.map(({ id }) => ({ type: 'SubscriptionPlan' as const, id })), { type: 'SubscriptionPlan', id: 'LIST' }] : [{ type: 'SubscriptionPlan', id: 'LIST' }]),
     }),
-    getManualPaymentConfig: builder.query<ManualPaymentConfig, void>({
-      query: () => '/payments/manual-config',
-      transformResponse: (response: ApiResponse<ManualPaymentConfig>) => unwrapApiResponse(response),
+    /**
+     * Asks the backend to create (or reuse) a ZiniPay hosted payment session for a plan.
+     *
+     * The browser never sees the ZiniPay credentials and never builds the payment request: it receives the
+     * official payment page URL and redirects to it.
+     */
+    startHostedCheckout: builder.mutation<HostedCheckoutSession, { subscriptionPlanId: string }>({
+      query: (body) => ({ url: '/payments/checkout', method: 'POST', body }),
+      transformResponse: (response: ApiResponse<HostedCheckoutSession>) => unwrapApiResponse(response),
     }),
-    submitManualPayment: builder.mutation<Payment, ManualPaymentPayload>({
-      query: (body) => ({ url: '/payments/verify', method: 'POST', body }),
-      transformResponse: (response: ApiResponse<Payment>) => unwrapApiResponse(response),
-      invalidatesTags: ['Payments'],
+    /**
+     * Server-side verification of the invoice behind a payment.
+     *
+     * Called when the customer returns from ZiniPay (and again on request while the answer is pending). A
+     * `COMPLETED` answer is the only thing that activates premium, and the premium state is refetched in the
+     * same step so the membership UI updates immediately.
+     */
+    verifyHostedCheckout: builder.mutation<HostedCheckoutState, { paymentId: string }>({
+      query: ({ paymentId }) => ({ url: `/payments/checkout/${paymentId}/verify`, method: 'POST' }),
+      transformResponse: (response: ApiResponse<HostedCheckoutState>) => unwrapApiResponse(response),
+      invalidatesTags: (result) => (result?.status === 'COMPLETED' ? ['Payments', 'ME'] : ['Payments']),
     }),
     completePayment: builder.mutation<User, CompletePaymentPayload>({
       query: (body) => ({
@@ -66,4 +93,4 @@ export const paymentApi = emptyApi.injectEndpoints({
   }),
 })
 
-export const { useGetSubscriptionPlansQuery, useGetManualPaymentConfigQuery, useSubmitManualPaymentMutation, useCompletePaymentMutation, useGetPaymentHistoryQuery, useClearPaymentHistoryMutation } = paymentApi
+export const { useGetSubscriptionPlansQuery, useStartHostedCheckoutMutation, useVerifyHostedCheckoutMutation, useCompletePaymentMutation, useGetPaymentHistoryQuery, useClearPaymentHistoryMutation } = paymentApi

@@ -15,8 +15,8 @@ export const createIntentSchema = z.object({
   provider: z.string().min(1, 'Payment provider is required.'),
 });
 
-export const verifyPaymentSchema = z.object({
-  transactionId: z.string().trim().min(1),
+/** The hosted checkout start payload: only the plan, never an amount. */
+export const startCheckoutSchema = z.object({
   subscriptionPlanId: z.string().uuid(),
 });
 
@@ -77,10 +77,30 @@ export const completePayment = asyncHandler(async (req: Request, res: Response) 
   throw new UnauthorizedError('Subscription activation is performed only after admin payment approval.');
 });
 
+/**
+ * Provider callbacks.
+ *
+ * `zinipay`: the hosted-checkout callback. The provider documents no signature for it, so the payload is
+ * treated as an untrusted hint: it only decides *which* payment to look at, and the payment is then proven by
+ * asking the provider's verification endpoint from the server. A callback about an invoice we do not know is
+ * answered with 200 and no provider request, so the public URL cannot be used to make us call the provider in
+ * a loop.
+ *
+ * `bkash`: the pre-existing direct-webhook branch, kept exactly as it was.
+ */
 export const handleWebhook = asyncHandler(async (req: Request, res: Response) => {
   const { provider } = req.params;
-  const signature = req.headers['x-bkash-signature'] as string; // Or the header your provider uses
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+
+  if (provider.toLowerCase() === 'zinipay') {
+    const result = await paymentService.handleZiniPayWebhook({
+      body: req.body as Record<string, unknown> | undefined,
+      query: req.query as Record<string, unknown>,
+    });
+    return res.status(200).json({ success: true, message: result.message });
+  }
+
+  const signature = req.headers['x-bkash-signature'] as string; // Or the header your provider uses
 
   if (!rawBody) {
     throw new Error('Raw body not available for webhook verification. Ensure express.json `verify` is configured.');
@@ -194,14 +214,41 @@ export const getPremiumMembers = asyncHandler(async (req: Request, res: Response
   res.status(200).json(successResponse(members.items, 'Premium members retrieved successfully.', members.meta));
 });
 
-export const verifyManualPayment = asyncHandler(async (req: Request, res: Response) => {
-  const payload = verifyPaymentSchema.parse(req.body);
+/**
+ * Starts (or resumes) a hosted ZiniPay payment session for a plan.
+ *
+ * The customer is answered with the official payment page URL; the credentials and the invoice request stay on
+ * the server.
+ */
+export const startHostedCheckout = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req.user as { id: string })?.id;
+  const user = req.user as { id?: string; email?: string | null; fullName?: string | null } | undefined;
   if (!userId) return res.status(401).json(errorResponse('Authentication required.'));
-  const payment = await paymentService.createManualPayment({ userId, ...payload });
-  return res.status(201).json(successResponse(payment, 'Payment recorded and is pending verification.'));
+
+  const { subscriptionPlanId } = startCheckoutSchema.parse(req.body);
+  const session = await paymentService.startHostedCheckout({
+    userId,
+    subscriptionPlanId,
+    customerEmail: user?.email ?? null,
+    customerName: user?.fullName ?? null,
+  });
+
+  return res.status(201).json(successResponse(session, session.reused ? 'Payment session resumed.' : 'Payment session created.'));
 });
 
-export const getManualPaymentConfig = asyncHandler(async (_req: Request, res: Response) => {
-  res.status(200).json(successResponse(await paymentService.getManualPaymentConfig()));
+/**
+ * Verifies the invoice behind a payment with ZiniPay, server-side, and reports the outcome.
+ *
+ * This is what the return page calls. Premium is activated here and nowhere else, exactly once, and a pending
+ * or unknown answer never activates anything.
+ */
+export const verifyHostedCheckout = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req.user as { id: string })?.id;
+  if (!userId) return res.status(401).json(errorResponse('Authentication required.'));
+
+  const paymentId = typeof req.params.paymentId === 'string' ? req.params.paymentId : '';
+  const result = await paymentService.verifyHostedCheckout({ paymentId, userId });
+
+  // A pending or failed payment is a truthful answer, not an error: the page shows the status it receives.
+  return res.status(200).json(successResponse(result, result.message));
 });

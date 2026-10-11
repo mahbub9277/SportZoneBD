@@ -52,6 +52,21 @@ export const uploadLimiter = rateLimit({
   message: rateLimitResponse,
 })
 
+/**
+ * Rate control for provider callbacks.
+ *
+ * The callback is unauthenticated by design (the provider's servers call it) and it is internally throttled,
+ * but it must not be squeezed by the customer-facing payment limit either: several payments landing in the
+ * same minute are normal traffic for a provider, not abuse.
+ */
+export const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.PAYMENT_WEBHOOK_RATE_LIMIT ?? 300),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: rateLimitResponse,
+})
+
 export const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.PAYMENT_RATE_LIMIT ?? 30),

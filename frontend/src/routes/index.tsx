@@ -112,6 +112,8 @@ const TVModePage = lazyRoute(() => import('@/features/tv/TVModePage'), 'TVModePa
 const HighlightsPage = lazyRoute(() => import('@/pages/explore/HighlightsPage'), 'HighlightsPage')
 const StandingsPage = lazyRoute(() => import('@/pages/explore/StandingsPage'), 'StandingsPage')
 const SubscriptionsPage = lazyRoute(() => import('@/pages/SubscriptionsPage'), 'SubscriptionsPage')
+const CheckoutPage = lazyRoute(() => import('@/pages/CheckoutPage'), 'CheckoutPage')
+const CheckoutReturnPage = lazyRoute(() => import('@/pages/CheckoutReturnPage'), 'CheckoutReturnPage')
 const EventPage = lazyRoute(() => import('@/pages/events/EventPage'), 'EventPage')
 import type { RootState } from '@/app/store' // Import RootState from store
 import type { RouteObject } from 'react-router-dom'
@@ -287,6 +289,8 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute />,
             children: [
+              { path: 'checkout', element: <CheckoutPage /> },
+              { path: 'checkout/return', element: <CheckoutReturnPage /> },
               { path: 'reports', element: <ReportsPage /> },
               { path: 'profile', element: <ProfilePage /> },
               { path: 'profile/settings', element: <UserSettingsPage /> },

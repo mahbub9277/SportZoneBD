@@ -186,6 +186,24 @@ model Payment {
   currency           String        @default("BDT")
   status             PaymentStatus @default(PENDING)
   verificationResult String?
+  /**
+   * Sanitized record of the provider (ZiniPay) verification behind this payment: the verification id,
+   * the verified amount/provider/status, a masked sender and the confirm outcome with its timestamps.
+   * Null for a payment nobody verified automatically.
+   */
+  providerVerification Json?
+  /**
+   * The hosted payment page URL the customer was sent to, plus when the server last checked that invoice
+   * and what the provider answered. Only ever observability: paying is proven by the server-side
+   * verification, never by this value.
+   */
+  providerCheckout Json?
+  /**
+   * Set while a hosted checkout session is being created for this payment. It is the reservation marker the
+   * partial unique index `Payment_hosted_open_session_key` uses to guarantee one open session per customer and
+   * plan, and its age is what makes an abandoned reservation recoverable. Null for every other payment.
+   */
+  checkoutReservationAt DateTime?
   reviewedBy         String?       @db.Uuid
   reviewedAt         DateTime?
   rejectionReason    String?       @db.Text

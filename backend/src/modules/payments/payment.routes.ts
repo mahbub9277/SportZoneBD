@@ -12,18 +12,18 @@ import {
   getPendingVerifications,
   getPremiumMembers,
   processVerification,
-  verifyManualPayment,
-  getManualPaymentConfig,
+  startHostedCheckout,
+  verifyHostedCheckout,
   createIntentSchema,
-  verifyPaymentSchema,
+  startCheckoutSchema,
 } from './payment.controller.js'
 import type { RequestHandler } from 'express'
 import { authenticate, requirePermission } from '../../core/middleware/index.js'
+import { webhookLimiter } from '../../middleware/rateLimiter.js'
 
 export const paymentRouter: ExpressRouter = Router()
 
-paymentRouter.get('/methods', async (_req: Request, res: Response) => {
-  const methods = await prisma.paymentMethod.findMany({
+paymentRouter.get('/methods', async (_req: Request, res: Response) => {  const methods = await prisma.paymentMethod.findMany({
     where: { deletedAt: null },
     orderBy: { displayName: 'asc' },
     select: {
@@ -43,10 +43,15 @@ paymentRouter.post('/create-intent', authenticate, validateBody(createIntentSche
 
 // This route completes the payment and updates the user's subscription.
 paymentRouter.post('/complete', authenticate, completePayment as RequestHandler)
-paymentRouter.get('/manual-config', authenticate, getManualPaymentConfig as RequestHandler)
 
-// This route handles webhooks from payment providers
-paymentRouter.post('/webhook/:provider', handleWebhook as RequestHandler);
+// The hosted checkout: the server creates the provider session and the customer is sent to the official
+// payment page. Premium is activated only after the server verifies the invoice.
+paymentRouter.post('/checkout', authenticate, validateBody(startCheckoutSchema), startHostedCheckout as RequestHandler)
+paymentRouter.post('/checkout/:paymentId/verify', authenticate, verifyHostedCheckout as RequestHandler)
+
+// This route handles webhooks from payment providers. It is unauthenticated because the provider's servers
+// call it, so it carries its own (separate, more generous) limit and never trusts what it is told.
+paymentRouter.post('/webhook/:provider', webhookLimiter, handleWebhook as RequestHandler);
 
 // Payment records and the review queue. Both are gated by permission rather than by role name, so the
 // same moderator console that lists payments is the only way in and the backend decides for itself.
@@ -61,5 +66,3 @@ paymentRouter.get('/premium-members', requirePermission('admin.premium.view'), g
 // This route will be called by the frontend to get the user's payment history.
 paymentRouter.get('/history', authenticate, getHistory as RequestHandler)
 paymentRouter.delete('/history', authenticate, clearHistory as RequestHandler)
-
-paymentRouter.post('/verify', authenticate, validateBody(verifyPaymentSchema), verifyManualPayment as RequestHandler)

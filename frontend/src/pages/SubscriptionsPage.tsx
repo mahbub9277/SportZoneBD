@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Crown, Check, Copy, Smartphone } from 'lucide-react'
+import { ChevronDown, ChevronUp, Crown, Check, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHero } from '@/components/shared/PageHero'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -9,12 +9,9 @@ import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import { useAppSelector } from '@/app/hooks'
 import { selectIsAuthenticated } from '@/features/auth/authSlice'
-import { useGetManualPaymentConfigQuery, useGetSubscriptionPlansQuery, useSubmitManualPaymentMutation } from '@/features/payments/payment.api'
-import { getErrorMessage } from '@/utils/get-error-message'
+import { useGetSubscriptionPlansQuery } from '@/features/payments/payment.api'
 import { Skeleton } from '@/components/ui/Skeleton'
 import type { SubscriptionPlan } from '@/features/admin/subscriptionPlans.api'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog'
-import { Input } from '@/components/ui/Input'
 import { useGetMeQuery } from '@/features/auth/auth.api'
 
 function formatRemaining(seconds: number) {
@@ -53,13 +50,8 @@ export function SubscriptionsPage() {
   const shouldReduceMotion = useReducedMotion()
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
   const { data: plans = [], isLoading: isLoadingPlans, isError } = useGetSubscriptionPlansQuery()
-  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null)
   const [expandedPlanIds, setExpandedPlanIds] = useState<Set<string>>(new Set())
-  const [isPaymentStepOpen, setIsPaymentStepOpen] = useState(false)
-  const [transactionId, setTransactionId] = useState('')
-  const { data: manualConfig } = useGetManualPaymentConfigQuery(undefined, { skip: !isAuthenticated })
   const { data: user, refetch: refetchUser } = useGetMeQuery(undefined, { skip: !isAuthenticated })
-  const [submitManualPayment, { isLoading: isSubmitting }] = useSubmitManualPaymentMutation()
   const [now, setNow] = useState(() => Date.now())
   const activeSubscription = user?.subscription && user.subscription.status === 'ACTIVE' && new Date(user.subscription.expiresAt).getTime() > now ? user.subscription : null
   const remainingSeconds = activeSubscription ? Math.max(0, Math.floor((new Date(activeSubscription.expiresAt).getTime() - now) / 1000)) : 0
@@ -102,13 +94,13 @@ export function SubscriptionsPage() {
         const planToPurchase = plans.find((p) => p.id === planId)
         if (planToPurchase) {
           sessionStorage.removeItem('post-auth-action')
-          startTransition(() => setSelectedPlan(planToPurchase))
+          startTransition(() => navigate(`/checkout?plan=${planToPurchase.id}`, { replace: true }))
         }
       }
     }
-  }, [isAuthenticated, plans])
+  }, [isAuthenticated, plans, navigate])
 
-  const handleChoosePlan = async (tier: SubscriptionPlan) => {
+  const handleChoosePlan = (tier: SubscriptionPlan) => {
     if (!isAuthenticated) {
       // Store the intended action and redirect to login
       sessionStorage.setItem('post-auth-action', JSON.stringify({ action: 'subscribe', planId: tier.id }))
@@ -117,22 +109,8 @@ export function SubscriptionsPage() {
       return
     }
 
-    setTransactionId('')
-    setSelectedPlan(tier)
-    setIsPaymentStepOpen(!activeSubscription)
-  }
-
-  const handleSubmit = async () => {
-    if (!selectedPlan || !transactionId.trim()) return
-    try {
-      await submitManualPayment({ subscriptionPlanId: selectedPlan.id, transactionId: transactionId.trim() }).unwrap()
-      toast.success('Payment submitted for admin review.')
-      setSelectedPlan(null)
-      setIsPaymentStepOpen(false)
-      setTransactionId('')
-    } catch (error) {
-      toast.error(`Payment submission failed: ${getErrorMessage(error)}`)
-    }
+    // The payment page owns the wallet choice, the receiving number and the verification state.
+    navigate(`/checkout?plan=${tier.id}`)
   }
 
   return (
@@ -183,12 +161,10 @@ export function SubscriptionsPage() {
           ))}
         {!isLoadingPlans && primaryPlans.map((plan, index) => {
           const isCurrentPlan = activeSubscription?.plan.id === plan.id
-          const isSelectedPlan = selectedPlan?.id === plan.id
-          const hasStateCard = Boolean(activeSubscription || selectedPlan)
-          // With no current/selected plan, the middle card is the visual focal point only; it carries no
-          // badge and no recommendation claim, it just produces the center-focused composition.
-          const isFocalDefault = !hasStateCard && primaryPlans.length > 1 && index === Math.floor(primaryPlans.length / 2)
-          const isProminent = isCurrentPlan || isSelectedPlan || isFocalDefault
+          // With no current plan, the middle card is the visual focal point only; it carries no badge and no
+          // recommendation claim, it just produces the center-focused composition.
+          const isFocalDefault = !activeSubscription && primaryPlans.length > 1 && index === Math.floor(primaryPlans.length / 2)
+          const isProminent = isCurrentPlan || isFocalDefault
           const siblingRecedes = !isProminent
 
           return (
@@ -213,10 +189,10 @@ export function SubscriptionsPage() {
             <div aria-hidden="true" className={cn('pointer-events-none absolute inset-0 transition-opacity duration-700', isProminent ? 'opacity-100' : 'opacity-0')}>
               <div className="pricing-card-glow absolute -inset-1/3 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(247,199,93,0.30),rgba(4,116,196,0.18)_45%,transparent_72%)]" />
             </div>
-            {(isCurrentPlan || isSelectedPlan) && (
+            {isCurrentPlan && (
               <div className="absolute right-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-accent backdrop-blur-sm">
                 <Crown className="h-3.5 w-3.5" aria-hidden="true" />
-                {isCurrentPlan ? 'Current plan' : 'Selected'}
+                Current plan
               </div>
             )}
             <Smartphone className="pointer-events-none absolute -right-5 -top-5 h-28 w-28 text-(--accent)/5" aria-hidden="true" />
@@ -283,52 +259,6 @@ export function SubscriptionsPage() {
           )
         })}
       </motion.div>
-      <Dialog open={!!selectedPlan} onOpenChange={(open) => { if (!open) { setSelectedPlan(null); setIsPaymentStepOpen(false) } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Manual bKash Payment</DialogTitle>
-            <DialogDescription>Send the exact amount, then submit your transaction ID for admin review.</DialogDescription>
-          </DialogHeader>
-          {selectedPlan && (
-            <div className="space-y-5">
-              {activeSubscription && activeSubscription.plan.id !== selectedPlan.id && !isPaymentStepOpen ? (
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm text-text-primary">
-                    <p className="font-semibold">You already have an active Premium subscription.</p>
-                    <p className="mt-2 text-text-muted">Your current {activeSubscription.plan.name} subscription will remain active. Current remaining time: {formatRemaining(remainingSeconds)}. After successful payment, {selectedPlan.durationDays} days will be added to its current expiry.</p>
-                  </div>
-                  <Button className="w-full" onClick={() => setIsPaymentStepOpen(true)}>Continue to Payment</Button>
-                </div>
-              ) : (
-                <>
-              <div className="rounded-lg border border-border/50 bg-surface-soft p-4">
-                <p className="font-semibold text-text-primary">{selectedPlan.name}</p>
-                <p className="text-2xl font-bold text-text-primary">{selectedPlan.price} BDT</p>
-                <p className="text-sm text-text-muted">{selectedPlan.durationDays} days</p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-text-primary">bKash payment number</p>
-                <div className="flex gap-2">
-                  <Input readOnly value={manualConfig?.paymentNumber ?? 'Not configured'} />
-                  <Button type="button" variant="outline" size="icon" disabled={!manualConfig?.paymentNumber} onClick={() => navigator.clipboard.writeText(manualConfig!.paymentNumber!)} aria-label="Copy bKash number">
-                    <motion.div whileHover={{ scale: 1.15, rotate: 5 }} whileTap={{ scale: 0.9 }} className="flex items-center justify-center">
-                      <Copy className="h-4 w-4" />
-                    </motion.div>
-                  </Button>
-                </div>
-                <p className="text-sm text-text-muted">bKash app -&gt; Send Money -&gt; enter payment number -&gt; enter exact amount</p>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="transaction-id" className="text-sm font-semibold text-text-primary">Transaction ID</label>
-                <Input id="transaction-id" value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="Enter Transaction ID" />
-              </div>
-                  <Button className="w-full" onClick={handleSubmit} disabled={isSubmitting || !transactionId.trim() || !manualConfig?.paymentNumber} isLoading={isSubmitting}>Verify Payment</Button>
-                </>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </motion.div>
   )
 }
