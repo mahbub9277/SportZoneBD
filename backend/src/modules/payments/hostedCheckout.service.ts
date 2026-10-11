@@ -364,6 +364,13 @@ export async function startHostedCheckout(
     }
   } catch (error) {
     const failure = error instanceof ZiniPayCheckoutFailure ? error : null
+    // Diagnostics are the provider response's shape only (field names, flags, http status) — never values,
+    // never the payment URL and never the API key — so a production failure is diagnosable from one log line.
+    const diagnostics = failure?.diagnostics ?? null
+    const failureNote = diagnostics === null
+      ? (failure?.message ?? 'unknown').slice(0, 200)
+      : `${(failure?.message ?? 'unknown').slice(0, 120)} (http=${diagnostics.httpStatus ?? 'n/a'} fields=${diagnostics.fields.join('|') || 'none'})`
+
     // The attempt is kept as a record, but it is not left looking like something the customer can still pay.
     await prisma.payment.updateMany({
       where: { id: payment.id, status: 'PENDING' },
@@ -379,13 +386,16 @@ export async function startHostedCheckout(
           lastFailure: {
             kind: failure?.kind ?? 'unknown',
             at: new Date().toISOString(),
-            note: (failure?.message ?? 'unknown').slice(0, 200),
+            note: failureNote,
           },
         }),
       },
     })
 
-    logger.warn({ paymentId: payment.id, status: getZiniPayCheckoutStatus(error), kind: failure?.kind ?? 'unknown' }, 'ZiniPay hosted checkout could not be created')
+    logger.warn(
+      { paymentId: payment.id, status: getZiniPayCheckoutStatus(error), kind: failure?.kind ?? 'unknown', diagnostics },
+      'ZiniPay hosted checkout could not be created',
+    )
     throw new AppError(503, failure?.userMessage ?? 'Online payment is temporarily unavailable.')
   }
 }

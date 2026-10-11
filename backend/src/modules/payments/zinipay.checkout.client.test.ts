@@ -63,15 +63,19 @@ test('without an API key the client refuses before any request is made', async (
   assert.equal(calls.length, 0, 'a missing key must not produce a provider request')
 })
 
+/** A realistic identifier, in the shape the provider's live responses carry. */
+const LIVE_INVOICE_ID = 'test_000d0997-9f20-4989-89e9-f941d60876fa'
+const LIVE_PAYMENT_URL = `https://secure.zinipay.com/payment/${LIVE_INVOICE_ID}`
+
 test('the invoice request uses the documented endpoint, header and fields', async () => {
   const { http, calls } = fakeHttp([{
     status: 201,
     data: {
       status: true,
       message: 'Invoice created successfully.',
-      payment_url: 'https://secure.zinipay.com/payment/INVOICE_ID',
-      invoice_id: 'INVOICE_ID',
-      invoiceId: 'INVOICE_ID',
+      payment_url: LIVE_PAYMENT_URL,
+      invoice_id: LIVE_INVOICE_ID,
+      invoiceId: LIVE_INVOICE_ID,
       val_id: 'SZBD-abc123',
       environment: 'live',
     },
@@ -96,8 +100,8 @@ test('the invoice request uses the documented endpoint, header and fields', asyn
   })
 
   // The provider can answer 200 or 201; both mean the invoice exists.
-  assert.equal(invoice.invoiceId, 'INVOICE_ID')
-  assert.equal(invoice.paymentUrl, 'https://secure.zinipay.com/payment/INVOICE_ID')
+  assert.equal(invoice.invoiceId, LIVE_INVOICE_ID)
+  assert.equal(invoice.paymentUrl, LIVE_PAYMENT_URL)
   assert.equal(invoice.environment, 'live')
 })
 
@@ -222,13 +226,13 @@ test('the statuses only ever map to the documented three, or are refused', async
 
 test('the hosted payment page host is allow-listed, and nothing else is accepted', async () => {
   const accepted = [
-    'https://secure.zinipay.com/payment/INVOICE_ID',
-    'https://secure.zinipay.com/testing/payment/test/test_000d0997-9f20-4989-89e9-f941d60876fa',
-    'https://secure.zinipay.com/payment/INVOICE_ID?ref=abc',
+    LIVE_PAYMENT_URL,
+    `https://secure.zinipay.com/testing/payment/test/${LIVE_INVOICE_ID}`,
+    `${LIVE_PAYMENT_URL}?ref=abc`,
   ]
 
   for (const paymentUrl of accepted) {
-    const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: paymentUrl, invoice_id: 'INVOICE_ID' } }])
+    const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: paymentUrl, invoice_id: LIVE_INVOICE_ID } }])
     const invoice = await createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV })
     assert.equal(invoice.paymentUrl, paymentUrl, `${paymentUrl} should be accepted`)
   }
@@ -253,7 +257,7 @@ test('the hosted payment page host is allow-listed, and nothing else is accepted
   ]
 
   for (const paymentUrl of rejected) {
-    const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: paymentUrl, invoice_id: 'INVOICE_ID' } }])
+    const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: paymentUrl, invoice_id: 'a-real-id' } }])
     await assert.rejects(
       createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV }),
       (error: ZiniPayCheckoutFailure) => error.kind === 'provider-error',
@@ -262,8 +266,149 @@ test('the hosted payment page host is allow-listed, and nothing else is accepted
   }
 })
 
+test('the documented minimal response — no invoice id field — is accepted, with the id read from the payment url', async () => {
+  // ZiniPay's official Postman collection documents exactly this body for a successful create, and its own
+  // test script reads the invoice id out of the payment url. Production returned this shape, which is what
+  // produced "invoice response is missing the invoice id" before the fix.
+  const { http } = fakeHttp([{
+    status: 200,
+    data: {
+      status: true,
+      message: 'Invoice created successfully.',
+      payment_url: LIVE_PAYMENT_URL,
+    },
+  }])
+
+  const invoice = await createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV })
+
+  assert.equal(invoice.invoiceId, LIVE_INVOICE_ID)
+  assert.equal(invoice.paymentUrl, LIVE_PAYMENT_URL)
+  assert.equal(invoice.environment, null)
+})
+
+test('a documented id field wins over the url, and the sandbox path shape is read correctly', async () => {
+  const fromField = fakeHttp([{
+    status: 201,
+    data: { status: true, payment_url: 'https://secure.zinipay.com/payment/url-segment-id', invoice_id: 'response-field-id' },
+  }])
+  assert.equal((await createZiniPayInvoice(CREATE_PARAMS, { http: fromField.http, env: ENV })).invoiceId, 'response-field-id')
+
+  const camelCase = fakeHttp([{
+    status: 201,
+    data: { status: true, payment_url: 'https://secure.zinipay.com/payment/url-segment-id', invoiceId: 'camel-case-id' },
+  }])
+  assert.equal((await createZiniPayInvoice(CREATE_PARAMS, { http: camelCase.http, env: ENV })).invoiceId, 'camel-case-id')
+
+  // The sandbox nests the id behind a `test` segment; the identifier is the last segment, not the first.
+  const sandbox = fakeHttp([{ status: 201, data: { status: true, payment_url: `https://secure.zinipay.com/testing/payment/test/${LIVE_INVOICE_ID}` } }])
+  assert.equal((await createZiniPayInvoice(CREATE_PARAMS, { http: sandbox.http, env: ENV })).invoiceId, LIVE_INVOICE_ID)
+})
+
+test('the documentation placeholder is never stored as an invoice id', async () => {
+  // `INVOICE_ID` is what ZiniPay's published examples use in place of a real identifier. Accepting it would
+  // send a customer to a page that cannot be paid and could never be verified.
+  const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: 'https://secure.zinipay.com/payment/INVOICE_ID' } }])
+
+  await assert.rejects(
+    createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV }),
+    (error: ZiniPayCheckoutFailure) => error.kind === 'provider-error' && /no usable invoice id/.test(error.message),
+  )
+
+  const inField = fakeHttp([{ status: 201, data: { status: true, payment_url: LIVE_PAYMENT_URL, invoice_id: 'INVOICE_ID' } }])
+  await assert.rejects(
+    createZiniPayInvoice(CREATE_PARAMS, { http: inField.http, env: ENV }),
+    (error: ZiniPayCheckoutFailure) => error.kind === 'provider-error',
+  )
+})
+
+test('an unusable payment path yields no invoice id instead of an invented one', async () => {
+  for (const paymentUrl of [
+    // No `payment` segment at all.
+    'https://secure.zinipay.com/invoices/abc123',
+    // A path that ends at the controller rather than at an identifier.
+    'https://secure.zinipay.com/payment',
+    'https://secure.zinipay.com/payment/',
+    // Markup, traversal and absurdly long values are not identifiers.
+    'https://secure.zinipay.com/payment/%3Cscript%3E',
+    'https://secure.zinipay.com/payment/..',
+    `https://secure.zinipay.com/payment/${'a'.repeat(120)}`,
+  ]) {
+    const { http } = fakeHttp([{ status: 201, data: { status: true, payment_url: paymentUrl } }])
+    await assert.rejects(
+      createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV }),
+      (error: ZiniPayCheckoutFailure) => error.kind === 'provider-error',
+      `${paymentUrl} should not produce an invoice id`,
+    )
+  }
+})
+
+test('a failed create reports the response shape it saw, without any values', async () => {
+  const usable = fakeHttp([{
+    status: 200,
+    data: {
+      status: true,
+      message: 'Invoice created successfully.',
+      payment_url: 'https://secure.zinipay.com/payment/some-real-looking-id',
+      extra_unknown_field: 'sensitive-looking-value',
+    },
+  }])
+
+  // No usable path id, and an unexpected extra field the provider may have added: the field list is what
+  // makes the real production shape diagnosable.
+  const noId = fakeHttp([{
+    status: 200,
+    data: { status: true, payment_url: 'https://secure.zinipay.com/payment', invoice_ref: 'something-else' },
+  }])
+
+  assert.equal((await createZiniPayInvoice(CREATE_PARAMS, { http: usable.http, env: ENV })).invoiceId, 'some-real-looking-id')
+
+  try {
+    await createZiniPayInvoice(CREATE_PARAMS, { http: noId.http, env: ENV })
+    assert.fail('the call should have failed')
+  } catch (error) {
+    const failure = error as ZiniPayCheckoutFailure
+    const diagnostics = failure.diagnostics
+    assert.ok(diagnostics, 'a failure must carry diagnostics')
+    assert.deepEqual(diagnostics.fields, ['status', 'payment_url', 'invoice_ref'], 'only field names are captured')
+    assert.equal(diagnostics.hasPaymentUrl, true)
+    assert.equal(diagnostics.hasInvoiceId, false)
+    assert.equal(diagnostics.providerSuccess, true)
+    // The shape of the page that could not be read is recorded, but never the page itself.
+    assert.equal(diagnostics.paymentUrlHost, 'secure.zinipay.com')
+    assert.equal(diagnostics.paymentUrlPathSegments, 1)
+    assert.match(failure.message, /fields: status,payment_url,invoice_ref/)
+    assert.match(failure.message, /host=secure\.zinipay\.com/)
+    assert.match(failure.message, /segments=1/)
+    assert.doesNotMatch(failure.message, /secure\.zinipay\.com\/payment/)
+
+    // Nothing that could identify a customer or a payment may appear in what gets logged.
+    const serialized = JSON.stringify({ message: failure.message, diagnostics })
+    assert.equal(serialized.includes('sensitive-looking-value'), false, 'values must never be captured')
+    assert.equal(serialized.includes('something-else'), false, 'values must never be captured')
+    assert.equal(serialized.includes('brand-key-for-tests'), false, 'the API key must never be captured')
+  }
+})
+
+test('a provider refusal is classified and carries no values', async () => {
+  const { http } = fakeHttp([{
+    status: 401,
+    data: { status: false, message: 'Invalid API key', api_key: 'leaked-value' },
+  }])
+
+  try {
+    await createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV })
+    assert.fail('the call should have failed')
+  } catch (error) {
+    const failure = error as ZiniPayCheckoutFailure
+    assert.equal(failure.kind, 'unauthorized')
+    assert.equal(failure.status, 401)
+    assert.match(String(failure.diagnostics?.fields), /status,message,api_key/)
+    assert.equal(JSON.stringify(failure.diagnostics).includes('leaked-value'), false)
+  }
+})
+
 test('a missing payment url is a provider failure, never an empty redirect', async () => {
-  const { http } = fakeHttp([{ status: 201, data: { status: true, invoice_id: 'INVOICE_ID' } }])
+  const { http } = fakeHttp([{ status: 201, data: { status: true, invoice_id: LIVE_INVOICE_ID } }])
 
   await assert.rejects(
     createZiniPayInvoice(CREATE_PARAMS, { http, env: ENV }),

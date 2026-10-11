@@ -13,8 +13,9 @@ import axios from 'axios'
  * - `cus_email` and `cancel_url` are required in practice even though the published table calls `cancel_url`
  *   optional, so both are always sent;
  * - `redirect_url` is what makes the hosted page return the customer to SportZoneBD;
- * - a merchant reference is supplied as `val_id`, and the provider's own invoice id is returned as
- *   `invoice_id`/`invoiceId`;
+ * - a merchant reference is supplied as `val_id`, and the invoice identifier is read from the response field
+ *   `invoice_id`/`invoiceId` when present and otherwise from the identifier in `payment_url`, which is the
+ *   format the provider's own Postman collection reads (`res.payment_url.split('/').pop()`);
  * - create answers 201 (the Postman collection shows 200), so any 2xx is accepted.
  *
  * The API key never leaves this module: it is not logged, not echoed into an error and never returned.
@@ -70,6 +71,43 @@ export function assertTrustedPaymentUrl(raw: string | null, hosts: readonly stri
   return `${url.origin}${url.pathname}${url.search}`
 }
 
+/**
+ * The invoice reference carried by a trusted hosted payment URL.
+ *
+ * ZiniPay's documentation states the invoice reference in the payment URL itself — the success example is
+ * `{ "status": true, "message": "Invoice created successfully.", "payment_url":
+ * "https://secure.zinipay.com/payment/INVOICE_ID" }` — and the live sandbox response confirms the equivalence:
+ * its `invoice_id` (`test_000d0997-…`) was exactly the last path segment of its `payment_url`
+ * (`https://secure.zinipay.com/testing/payment/test/test_000d0997-…`). Production answers with the documented
+ * minimal shape (no separate id field), so this path segment is the documented identifier format.
+ *
+ * Only URLs that already passed {@link assertTrustedPaymentUrl} reach this function, so the host is trusted by
+ * construction. The path must contain a `payment` segment and end in a single safe identifier segment: an
+ * unexpected path shape is refused rather than interpreted, and nothing is invented when it does not match.
+ */
+export function extractInvoiceIdFromTrustedPaymentUrl(paymentUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(paymentUrl)
+  } catch {
+    return null
+  }
+
+  const segments = url.pathname.split('/').filter((segment) => segment !== '')
+  const paymentIndex = segments.lastIndexOf('payment')
+  if (paymentIndex === -1) return null
+
+  const candidate = segments[segments.length - 1]
+  if (!candidate || candidate === 'payment') return null
+  // Invoice references are opaque tokens (`test_000d0997-9f20-4989-89e9-f941d60876fa` in the sandbox). Anything
+  // else — path traversal, markup, whitespace, query-looking values or an absurdly long value — is not treated
+  // as an identifier, and the literal placeholder the documentation uses is rejected by the caller.
+  if (!/^[A-Za-z0-9._~-]{4,100}$/.test(candidate)) return null
+  if (candidate === '.' || candidate === '..') return null
+
+  return candidate
+}
+
 export type ZiniPayCheckoutFailureKind =
   | 'not-configured'
   | 'invalid-request'
@@ -78,6 +116,80 @@ export type ZiniPayCheckoutFailureKind =
   | 'provider-error'
   | 'timeout'
   | 'network'
+
+/**
+ * What the provider answered, reduced to facts that are safe to log.
+ *
+ * Only the response's shape is captured — the top-level field names, whether the fields the flow depends on
+ * were present, and the provider's own success indicator. No values are kept: not the payment URL (it carries
+ * the invoice reference), not the customer details, never the API key. This is what makes a production
+ * failure diagnosable from a log line without leaking anything.
+ */
+export interface ZiniPayResponseDiagnostics {
+  httpStatus: number | null
+  /** `payload.status`, when the provider sent a boolean one. */
+  providerSuccess: boolean | null
+  /** The top-level field names the provider returned, bounded in count and length. */
+  fields: string[]
+  hasPaymentUrl: boolean
+  hasInvoiceId: boolean
+  /** The payment url's host, which is a provider hostname rather than anything about the customer. */
+  paymentUrlHost: string | null
+  /** How many path segments the payment url has, so an unexpected path shape is visible without the path. */
+  paymentUrlPathSegments: number | null
+}
+
+const MAX_DIAGNOSTIC_FIELDS = 20
+const MAX_DIAGNOSTIC_FIELD_LENGTH = 40
+
+/** Field names and shapes only: never values, never the payment url, never enough to paste a payload into a log. */
+export function buildResponseDiagnostics(payload: unknown, httpStatus: number | null = null): ZiniPayResponseDiagnostics {
+  if (!isRecord(payload)) {
+    return {
+      httpStatus,
+      providerSuccess: null,
+      fields: [],
+      hasPaymentUrl: false,
+      hasInvoiceId: false,
+      paymentUrlHost: null,
+      paymentUrlPathSegments: null,
+    }
+  }
+
+  const rawPaymentUrl = toTrimmedString(payload.payment_url)
+  let paymentUrlHost: string | null = null
+  let paymentUrlPathSegments: number | null = null
+  if (rawPaymentUrl) {
+    try {
+      const url = new URL(rawPaymentUrl)
+      paymentUrlHost = url.hostname
+      paymentUrlPathSegments = url.pathname.split('/').filter((segment) => segment !== '').length
+    } catch {
+      paymentUrlHost = null
+    }
+  }
+
+  return {
+    httpStatus,
+    providerSuccess: typeof payload.status === 'boolean' ? payload.status : null,
+    fields: Object.keys(payload)
+      .slice(0, MAX_DIAGNOSTIC_FIELDS)
+      .map((field) => field.slice(0, MAX_DIAGNOSTIC_FIELD_LENGTH)),
+    hasPaymentUrl: rawPaymentUrl !== null,
+    hasInvoiceId: toTrimmedString(payload.invoice_id) !== null || toTrimmedString(payload.invoiceId) !== null,
+    paymentUrlHost,
+    paymentUrlPathSegments,
+  }
+}
+
+/**
+ * The identifier strings the provider's own documentation uses as placeholders.
+ *
+ * ZiniPay's published success example is `"payment_url": "https://secure.zinipay.com/payment/INVOICE_ID"`,
+ * where `INVOICE_ID` stands for an identifier rather than being one. Accepting it would send a customer to a
+ * page that cannot be paid and could never be verified, so it is refused like any other unusable value.
+ */
+const PLACEHOLDER_INVOICE_IDS = new Set(['invoice_id', 'invoiceid'])
 
 const USER_MESSAGE_BY_KIND: Record<ZiniPayCheckoutFailureKind, string> = {
   'not-configured': 'Online payment is temporarily unavailable.',
@@ -94,13 +206,21 @@ export class ZiniPayCheckoutFailure extends Error {
   readonly status: number | null
   /** A short sentence safe to show a customer. */
   readonly userMessage: string
+  /** Safe, value-free description of the provider answer, for logs. */
+  readonly diagnostics: ZiniPayResponseDiagnostics | null
 
-  constructor(kind: ZiniPayCheckoutFailureKind, status: number | null, detail?: string) {
+  constructor(
+    kind: ZiniPayCheckoutFailureKind,
+    status: number | null,
+    detail?: string,
+    diagnostics: ZiniPayResponseDiagnostics | null = null,
+  ) {
     super(detail ? `${kind}: ${detail}` : kind)
     this.name = 'ZiniPayCheckoutFailure'
     this.kind = kind
     this.status = status
     this.userMessage = USER_MESSAGE_BY_KIND[kind]
+    this.diagnostics = diagnostics
   }
 
   /** True when the outcome is unknown rather than refused: the provider may or may not have acted. */
@@ -250,11 +370,12 @@ async function post(deps: ZiniPayClientDeps, endpoint: 'create' | 'verify', body
       failureKindForStatus(response.status),
       response.status,
       describeValidationError(response.data) ?? describeProviderMessage(response.data) ?? `HTTP ${response.status}`,
+      buildResponseDiagnostics(response.data, response.status),
     )
   }
 
   if (!isRecord(response.data)) {
-    throw new ZiniPayCheckoutFailure('provider-error', response.status, 'unexpected response body')
+    throw new ZiniPayCheckoutFailure('provider-error', response.status, 'unexpected response body', buildResponseDiagnostics(response.data, response.status))
   }
 
   return { payload: response.data, status: response.status }
@@ -298,15 +419,38 @@ export async function createZiniPayInvoice(
     ...(params.metadata ? { metadata: params.metadata } : {}),
   })
 
+  const diagnostics = buildResponseDiagnostics(payload)
+
   if (payload.status !== true) {
-    throw new ZiniPayCheckoutFailure('invalid-request', null, describeProviderMessage(payload) ?? 'invoice refused')
+    throw new ZiniPayCheckoutFailure('invalid-request', null, describeProviderMessage(payload) ?? 'invoice refused', diagnostics)
   }
 
-  const invoiceId = toTrimmedString(payload.invoice_id) ?? toTrimmedString(payload.invoiceId)
-  const paymentUrl = assertTrustedPaymentUrl(toTrimmedString(payload.payment_url))
+  // The hosted page is validated before anything is read out of it, so an unexpected host can never be
+  // interpreted, stored, or handed to a browser.
+  let paymentUrl: string
+  try {
+    paymentUrl = assertTrustedPaymentUrl(toTrimmedString(payload.payment_url))
+  } catch (error) {
+    if (error instanceof ZiniPayCheckoutFailure) {
+      throw new ZiniPayCheckoutFailure(error.kind, error.status, error.message, diagnostics)
+    }
+    throw error
+  }
 
-  if (!invoiceId) {
-    throw new ZiniPayCheckoutFailure('provider-error', null, 'invoice response is missing the invoice id')
+  // Two documented sources, in order of specificity: the response field ZiniPay returns on its live
+  // responses (`invoice_id`, also seen as `invoiceId`), then — for the documented minimal response that only
+  // carries `{status, message, payment_url}` — the identifier the provider itself reads out of that URL.
+  const invoiceId = toTrimmedString(payload.invoice_id)
+    ?? toTrimmedString(payload.invoiceId)
+    ?? extractInvoiceIdFromTrustedPaymentUrl(paymentUrl)
+
+  if (!invoiceId || PLACEHOLDER_INVOICE_IDS.has(invoiceId.toLowerCase())) {
+    throw new ZiniPayCheckoutFailure(
+      'provider-error',
+      null,
+      `invoice response carries no usable invoice id (fields: ${diagnostics.fields.join(',') || 'none'}; host=${diagnostics.paymentUrlHost ?? 'n/a'}; segments=${diagnostics.paymentUrlPathSegments ?? 'n/a'})`,
+      diagnostics,
+    )
   }
 
   return { invoiceId, paymentUrl, environment: toTrimmedString(payload.environment) }
@@ -327,12 +471,12 @@ export async function verifyZiniPayInvoice(
 
   if (payload.status === false && !('invoice_id' in payload) && !('invoiceId' in payload)) {
     // A refusal envelope (`{status:false,message}`) is a provider answer, not an invoice state.
-    throw new ZiniPayCheckoutFailure('invalid-request', null, describeProviderMessage(payload) ?? 'verification refused')
+    throw new ZiniPayCheckoutFailure('invalid-request', null, describeProviderMessage(payload) ?? 'verification refused', buildResponseDiagnostics(payload))
   }
 
   const rawStatus = (toTrimmedString(payload.status) ?? '').toUpperCase()
   if (rawStatus !== 'PENDING' && rawStatus !== 'COMPLETED' && rawStatus !== 'FAILED') {
-    throw new ZiniPayCheckoutFailure('provider-error', null, `unrecognised invoice status: ${rawStatus || 'missing'}`)
+    throw new ZiniPayCheckoutFailure('provider-error', null, `unrecognised invoice status: ${rawStatus || 'missing'}`, buildResponseDiagnostics(payload))
   }
 
   const metadata = isRecord(payload.metadata) ? payload.metadata : null

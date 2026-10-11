@@ -5,7 +5,7 @@ process.env.JWT_SECRET ??= 'hosted-reservation-test-secret'
 process.env.JWT_REFRESH_SECRET ??= 'hosted-reservation-test-refresh-secret'
 
 const { prisma } = await import('../../core/prisma.js')
-const { ZiniPayCheckoutFailure } = await import('./zinipay.checkout.client.js')
+const { ZiniPayCheckoutFailure, createZiniPayInvoice, verifyZiniPayInvoice } = await import('./zinipay.checkout.client.js')
 const { startHostedCheckout } = await import('./hostedCheckout.service.js')
 
 /**
@@ -219,6 +219,94 @@ const reservation = (id: string, overrides: Partial<PaymentRecord> = {}): Paymen
   subscriptionPlanId: 'plan-1',
   verificationResult: 'zinipay-checkout-created',
   ...overrides,
+})
+
+test('the documented minimal provider response produces a usable session through the real parser', async () => {
+  const db = installFakeDatabase()
+  const clock = fakeClock()
+  const invoiceId = 'test_000d0997-9f20-4989-89e9-f941d60876fa'
+  const paymentUrl = `https://secure.zinipay.com/payment/${invoiceId}`
+  let postedBody: Record<string, unknown> | null = null
+
+  // The real client and the real service, with only the transport faked: this is the production shape that
+  // previously failed — `{status, message, payment_url}` with no invoice id field.
+  const http = {
+    post: async (_url: string, body: unknown) => {
+      postedBody = body as Record<string, unknown>
+      return { status: 200, data: { status: true, message: 'Invoice created successfully.', payment_url: paymentUrl } }
+    },
+  }
+  const createInvoice = ((params: Parameters<typeof createZiniPayInvoice>[0], deps: { env?: NodeJS.ProcessEnv }) =>
+    createZiniPayInvoice(params, { env: deps.env, http })) as never
+
+  try {
+    const session = await startHostedCheckout(
+      { userId: 'user-1', subscriptionPlanId: 'plan-1', customerEmail: 'a@b.test', customerName: 'A' },
+      { env: ENV, createInvoice, now: clock.now, sleep: clock.sleep },
+    )
+
+    assert.equal(session.reused, false)
+    assert.equal(session.paymentUrl, paymentUrl, 'the validated hosted page is what the browser is sent to')
+    assert.equal(db.payments[0].providerPaymentId, invoiceId, 'the invoice id is read out of the payment url and stored')
+    assert.equal(db.payments[0].status, 'PENDING')
+    assert.equal(db.payments[0].verificationResult, 'zinipay-checkout-created')
+    assert.equal((postedBody as Record<string, unknown> | null)?.val_id, db.payments[0].transactionId, 'our own reference is the merchant reference, never the invoice id')
+
+    // And verification then uses the stored invoice id, so the session is reconcilable later.
+    let verifyBody: Record<string, unknown> | null = null
+    const verifyHttp = {
+      post: async (_url: string, body: unknown) => {
+        verifyBody = body as Record<string, unknown>
+        return { status: 200, data: { invoice_id: invoiceId, val_id: db.payments[0].transactionId, amount: 300, status: 'PENDING' } }
+      },
+    }
+    const check = await verifyZiniPayInvoice({ invoiceId: db.payments[0].providerPaymentId as string }, { env: ENV, http: verifyHttp })
+
+    assert.equal(check.status, 'PENDING')
+    assert.deepEqual(verifyBody, { invoice_id: invoiceId })
+  } finally {
+    db.restore()
+  }
+})
+
+test('a documented minimal response with an unusable payment path fails safely and records the shape', async () => {
+  const db = installFakeDatabase()
+  const clock = fakeClock()
+
+  // The provider answered successfully, but the hosted page carries no identifier this platform can verify.
+  const http = {
+    post: async () => ({
+      status: 200,
+      data: { status: true, message: 'Invoice created successfully.', payment_url: 'https://secure.zinipay.com/payment' },
+    }),
+  }
+  const createInvoice = ((params: Parameters<typeof createZiniPayInvoice>[0], deps: { env?: NodeJS.ProcessEnv }) =>
+    createZiniPayInvoice(params, { env: deps.env, http })) as never
+
+  try {
+    await assert.rejects(
+      startHostedCheckout(
+        { userId: 'user-1', subscriptionPlanId: 'plan-1', customerEmail: 'a@b.test', customerName: null },
+        { env: ENV, createInvoice, now: clock.now, sleep: clock.sleep },
+      ),
+      (error: { statusCode?: number }) => error.statusCode === 503,
+      'the customer is never redirected to a page that cannot be verified',
+    )
+
+    const stored = db.payments[0]
+    assert.equal(stored.status, 'FAILED')
+    assert.equal(stored.verificationResult, 'zinipay-checkout-failed')
+
+    // The recorded note carries the response shape (field names) so the provider can be asked about it,
+    // and no values.
+    const note = (stored.providerCheckout as { lastFailure: { note: string } }).lastFailure.note
+    assert.match(note, /no usable invoice id/)
+    assert.match(note, /fields=status\|message\|payment_url/)
+    assert.equal(note.includes('Invoice created successfully'), false, 'provider text is not copied into the record')
+    assert.equal(note.includes('https://secure.zinipay.com'), false, 'the payment url is never recorded')
+  } finally {
+    db.restore()
+  }
 })
 
 test('a first request reserves, invoices once and stores the trusted payment page', async () => {
