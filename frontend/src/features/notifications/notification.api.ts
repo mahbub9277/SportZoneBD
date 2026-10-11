@@ -14,6 +14,20 @@ export interface BroadcastNotificationInput {
   channel?: 'IN_APP' | 'PUSH' | 'BOTH'
 }
 
+/** The campaign receipt the backend returns for a manual broadcast. */
+export interface BroadcastNotificationResult {
+  campaignId: string
+  audience: 'ALL' | 'PREMIUM' | 'FREE'
+  channel: 'IN_APP' | 'PUSH' | 'BOTH'
+  audienceSize: number
+  pushEligibleRecipients: number
+  /** Users with at least one queued notification; queued is not delivered. */
+  queuedRecipients: number
+  /** True when push delivery was refused by the push automation switch; the in-app half still queued. */
+  pushBlocked: boolean
+  deliveryConfirmed: boolean
+}
+
 export const notificationsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
     getUnreadNotificationCount: builder.query<{ count: number }, void>({
@@ -98,13 +112,13 @@ export const notificationsApi = emptyApi.injectEndpoints({
       query: () => ({ url: '/notifications', method: 'DELETE' }),
       invalidatesTags: ['Notifications', { type: 'Notifications', id: 'LIST' }],
     }),
-    broadcastNotification: builder.mutation<{ createdCount: number }, BroadcastNotificationInput>({
+    broadcastNotification: builder.mutation<BroadcastNotificationResult, BroadcastNotificationInput>({
       query: (body) => ({
         url: '/notifications/broadcast',
         method: 'POST',
         body,
       }),
-      transformResponse: (response: ApiResponse<{ createdCount: number }>) => unwrapApiResponse(response) ?? { createdCount: 0 },
+      transformResponse: (response: ApiResponse<BroadcastNotificationResult>) => unwrapApiResponse(response),
     }),
     registerPushSubscription: builder.mutation<{ success: boolean }, { endpoint: string; keys: { p256dh: string; auth: string } }>({
       query: (body) => ({

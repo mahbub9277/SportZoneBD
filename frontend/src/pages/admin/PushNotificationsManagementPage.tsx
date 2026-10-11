@@ -17,6 +17,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useBroadcastNotificationMutation } from '../../features/notifications/notification.api'
 import { DescriptionGenerator } from '../../components/ai/DescriptionGenerator'
+import { AutomationSwitchCard } from '../../features/admin/components/AutomationSwitchCard'
+import {
+  useGetPushAutomationSwitchQuery,
+  useUpdatePushAutomationSwitchMutation,
+} from '../../features/admin/automationSwitches.api'
+import { AUTOMATION_SWITCH_PERMISSION } from '../../features/admin/automationSwitchState'
+import { hasPermission } from '../../features/auth/roleExperience'
+import { useAppSelector } from '../../app/hooks'
+import { selectCurrentUser } from '../../features/auth/authSlice'
 
 const templateSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters.'),
@@ -38,6 +47,14 @@ export default function PushNotificationsManagementPage() {
   const [updateTemplate, { isLoading: isUpdating }] = useUpdatePushNotificationTemplateMutation()
   const [deleteTemplate, { isLoading: isDeleting }] = useDeletePushNotificationTemplateMutation()
   const [broadcastNotification, { isLoading: isBroadcasting }] = useBroadcastNotificationMutation()
+  const currentUser = useAppSelector(selectCurrentUser)
+  const canManageAutomation = hasPermission(currentUser, AUTOMATION_SWITCH_PERMISSION)
+  const {
+    data: pushAutomation,
+    isFetching: isPushAutomationFetching,
+    isError: isPushAutomationError,
+  } = useGetPushAutomationSwitchQuery()
+  const [updatePushAutomation, { isLoading: isSavingPushAutomation }] = useUpdatePushAutomationSwitchMutation()
 
   const form = useForm<TemplateFormData>({
     resolver: zodResolver(templateSchema),
@@ -74,6 +91,21 @@ export default function PushNotificationsManagementPage() {
     form.reset({ title: '', body: '', targetAudience: 'ALL', enabled: true, link: '' })
   }
 
+  const handlePushAutomationToggle = (enabled: boolean) => {
+    void updatePushAutomation({ enabled }).unwrap().then((state) => {
+      if (state.transition === 'degraded') {
+        toast.warning(state.dependencies.find((dependency) => !dependency.ok)?.detail
+          ?? 'The push automation switch was saved, but the subsystem is not fully operational.')
+        return
+      }
+      if (state.transition === 'unavailable') {
+        toast.error(state.degradedReason ?? 'The push automation state could not be confirmed.')
+        return
+      }
+      toast.success(enabled ? 'Push notifications automation turned on.' : 'Push notifications automation turned off.')
+    }).catch((error) => toast.error(getErrorMessage(error)))
+  }
+
   const handleDeleteConfirm = () => {
     if (!deletingTemplate) return
     toast.promise(deleteTemplate(deletingTemplate.id).unwrap(), {
@@ -92,7 +124,14 @@ export default function PushNotificationsManagementPage() {
     if (!window.confirm(`Send "${template.title}" to ${deliveryLabel}?`)) return
     try {
       const result = await broadcastNotification({ title: template.title, body: template.body, type: 'info', link: template.link || undefined, targetAudience: template.targetAudience, channel: deliveryChannel }).unwrap()
-      toast.success(`Notification queued for ${result.createdCount} user${result.createdCount === 1 ? '' : 's'}.`)
+      const recipientLabel = `${result.queuedRecipients} user${result.queuedRecipients === 1 ? '' : 's'}`
+      if (result.pushBlocked) {
+        toast.warning(result.channel === 'PUSH'
+          ? 'Push delivery is disabled by the Push Notifications Automation switch, so nothing was queued.'
+          : `In-app notifications queued for ${recipientLabel}; push delivery is disabled by the Push Notifications Automation switch.`)
+        return
+      }
+      toast.success(`Notification queued for ${recipientLabel}.`)
     } catch (error) {
       toast.error(getErrorMessage(error))
     }
@@ -120,6 +159,16 @@ export default function PushNotificationsManagementPage() {
           </motion.div>
         </motion.div>
       </motion.div>
+
+      <AutomationSwitchCard
+        state={pushAutomation}
+        isFetching={isPushAutomationFetching}
+        isSaving={isSavingPushAutomation}
+        isError={isPushAutomationError}
+        hasPermission={canManageAutomation}
+        unaffectedNote="In-app notifications, push subscription management and manual templates keep working while it is off."
+        onToggle={handlePushAutomationToggle}
+      />
 
       <motion.div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
       <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft) via-(--surface-soft)/70 to-(--surface) p-6 shadow-[0_20px_60px_var(--shadow)] sm:p-7">

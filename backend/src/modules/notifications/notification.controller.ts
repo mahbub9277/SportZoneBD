@@ -279,7 +279,7 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
   const deliveryChannel = (channel as 'IN_APP' | 'PUSH' | 'BOTH' | undefined) ?? 'BOTH'
   const preview = await previewNotificationAudience(audience)
 
-  const createdCount = await createAdminBroadcastNotification({
+  const broadcast = await createAdminBroadcastNotification({
     userId: typeof userId === 'string' ? userId : undefined,
     title: title.trim(),
     body: body.trim(),
@@ -290,6 +290,32 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
   })
 
   const campaignId = crypto.randomUUID()
+
+  // A push-only campaign that the master switch refused queued nothing: report it as blocked instead of
+  // reporting a successful send with a zero recipient count.
+  if (broadcast.pushBlocked && deliveryChannel === 'PUSH') {
+    await recordModerationEvent({
+      action: 'push.campaign.blocked',
+      actorId,
+      actorName: req.user?.fullName ?? null,
+      entityId: campaignId,
+      requestId: (req as RequestWithUser & { id?: string }).id ?? null,
+      details: {
+        title: title.trim(),
+        audience,
+        channel: deliveryChannel,
+        audienceSize: preview.recipients,
+        reason: 'push-automation-disabled',
+      },
+    })
+
+    return res.status(409).json(errorResponse(
+      'Push Notifications Automation is off, so no push was queued. Turn it on to send push campaigns.',
+      'PUSH_AUTOMATION_DISABLED',
+    ))
+  }
+
+  const createdCount = broadcast.recipientCount
   const auditEventId = await recordModerationEvent({
     action: 'push.campaign.sent',
     actorId,
@@ -303,6 +329,7 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
       audienceSize: preview.recipients,
       pushEligibleRecipients: preview.pushEligibleRecipients,
       queuedRecipients: createdCount,
+      pushBlocked: broadcast.pushBlocked,
       targetedUser: typeof userId === 'string' ? userId : null,
     },
   })
@@ -315,7 +342,11 @@ export const broadcastSystemNotification = asyncHandler(async (req: RequestWithU
     audienceSize: preview.recipients,
     pushEligibleRecipients: preview.pushEligibleRecipients,
     queuedRecipients: createdCount,
+    /** True when push delivery was refused by the master switch; in-app delivery is unaffected. */
+    pushBlocked: broadcast.pushBlocked,
     /** Queued, not delivered: the worker reports per-recipient outcomes that no campaign record holds. */
     deliveryConfirmed: false,
-  }, 'Notification campaign queued successfully.'))
+  }, broadcast.pushBlocked
+    ? 'In-app notifications queued; push delivery is disabled by the Push Notifications Automation switch.'
+    : 'Notification campaign queued successfully.'))
 })

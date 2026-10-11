@@ -1,6 +1,7 @@
 import { prisma } from '../core/prisma.js'
 import type { Prisma } from '@prisma/client'
 import { enqueueUserNotifications, type NotificationQueuePayload } from '../core/notificationQueue.js'
+import { confirmAutomationSwitch } from '../core/automationSwitches.js'
 import { emitTransientNotification } from '../core/socketManager.js'
 import {
   buildMatchPushPresentation,
@@ -132,8 +133,12 @@ export async function broadcastInAppNotification(event: NotificationEvent): Prom
  * Automated sports alerts are push-only: they are delivered to browsers/devices through the
  * PUSH channel and must NOT create persistent In-App notification records, so the In-App inbox
  * and its unread badge stay reserved for genuine product-level notifications.
+ *
+ * The master switch is confirmed here, before any recipient is resolved: with push automation off the
+ * audience queries, the per-user payloads and the queue writes are all skipped.
  */
 async function broadcastPushAlert(event: NotificationEvent): Promise<number> {
+  if (!(await confirmAutomationSwitch('pushNotifications'))) return 0
   return broadcastNotificationChannel(event, 'PUSH')
 }
 
@@ -216,6 +221,20 @@ export async function previewNotificationAudience(
   return { recipients, pushEligibleRecipients }
 }
 
+export interface AdminBroadcastResult {
+  /** Users with at least one accepted notification (the same counting the caller had before). */
+  recipientCount: number
+  /** True when the request asked for push delivery and the master switch refused it. */
+  pushBlocked: boolean
+}
+
+/**
+ * A manual administrator broadcast.
+ *
+ * Push delivery is gated by the master switch: with push automation off, the requested channel is reduced
+ * to in-app only (or to nothing at all for a push-only campaign) *before* any recipient, subscription or
+ * queue work happens, and the caller is told that push was blocked instead of being told it was sent.
+ */
 export async function createAdminBroadcastNotification(payload: {
   userId?: string
   title: string
@@ -224,8 +243,21 @@ export async function createAdminBroadcastNotification(payload: {
   link?: string
   targetAudience?: 'ALL' | 'PREMIUM' | 'FREE'
   channel?: 'IN_APP' | 'PUSH' | 'BOTH'
-}): Promise<number> {
-  const channel = payload.channel ?? 'BOTH'
+}): Promise<AdminBroadcastResult> {
+  const requestedChannel = payload.channel ?? 'BOTH'
+  const wantsPush = requestedChannel !== 'IN_APP'
+  const pushEnabled = wantsPush ? await confirmAutomationSwitch('pushNotifications') : true
+  const pushBlocked = wantsPush && !pushEnabled
+  let channel: 'IN_APP' | 'PUSH' | 'BOTH' | null = requestedChannel
+  if (pushBlocked) {
+    // A push-only campaign has nothing left to send; a mixed campaign keeps its in-app half.
+    channel = requestedChannel === 'PUSH' ? null : 'IN_APP'
+  }
+
+  if (channel === null) {
+    return { recipientCount: 0, pushBlocked }
+  }
+
   const targetWhere = notificationAudienceWhere(payload.targetAudience)
 
   let recipientCount = 0
@@ -278,5 +310,5 @@ export async function createAdminBroadcastNotification(payload: {
     recipientCount += acceptedRecipients.size
   }
 
-  return recipientCount
+  return { recipientCount, pushBlocked }
 }

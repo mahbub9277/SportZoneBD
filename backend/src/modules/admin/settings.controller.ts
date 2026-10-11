@@ -6,6 +6,7 @@ import { successResponse } from '../../core/api-response.js'
 import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceUpdated } from '../../core/socketManager.js'
 import { isSiteSettingKey, siteSettings } from '../settings/site-settings.js'
+import { AUTOMATION_SWITCH_SETTING_KEYS } from '../../core/automationSwitches.js'
 
 const API_SETTINGS = {
   'api.base_url': {
@@ -23,6 +24,16 @@ const API_SETTINGS = {
 type ApiSettingKey = keyof typeof API_SETTINGS
 
 const isApiSettingKey = (key: string): key is ApiSettingKey => key in API_SETTINGS
+
+/**
+ * Settings that have their own endpoint.
+ *
+ * They are left out of the generic settings list and refused by the generic settings update, because only
+ * their dedicated endpoint applies the change to the running subsystem and records what it replaced.
+ */
+export const SETTING_KEYS_WITH_DEDICATED_ENDPOINTS: string[] = ['telemetry.enabled', ...AUTOMATION_SWITCH_SETTING_KEYS]
+
+export const hasDedicatedSettingEndpoint = (key: string): boolean => SETTING_KEYS_WITH_DEDICATED_ENDPOINTS.includes(key)
 
 const ensureApiSettings = async () => {
   await prisma.$transaction(
@@ -44,7 +55,7 @@ const ensureApiSettings = async () => {
 const getSettings = asyncHandler(async (_req: Request, res: Response) => {
   await ensureApiSettings()
   const settings = await prisma.setting.findMany({
-    where: { deletedAt: null, key: { not: 'telemetry.enabled' } },
+    where: { deletedAt: null, key: { notIn: SETTING_KEYS_WITH_DEDICATED_ENDPOINTS } },
     orderBy: { key: 'asc' },
   })
   res.status(200).json(successResponse(settings))
@@ -62,6 +73,11 @@ const updateSettings = asyncHandler(async (req: Request, res: Response) => {
     }
     if (setting.key === 'telemetry.enabled') {
       return res.status(403).json({ success: false, message: 'Use the telemetry status endpoint to change this setting.' })
+    }
+    if (AUTOMATION_SWITCH_SETTING_KEYS.includes(setting.key)) {
+      // One write path per switch: the dedicated endpoint applies the change to the running subsystem and
+      // records the previous value, which a raw setting update would silently skip.
+      return res.status(403).json({ success: false, message: 'Use the automation switch endpoints to change this setting.' })
     }
     if (isApiSettingKey(setting.key) && !API_SETTINGS[setting.key].validate(setting.value)) {
       return res.status(400).json({ success: false, message: `Invalid value for ${setting.key}.` })

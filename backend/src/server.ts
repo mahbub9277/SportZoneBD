@@ -258,6 +258,16 @@ async function bootstrap(): Promise<void> {
     logger.warn({ errorType: error instanceof Error ? error.name : 'unknown' }, 'Socket.IO initialization unavailable')
   }
 
+  // The two automation master switches are read from the database before anything they control starts.
+  // A value that cannot be read fails closed: the affected automation stays paused until a later read
+  // confirms it, instead of being enabled by assumption.
+  try {
+    const { initializeAutomationSwitches } = await import('./core/automationSwitches.js')
+    await initializeAutomationSwitches()
+  } catch (error) {
+    logger.error({ error }, 'Automation switch initialization failed; both automation subsystems stay disabled until the state can be read')
+  }
+
   startNotificationWorker()
   void matchAutomationService.start().catch((error) => {
     logger.error({ error }, 'Failed to start match automation service')

@@ -13,6 +13,7 @@ import { emitMatchStatusUpdated } from '../core/socketManager.js'
 import { getRedisErrorCode } from '../core/redisFailover.js'
 import { renewLockWithRedis, startLockRenewal, type LockRenewalHandle } from '../core/redisLock.js'
 import { evaluateFixtureCreationWindow, getMatchDiscoveryDays } from '../core/fixtureCreationWindow.js'
+import { confirmAutomationSwitch } from '../core/automationSwitches.js'
 import { getCompetitionFixtures, getConfiguredCompetitionCodes, type FootballDataFixture } from '../modules/matches/footballDataMatches.service.js'
 import { getFootballDataFixtures } from '../modules/providers/footballData.adapter.js'
 import { getApiFootballFixtures } from '../modules/providers/apiFootball.fixtures.js'
@@ -170,23 +171,73 @@ function getCanonicalOwnerRank(match: { providerFixtureKey: string | null }): nu
   return provider ? PROVIDER_PRIORITY[provider] : Number.MAX_SAFE_INTEGER
 }
 
+export interface FixtureProviderFetchers {
+  loadFootballDataFixtures: typeof getFootballDataFixtures
+  loadApiFootballFixtures: typeof getApiFootballFixtures
+  loadCricketFixtures: typeof getCricketFixtures
+}
+
+const defaultFixtureProviders: FixtureProviderFetchers = {
+  loadFootballDataFixtures: (fromDate, toDate) => getFootballDataFixtures(fromDate, toDate, async (competitionCode, requestFromDate, requestToDate) => {
+    const cacheKey = `sportzone:football:fixtures:${competitionCode}:${requestFromDate}:${requestToDate}`
+    return cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, requestFromDate, requestToDate), 120)
+  }),
+  loadApiFootballFixtures: (fromDate, toDate, cycleNow) => getApiFootballFixtures(fromDate, toDate, cycleNow),
+  loadCricketFixtures: (fromDate, toDate, cycleNow) => getCricketFixtures(fromDate, toDate, cycleNow),
+}
+
 export interface MatchAutomationJobOptions {
   cronExpression?: string
+  /**
+   * Confirms the authoritative switch. Only the automatic trigger consults it: an explicit administrator
+   * sync is a manual action and stays available while the automatic pipeline is paused.
+   */
+  isCreationEnabled?: () => Promise<boolean>
+  /** Provider sources, replaceable so the gate can be exercised without provider requests. */
+  fixtureProviders?: FixtureProviderFetchers
+}
+
+/** How a run was started: the minute-tick automation, or an explicit administrator request. */
+export type MatchAutomationTrigger = 'scheduled' | 'manual'
+
+export interface MatchAutomationRunOptions {
+  trigger?: MatchAutomationTrigger
 }
 
 export class MatchAutomationService {
   private readonly cronExpression: string
+  private readonly fixtureProviders: FixtureProviderFetchers
+  private readonly isCreationEnabled: () => Promise<boolean>
   private jobId: string | null = null
   private cronTask: ReturnType<typeof cron.schedule> | null = null
   private isStarted = false
   private isRunning = false
   private hasLoggedRedisLockUnavailable = false
   private hasLoggedFootballDataKeyUnavailable = false
+  private lastCreationDisabledLogAt = 0
   /** Streams this process has recorded a Redis failure counter for, so healthy streams cost no DEL. */
   private readonly streamHealthFailureMirror = new StreamHealthFailureMirror()
 
   constructor(options: MatchAutomationJobOptions = {}) {
     this.cronExpression = options.cronExpression ?? '* * * * *'
+    this.fixtureProviders = options.fixtureProviders ?? defaultFixtureProviders
+    this.isCreationEnabled = options.isCreationEnabled ?? (() => confirmAutomationSwitch('matchCreation'))
+  }
+
+  /**
+   * Automatic fixture discovery and creation is allowed only while the master switch says so. A manual
+   * run is an explicit administrator action and is not the automation the switch pauses.
+   */
+  private async isCreationAllowed(trigger: MatchAutomationTrigger): Promise<boolean> {
+    if (trigger === 'manual') return true
+    return this.isCreationEnabled()
+  }
+
+  private logCreationDisabled(): void {
+    const now = Date.now()
+    if (now - this.lastCreationDisabledLogAt < 5 * 60_000) return
+    this.lastCreationDisabledLogAt = now
+    logger.info('Automatic match creation is paused by its master switch; no provider request or match was made')
   }
 
   private async ensureAutomationJob(): Promise<string> {
@@ -244,7 +295,13 @@ export class MatchAutomationService {
     }
   }
 
-  async runAutomation(): Promise<void> {
+  /** Whether the minute-tick scheduler is registered in this process. */
+  isSchedulerRunning(): boolean {
+    return this.isStarted
+  }
+
+  async runAutomation(options: MatchAutomationRunOptions = {}): Promise<void> {
+    const trigger = options.trigger ?? 'scheduled'
     if (this.isRunning) return
     this.isRunning = true
     const lockKey = 'sportzone:automation:match-lifecycle'
@@ -288,6 +345,11 @@ export class MatchAutomationService {
 
     const now = new Date()
 
+    // The push master switch is confirmed once per tick, before any recipient is resolved: with push
+    // automation off the match-start and reminder broadcasts are skipped entirely (no recipient queries,
+    // no queue payloads, no Redis commands), while the match lifecycle itself keeps running.
+    const pushAutomationEnabled = await confirmAutomationSwitch('pushNotifications')
+
     const matchesStarting = await prisma.match.findMany({
       where: {
         status: 'UPCOMING',
@@ -310,12 +372,14 @@ export class MatchAutomationService {
         emitMatchStatusUpdated({ id: match.id, status: 'LIVE' })
       }
 
-      for (const match of matchesStarting) {
-        try {
-          const createdCount = await notifyMatchStarted(match)
-          logger.info({ matchId: match.id, createdCount }, 'Match-start notifications broadcast')
-        } catch (error) {
-          logger.error({ error, matchId: match.id }, 'Match-start notification broadcast failed')
+      if (pushAutomationEnabled) {
+        for (const match of matchesStarting) {
+          try {
+            const createdCount = await notifyMatchStarted(match)
+            logger.info({ matchId: match.id, createdCount }, 'Match-start notifications broadcast')
+          } catch (error) {
+            logger.error({ error, matchId: match.id }, 'Match-start notification broadcast failed')
+          }
         }
       }
     }
@@ -323,14 +387,16 @@ export class MatchAutomationService {
     // A database query keeps the reminder authoritative across restarts and instances.
     // It also catches matches created inside the one-hour window without sending after kickoff.
     const reminderWindowEnd = new Date(now.getTime() + 60 * 60 * 1000)
-    const reminderMatches = await prisma.match.findMany({
-      where: {
-        status: 'UPCOMING',
-        deletedAt: null,
-        kickoffAt: { gt: now, lte: reminderWindowEnd },
-      },
-      select: MATCH_PUSH_SELECT,
-    })
+    const reminderMatches = pushAutomationEnabled
+      ? await prisma.match.findMany({
+          where: {
+            status: 'UPCOMING',
+            deletedAt: null,
+            kickoffAt: { gt: now, lte: reminderWindowEnd },
+          },
+          select: MATCH_PUSH_SELECT,
+        })
+      : []
     for (const match of reminderMatches) {
       try {
         const createdCount = await notifyMatchReminder(match)
@@ -393,7 +459,7 @@ export class MatchAutomationService {
       }
     }
 
-    await this.syncProviderMatches()
+    await this.syncProviderMatches(trigger)
     if (now.getMinutes() % STREAM_HEALTH_CHECK_INTERVAL_MINUTES === 0) {
       await this.syncApprovedStreamHealth()
     }
@@ -477,7 +543,20 @@ export class MatchAutomationService {
     }
   }
 
-  private async syncProviderMatches(): Promise<void> {
+  /**
+   * Automatic fixture discovery → reconciliation → match creation.
+   *
+   * The master switch is confirmed at the entrance - before any provider request, Redis cache entry or
+   * database read - and confirmed again after the providers answer, so a fixture that was already in
+   * flight when the switch was turned off cannot create a match. A manual administrator sync is not the
+   * automation this switch pauses and keeps running.
+   */
+  async syncProviderMatches(trigger: MatchAutomationTrigger = 'scheduled'): Promise<void> {
+    if (!(await this.isCreationAllowed(trigger))) {
+      this.logCreationDisabled()
+      return
+    }
+
     if (!this.jobId) return
 
     let createdCount = 0
@@ -516,10 +595,7 @@ export class MatchAutomationService {
       // football-data.org stays the primary football source and keeps its existing 120s cache.
       if (footballDataKeyConfigured) {
         try {
-          const result = await getFootballDataFixtures(fromDate, toDate, async (competitionCode, requestFromDate, requestToDate) => {
-            const cacheKey = `sportzone:football:fixtures:${competitionCode}:${requestFromDate}:${requestToDate}`
-            return cache<FootballDataFixture[]>(cacheKey, () => getCompetitionFixtures(competitionCode, requestFromDate, requestToDate), 120)
-          }, cycleNow)
+          const result = await this.fixtureProviders.loadFootballDataFixtures(fromDate, toDate)
           attemptedSources.push(...result.attemptedSources)
           failedSources.push(...result.failedSources)
           fixtures.push(...result.fixtures)
@@ -534,8 +610,8 @@ export class MatchAutomationService {
       // (not a failure), and a genuine failure never stops the other providers. Providers that read
       // several sources report per-source labels so a partial failure is not logged as full success.
       const secondaryProviders: Array<{ provider: ProviderId; load: () => Promise<ProviderFetchResult> }> = [
-        { provider: 'API_FOOTBALL', load: () => getApiFootballFixtures(fromDate, toDate, cycleNow) },
-        { provider: 'CRICKET_DATA', load: () => getCricketFixtures(fromDate, toDate, cycleNow) },
+        { provider: 'API_FOOTBALL', load: () => this.fixtureProviders.loadApiFootballFixtures(fromDate, toDate, cycleNow) },
+        { provider: 'CRICKET_DATA', load: () => this.fixtureProviders.loadCricketFixtures(fromDate, toDate, cycleNow) },
       ]
 
       for (const { provider, load } of secondaryProviders) {
@@ -562,6 +638,14 @@ export class MatchAutomationService {
         if (seenFixtureKeys.has(fixtureKey)) continue
         seenFixtureKeys.add(fixtureKey)
         uniqueFixtures.push(fixture)
+      }
+
+      // Confirmed again before anything is written: a switch turned off while the providers were answering
+      // must not let the already-fetched fixtures create or update a single match. No log row is written
+      // either, so a paused pipeline performs no database write at all.
+      if (!(await this.isCreationAllowed(trigger))) {
+        this.logCreationDisabled()
+        return
       }
 
       // One select for the two fixture reads below: the window query and the provider-key lookup have to

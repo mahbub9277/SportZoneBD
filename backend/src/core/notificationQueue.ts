@@ -4,6 +4,7 @@ import webPush from 'web-push'
 import { prisma } from './prisma.js'
 import { getPrimaryRedisStatus, isRedisConfigured, redis } from './redis.js'
 import { getRedisErrorCode } from './redisFailover.js'
+import { isAutomationSwitchEnabled } from './automationSwitches.js'
 import logger from './logger.js'
 import { emitUserNotification } from './socketManager.js'
 import {
@@ -152,6 +153,12 @@ async function sendPushNotification(
     return []
   }
 
+  // Second delivery gate: the retry path re-enters here with subscription ids, so a job produced before
+  // the switch was turned off still cannot reach a device once push automation is disabled.
+  if (!(await isAutomationSwitchEnabled('pushNotifications'))) {
+    return []
+  }
+
   const subscriptions = await prisma.pushSubscription.findMany({
     where: {
       userId: notification.userId,
@@ -241,7 +248,14 @@ async function sendPushNotification(
   return failedSubscriptionIds
 }
 
-export async function dispatchUserNotification(payload: NotificationQueuePayload): Promise<{ created: boolean; id?: string; failedPushSubscriptionIds?: string[] }> {
+export async function dispatchUserNotification(payload: NotificationQueuePayload): Promise<{ created: boolean; id?: string; failedPushSubscriptionIds?: string[]; pushSuppressed?: boolean }> {
+  if ((payload.channel ?? 'IN_APP') === 'PUSH' && !(await isAutomationSwitchEnabled('pushNotifications'))) {
+    // Push automation is off: a job that was already queued must not deliver and must not write the
+    // push ledger row either, so the reminder that already produced it is not treated as delivered.
+    // It completes instead of failing, so no retry is scheduled while the subsystem is disabled.
+    return { created: false, pushSuppressed: true }
+  }
+
   const notificationPayload = {
     userId: payload.userId,
     title: payload.title,
@@ -401,8 +415,17 @@ export async function enqueueUserNotification(payload: NotificationQueuePayload)
   return id ?? null
 }
 
-export function startNotificationWorker(): void {
-  if (!queueInstance || workerInstance) {
+/** Whether web push can be delivered at all (VAPID keys present and valid). Used for operational reporting. */
+export function isPushDeliveryConfigured(): boolean {
+  return pushConfigured
+}
+
+/** Whether this process is running the shared notification worker (in-app delivery depends on it too). */
+export function isNotificationWorkerRunning(): boolean {
+  return workerInstance !== null
+}
+
+export function startNotificationWorker(): void {  if (!queueInstance || workerInstance) {
     return
   }
 

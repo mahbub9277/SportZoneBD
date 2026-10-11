@@ -148,6 +148,8 @@ export interface PushCampaignResult {
   audienceSize: number
   pushEligibleRecipients: number
   queuedRecipients: number
+  /** True when push delivery was refused by the push automation switch; the in-app half still queued. */
+  pushBlocked: boolean
   deliveryConfirmed: boolean
 }
 

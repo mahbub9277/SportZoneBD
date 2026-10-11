@@ -72,6 +72,12 @@ export function PushCampaignPage() {
       }).unwrap()
       setResult(campaign)
       setConfirmed(false)
+      if (campaign.pushBlocked) {
+        toast.warning(campaign.channel === 'PUSH'
+          ? 'Push delivery is disabled by the Push Notifications Automation switch, so nothing was queued.'
+          : 'In-app notifications queued; push delivery is disabled by the Push Notifications Automation switch.')
+        return
+      }
       toast.success(`Campaign queued for ${campaign.queuedRecipients} recipient(s).`)
     } catch (error) {
       const message = (error as { data?: { message?: string } })?.data?.message

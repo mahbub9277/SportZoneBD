@@ -22,6 +22,7 @@ export const emptyApi = createApi({
     'AutomationStatus',
     'AutomationLogs',
     'AutomationMetrics',
+    'AutomationSwitches',
     'ChannelCategories',
     'Channels',
     'FinishedMatch',

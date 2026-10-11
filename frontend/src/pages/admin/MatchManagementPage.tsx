@@ -29,6 +29,14 @@ import { motion } from 'framer-motion'
 import { useConsoleBase } from '../../features/console/consoleBase'
 import { formatMatchDateTimeInput, parseMatchDateTime } from '../../utils/matchDateTime'
 import { parseMatchRound } from '../../utils/matchRound'
+import { toast } from 'sonner'
+import { AutomationSwitchCard } from '../../features/admin/components/AutomationSwitchCard'
+import { useGetMatchCreationSwitchQuery, useUpdateMatchCreationSwitchMutation } from '../../features/admin/automationSwitches.api'
+import { AUTOMATION_SWITCH_PERMISSION } from '../../features/admin/automationSwitchState'
+import { hasPermission } from '../../features/auth/roleExperience'
+import { useAppSelector } from '../../app/hooks'
+import { selectCurrentUser } from '../../features/auth/authSlice'
+import { getErrorMessage } from '../../utils/get-error-message'
 
 const matchFormSchemaBase = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters.'),
@@ -121,6 +129,32 @@ export function MatchManagementPage() {
   
   const [filters, setFilters] = useState(initialFilters)
   const debouncedSearchTerm = useDebounce(filters.searchTerm, 300);
+
+  const currentUser = useAppSelector(selectCurrentUser)
+  const canManageAutomation = hasPermission(currentUser, AUTOMATION_SWITCH_PERMISSION)
+  const {
+    data: matchCreationSwitch,
+    isFetching: isMatchCreationFetching,
+    isError: isMatchCreationError,
+  } = useGetMatchCreationSwitchQuery(undefined, { skip: !canManageAutomation })
+  const [updateMatchCreationSwitch, { isLoading: isSavingMatchCreation }] = useUpdateMatchCreationSwitchMutation()
+
+  const handleMatchCreationToggle = (enabled: boolean) => {
+    void updateMatchCreationSwitch({ enabled }).unwrap().then((state) => {
+      if (state.transition === 'degraded') {
+        toast.warning(state.dependencies.find((dependency) => !dependency.ok)?.detail
+          ?? 'The match creation switch was saved, but the automation is not fully operational.')
+        return
+      }
+      if (state.transition === 'unavailable') {
+        toast.error(state.degradedReason ?? 'The match creation state could not be confirmed.')
+        return
+      }
+      toast.success(enabled
+        ? 'Automatic match creation turned on.'
+        : 'Automatic match creation paused.')
+    }).catch((error) => toast.error(getErrorMessage(error)))
+  }
   
   const { data, isLoading, isError } = useGetMatchesQuery({
     page: filters.currentPage,
@@ -324,6 +358,18 @@ export function MatchManagementPage() {
           </Button>
         </div>
       </motion.div>
+
+      {canManageAutomation && (
+        <AutomationSwitchCard
+          state={matchCreationSwitch}
+          isFetching={isMatchCreationFetching}
+          isSaving={isSavingMatchCreation}
+          isError={isMatchCreationError}
+          hasPermission={canManageAutomation}
+          unaffectedNote="Manually created matches, pending-review decisions, existing match records, standings and live-match processing keep working while it is off."
+          onToggle={handleMatchCreationToggle}
+        />
+      )}
 
       <PendingMatchesSection />
 

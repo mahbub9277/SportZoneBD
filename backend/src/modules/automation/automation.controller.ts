@@ -85,8 +85,9 @@ export const triggerManualSync = asyncHandler(async (req: Request, res: Response
       data: { status: 'RUNNING' },
     })
 
-    // Run automation in background (don't await to respond quickly)
-    matchAutomationService.runAutomation().then(async () => {
+    // Run automation in background (don't await to respond quickly). A manual trigger is an explicit
+    // administrator action, so it runs the pipeline even while the automatic switch is off.
+    matchAutomationService.runAutomation({ trigger: 'manual' }).then(async () => {
       await prisma.automationJob.update({
         where: { id: job.id },
         data: { status: 'IDLE', lastRunAt: new Date() },
