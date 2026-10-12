@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { toFiniteNumber, toMeaningfulString, toTrimmedString } from './providerValue.js'
 
 /**
  * ZiniPay hosted payment (invoice/checkout) client.
@@ -6,7 +7,8 @@ import axios from 'axios'
  * This is the product that provides the customer-facing payment page: SportZoneBD creates an invoice on the
  * server, sends the customer to the returned `payment_url`, and later proves the payment with
  * `POST /v1/payment/verify`. It is a different product from the Advanced Two-Step Transaction Verification
- * API (`/v1/trx/*`), which consumes credits and is not used for the hosted checkout.
+ * API (`/v1/trx/*`), which spends credits, has its own client (`zinipay.trx.client.ts`) and is never used for
+ * the hosted checkout itself.
  *
  * Contract notes, all from the provider's own documentation and its live responses:
  * - auth header is `zini-api-key` (the same brand key the account uses);
@@ -297,21 +299,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function toTrimmedString(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() || null
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return null
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value.trim())
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
 /** Provider text is only used for logs, trimmed and bounded. */
 function describeProviderMessage(data: unknown): string | undefined {
   if (!isRecord(data)) return undefined
@@ -453,7 +440,7 @@ export async function createZiniPayInvoice(
     )
   }
 
-  return { invoiceId, paymentUrl, environment: toTrimmedString(payload.environment) }
+  return { invoiceId, paymentUrl, environment: toMeaningfulString(payload.environment) }
 }
 
 /**
@@ -484,9 +471,11 @@ export async function verifyZiniPayInvoice(
   return {
     status: rawStatus,
     amount: toFiniteNumber(payload.amount),
-    paymentMethod: toTrimmedString(payload.payment_method) ?? toTrimmedString(payload.provider),
-    transactionId: toTrimmedString(payload.transaction_id),
-    merchantReference: toTrimmedString(payload.val_id),
+    // The provider answers with placeholders (`unknown`, `N/A`) when it has neither of these, and a placeholder
+    // must never be recorded as a wallet or a transaction reference.
+    paymentMethod: toMeaningfulString(payload.payment_method) ?? toMeaningfulString(payload.provider),
+    transactionId: toMeaningfulString(payload.transaction_id),
+    merchantReference: toMeaningfulString(payload.val_id),
     metadata,
   }
 }

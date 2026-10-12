@@ -303,6 +303,27 @@ export const startHostedCheckout = asyncHandler(async (req: Request, res: Respon
 });
 
 /**
+ * Verifies the transaction reference the customer paid with, and activates Premium only if the provider both
+ * confirms the transaction and permanently consumes it.
+ *
+ * The customer supplies one thing — their own transaction ID — and nothing else about the payment: the amount,
+ * the plan and the ownership all come from the stored payment record.
+ */
+export const verifyPaymentTransaction = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req.user as { id: string })?.id;
+  if (!userId) return res.status(401).json(errorResponse('Authentication required.'));
+
+  const paymentId = typeof req.params.paymentId === 'string' ? req.params.paymentId : '';
+  const result = await paymentService.verifyPaymentTransaction({
+    paymentId,
+    userId,
+    transactionId: (req.body as { transactionId?: unknown } | undefined)?.transactionId,
+  });
+
+  return res.status(200).json(successResponse(result, result.message));
+});
+
+/**
  * Verifies the invoice behind a payment with ZiniPay, server-side, and reports the outcome.
  *
  * This is what the return page calls. Premium is activated here and nowhere else, exactly once, and a pending
@@ -315,6 +336,10 @@ export const verifyHostedCheckout = asyncHandler(async (req: Request, res: Respo
   const paymentId = typeof req.params.paymentId === 'string' ? req.params.paymentId : '';
   const result = await paymentService.verifyHostedCheckout({ paymentId, userId });
 
+  // `trxVerificationEnabled` tells the page whether this deployment offers the transaction-reference path at
+  // all, so it never shows a form that cannot work.
+  const payload = { ...result, trxVerificationEnabled: paymentService.isTransactionVerificationAvailable() };
+
   // A pending or failed payment is a truthful answer, not an error: the page shows the status it receives.
-  return res.status(200).json(successResponse(result, result.message));
+  return res.status(200).json(successResponse(payload, result.message));
 });

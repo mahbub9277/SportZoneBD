@@ -9,7 +9,30 @@ const { prisma } = await import('../../core/prisma.js')
 const { ZiniPayCheckoutFailure } = await import('./zinipay.checkout.client.js')
 const { verifyHostedCheckout, recheckHostedPayment } = await import('./hostedCheckout.service.js')
 const { readProviderEvidence, buildProviderEvidence } = await import('./providerEvidence.js')
+const evidenceApi = await import('./providerEvidence.js')
 const { paymentRouter } = await import('./payment.routes.js')
+
+interface StackLayer {
+  handle?: { name: string }
+  route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: unknown }> }
+}
+
+/** The names of the layers registered for a route, in order, as express would run them. */
+function routeHandles(method: string, path: string): string[] {
+  return (routeLayerHandles(method, path) as Array<{ name?: string }>).map((handle) => handle?.name ?? 'anonymous')
+}
+
+/** The actual layer functions registered for a route, for identity assertions. */
+function routeLayerHandles(method: string, path: string): unknown[] {
+  const layers = (paymentRouter as unknown as { stack: StackLayer[] }).stack
+  const layer = layers.find((candidate) => (
+    candidate.route
+    && candidate.route.path === path
+    && candidate.route.methods[method] === true
+  ))
+  assert.ok(layer?.route, `no ${method.toUpperCase()} ${path} route is registered`)
+  return layer.route.stack.map((entry) => entry.handle)
+}
 
 /**
  * The two things this file has to prove.
@@ -421,6 +444,89 @@ test('a recheck moments after another check is reported truthfully instead of lo
   } finally {
     restore()
   }
+})
+
+test('the transaction-verification record and the invoice record coexist, and neither erases the other', () => {
+  const { readTrxEvidence: read, buildTrxEvidence: build, withTrxEvidence: merge, toAdminEvidenceView: view } = evidenceApi
+
+  const invoice = { source: 'invoice-verify', checkedAt: '2026-10-12T07:57:00.000Z', checkCount: 1, providerStatus: 'PENDING', invoiceId: 'INVOICE-1' }
+  const trx = build({
+    referenceMasked: '********6789',
+    previous: null,
+    verify: { providerTransactionId: 1234, amount: 10, provider: 'bKash', senderMasked: '017****5678', status: 'UNUSED' },
+    confirmStatus: 'CONFIRMED',
+  }, new Date('2026-10-12T08:10:00.000Z'))
+
+  const stored = merge(invoice, trx)
+  assert.equal(read(stored)?.confirmStatus, 'CONFIRMED')
+  assert.equal((stored as { providerStatus?: string }).providerStatus, 'PENDING', 'the invoice facts are still there')
+
+  // A later invoice check rewrites the invoice keys but keeps the transaction facts beside them.
+  const rewritten = merge({ ...invoice, providerStatus: 'COMPLETED', checkCount: 2 }, trx)
+  assert.equal((rewritten as { providerStatus?: string }).providerStatus, 'COMPLETED')
+  assert.equal(read(rewritten)?.providerTransactionId, 1234)
+
+  const adminView = view(null, trx)
+  assert.equal(adminView?.transaction?.confirmStatus, 'CONFIRMED')
+  assert.equal(JSON.stringify(adminView).includes('TXN123456789'), false)
+})
+
+test('a later transaction attempt cannot erase what an earlier one established', () => {
+  const { buildTrxEvidence: build, readTrxEvidence: read } = evidenceApi
+
+  const first = build({
+    referenceMasked: '********6789',
+    previous: null,
+    verify: { providerTransactionId: 1234, amount: 10, provider: 'bKash', senderMasked: '017****5678', status: 'UNUSED' },
+  }, new Date('2026-10-12T08:00:00.000Z'))
+
+  const second = build({
+    referenceMasked: '******4321',
+    previous: first,
+    failure: { kind: 'not-found', note: 'unknown transaction' },
+  }, new Date('2026-10-12T08:05:00.000Z'))
+
+  assert.equal(second.attempts, 2)
+  assert.equal(second.providerTransactionId, 1234, 'the provider id survives a later failed attempt')
+  assert.equal(second.verifiedAt, '2026-10-12T08:00:00.000Z')
+  assert.equal(second.lastFailure?.kind, 'not-found')
+  assert.equal(read(second)?.amount, 10)
+})
+
+test('a stored transaction record of an unknown shape is not read as evidence', () => {
+  const { readTrxEvidence: read } = evidenceApi
+
+  assert.equal(read(null), null)
+  assert.equal(read({ trxVerification: 'CONFIRMED' }), null)
+  assert.equal(read({ trxVerification: { source: 'trx-confirm', checkedAt: new Date().toISOString() } }), null)
+  assert.equal(read({ trxVerification: { source: 'trx-verify' } }), null, 'a record without a timestamp is not usable')
+  assert.equal(read({ source: 'invoice-verify', checkedAt: new Date().toISOString() }), null, 'an invoice record is not a transaction record')
+  assert.equal(read({ trxVerification: { source: 'trx-verify', checkedAt: new Date().toISOString(), attempts: 'many', confirmStatus: 'MAYBE' } })?.attempts, 0)
+  assert.equal(read({ trxVerification: { source: 'trx-verify', checkedAt: new Date().toISOString(), confirmStatus: 'MAYBE' } })?.confirmStatus, null)
+  assert.equal(read({ source: 'trx-verify', checkedAt: new Date().toISOString(), attempts: 2 })?.attempts, 2)
+})
+
+test('the transaction-verification route is a customer route behind the payment limiter', async () => {
+  const [paymentLimiter, verifyPaymentTransaction] = await Promise.all([
+    import('../../middleware/rateLimiter.js').then((module) => module.paymentLimiter),
+    import('./payment.controller.js').then((module) => module.verifyPaymentTransaction),
+  ])
+
+  const handles = routeLayerHandles('post', '/:paymentId/transaction-verification')
+
+  // Exactly: the session, the credit-spending limiter and the handler — nothing that would demand an admin
+  // permission (this is the customer's own payment) and nothing extra.
+  assert.equal(handles.length, 3, `unexpected layer count: ${(handles as Array<{ name?: string }>).map((entry) => entry?.name ?? 'anonymous').join(', ')}`)
+  assert.equal((handles[0] as { name?: string }).name, 'authenticate')
+  assert.equal(handles[1], paymentLimiter)
+  assert.equal(handles[2], verifyPaymentTransaction)
+
+  const names = routeHandles('post', '/:paymentId/transaction-verification')
+  assert.equal(
+    names.some((name) => name.includes('requirePermission') || name.includes('requireRole')),
+    false,
+    `a customer endpoint must not be gated by an admin gate: ${names.join(', ')}`,
+  )
 })
 
 test('the recheck route is gated by the payment review permission and cannot be reached anonymously', async () => {

@@ -22,6 +22,32 @@ import type { ZiniPayInvoiceCheck } from './zinipay.checkout.client.js'
 /** The verification step that produced a record. Only one producer exists today. */
 export type ProviderEvidenceSource = 'invoice-verify'
 
+/** The key the transaction-verification (TrxID) facts live under, beside the invoice facts. */
+export const TRX_EVIDENCE_KEY = 'trxVerification'
+
+export interface TrxVerificationEvidence {
+  source: 'trx-verify'
+  /** How many times this payment's transaction reference has been sent to the provider. */
+  attempts: number
+  /** The customer's reference, masked: enough to recognise, never enough to reuse. */
+  referenceMasked: string | null
+  /** The provider's numeric transaction id, which the confirm step needs. */
+  providerTransactionId: number | null
+  amount: number | null
+  provider: string | null
+  senderMasked: string | null
+  verifyStatus: string | null
+  verifiedAt: string | null
+  /**
+   * `CONFIRMED` only after the provider permanently consumed the transaction. `FAILED` and `AMBIGUOUS` both mean
+   * premium was not activated, and `AMBIGUOUS` means the provider may or may not have consumed it.
+   */
+  confirmStatus: 'CONFIRMED' | 'FAILED' | 'AMBIGUOUS' | null
+  confirmedAt: string | null
+  checkedAt: string
+  lastFailure: { kind: string; at: string; note: string | null } | null
+}
+
 export interface ProviderEvidence {
   /** Which server-side step produced this record. */
   source: ProviderEvidenceSource
@@ -163,9 +189,129 @@ export function buildProviderEvidence(
 export const maskProviderReference = (value: string | null | undefined): string | null =>
   value ? maskReference(value) : null
 
+/** Reads the transaction-verification facts without trusting their shape. */
+export function readTrxEvidence(value: unknown): TrxVerificationEvidence | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const container = value as Record<string, unknown>
+  // Accept either the payment's whole evidence object or the record itself, so a caller cannot silently read
+  // the wrong level and conclude that nothing was ever recorded.
+  const nested = container.source === 'trx-verify' ? container : container[TRX_EVIDENCE_KEY]
+  if (typeof nested !== 'object' || nested === null || Array.isArray(nested)) return null
+
+  const record = nested as Record<string, unknown>
+  if (record.source !== 'trx-verify') return null
+  const checkedAt = boundFact(record.checkedAt)
+  if (!checkedAt) return null
+
+  const failure = typeof record.lastFailure === 'object' && record.lastFailure !== null
+    ? (record.lastFailure as Record<string, unknown>)
+    : null
+  const confirm = boundFact(record.confirmStatus)
+
+  return {
+    source: 'trx-verify',
+    attempts: typeof record.attempts === 'number' && Number.isFinite(record.attempts) && record.attempts >= 0
+      ? Math.floor(record.attempts)
+      : 0,
+    referenceMasked: boundFact(record.referenceMasked),
+    providerTransactionId: boundAmount(record.providerTransactionId) === null
+      ? null
+      : Math.trunc(boundAmount(record.providerTransactionId) as number),
+    amount: boundAmount(record.amount),
+    provider: boundFact(record.provider),
+    senderMasked: boundFact(record.senderMasked),
+    verifyStatus: boundFact(record.verifyStatus),
+    verifiedAt: boundFact(record.verifiedAt),
+    confirmStatus: confirm === 'CONFIRMED' || confirm === 'FAILED' || confirm === 'AMBIGUOUS' ? confirm : null,
+    confirmedAt: boundFact(record.confirmedAt),
+    checkedAt,
+    lastFailure: failure && typeof failure.kind === 'string'
+      ? {
+          kind: failure.kind.slice(0, MAX_FACT_LENGTH),
+          at: boundFact(failure.at) ?? checkedAt,
+          note: boundFact(failure.note),
+        }
+      : null,
+  }
+}
+
+export interface TrxEvidenceInput {
+  referenceMasked: string | null
+  previous: TrxVerificationEvidence | null
+  /** The provider's answer, when the verify step returned one. */
+  verify?: {
+    providerTransactionId: number
+    amount: number | null
+    provider: string | null
+    senderMasked: string | null
+    status: string | null
+  }
+  confirmStatus?: TrxVerificationEvidence['confirmStatus']
+  failure?: { kind: string; note?: string | null } | null
+}
+
+/**
+ * Builds the next transaction-verification record.
+ *
+ * Like the invoice record it is monotonic — a later failure cannot erase the transaction the provider already
+ * identified — and it counts attempts so a payment cannot be used to spend credits indefinitely.
+ */
+export function buildTrxEvidence(input: TrxEvidenceInput, now: Date): TrxVerificationEvidence {
+  const at = now.toISOString()
+  const previous = input.previous
+
+  return {
+    source: 'trx-verify',
+    attempts: (previous?.attempts ?? 0) + 1,
+    referenceMasked: input.referenceMasked ?? previous?.referenceMasked ?? null,
+    providerTransactionId: input.verify?.providerTransactionId ?? previous?.providerTransactionId ?? null,
+    amount: input.verify?.amount ?? previous?.amount ?? null,
+    provider: input.verify?.provider ?? previous?.provider ?? null,
+    senderMasked: input.verify?.senderMasked ?? previous?.senderMasked ?? null,
+    verifyStatus: input.verify?.status ?? previous?.verifyStatus ?? null,
+    verifiedAt: input.verify ? at : previous?.verifiedAt ?? null,
+    confirmStatus: input.confirmStatus ?? previous?.confirmStatus ?? null,
+    confirmedAt: input.confirmStatus === 'CONFIRMED' ? at : previous?.confirmedAt ?? null,
+    checkedAt: at,
+    lastFailure: input.failure
+      ? { kind: input.failure.kind.slice(0, MAX_FACT_LENGTH), at, note: input.failure.note?.slice(0, MAX_NOTE_LENGTH) ?? null }
+      : null,
+  }
+}
+
+/**
+ * Puts the transaction facts back beside the invoice facts.
+ *
+ * The two records describe the same payment and must be able to coexist: an invoice verification never erases
+ * what a transaction verification established, and the other way round.
+ */
+export function withTrxEvidence(base: unknown, trx: TrxVerificationEvidence): Record<string, unknown> {
+  const record = typeof base === 'object' && base !== null && !Array.isArray(base)
+    ? { ...(base as Record<string, unknown>) }
+    : {}
+  record[TRX_EVIDENCE_KEY] = trx as unknown
+  return record
+}
+
 /** Strips the fields an admin does not need, and masks every reference that leaves the database. */
-export function toAdminEvidenceView(evidence: ProviderEvidence | null) {
-  if (!evidence) return null
+export function toAdminEvidenceView(evidence: ProviderEvidence | null, trx: TrxVerificationEvidence | null = null) {
+  const trxView = trx
+    ? {
+        source: trx.source,
+        attempts: trx.attempts,
+        reference: trx.referenceMasked,
+        provider: trx.provider,
+        amount: trx.amount,
+        providerStatus: trx.verifyStatus,
+        verifiedAt: trx.verifiedAt,
+        confirmStatus: trx.confirmStatus,
+        confirmedAt: trx.confirmedAt,
+        checkedAt: trx.checkedAt,
+        lastFailure: trx.lastFailure ? { kind: trx.lastFailure.kind, at: trx.lastFailure.at } : null,
+      }
+    : null
+
+  if (!evidence) return trxView ? { invoice: null, transaction: trxView } : null
   return {
     source: evidence.source,
     providerStatus: evidence.providerStatus,
@@ -181,5 +327,6 @@ export function toAdminEvidenceView(evidence: ProviderEvidence | null) {
     lastFailure: evidence.lastFailure
       ? { kind: evidence.lastFailure.kind, at: evidence.lastFailure.at }
       : null,
+    transaction: trxView,
   }
 }

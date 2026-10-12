@@ -16,12 +16,13 @@ import {
   recheckHostedPayment,
   startHostedCheckout,
   verifyHostedCheckout,
+  verifyPaymentTransaction,
   createIntentSchema,
   startCheckoutSchema,
 } from './payment.controller.js'
 import type { RequestHandler } from 'express'
 import { authenticate, requirePermission } from '../../core/middleware/index.js'
-import { webhookLimiter } from '../../middleware/rateLimiter.js'
+import { paymentLimiter, webhookLimiter } from '../../middleware/rateLimiter.js'
 
 export const paymentRouter: ExpressRouter = Router()
 
@@ -51,6 +52,12 @@ paymentRouter.post('/complete', authenticate, completePayment as RequestHandler)
 // payment page. Premium is activated only after the server verifies the invoice.
 paymentRouter.post('/checkout', authenticate, validateBody(startCheckoutSchema), startHostedCheckout as RequestHandler)
 paymentRouter.post('/checkout/:paymentId/verify', authenticate, verifyHostedCheckout as RequestHandler)
+
+// The second documented way to prove a payment: the transaction reference the customer paid with, checked
+// against the provider's own transaction records and then permanently consumed by the provider before Premium
+// is activated. It sits beside the hosted checkout rather than replacing it, and it is rate limited because
+// every attempt spends one verification credit.
+paymentRouter.post('/:paymentId/transaction-verification', authenticate, paymentLimiter, verifyPaymentTransaction as RequestHandler)
 
 // This route handles webhooks from payment providers. It is unauthenticated because the provider's servers
 // call it, so it carries its own (separate, more generous) limit and never trusts what it is told.

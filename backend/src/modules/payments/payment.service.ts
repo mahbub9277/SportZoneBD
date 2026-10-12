@@ -17,6 +17,11 @@ import {
   type StartHostedCheckoutResult,
 } from './hostedCheckout.service.js';
 import { resolveZiniPayWebhookReference } from './zinipay.webhook.js';
+import {
+  isTransactionVerificationAvailable as isTransactionVerificationAvailableFlow,
+  verifyPaymentTransaction as verifyPaymentTransactionFlow,
+  type TrxVerificationResult,
+} from './trxVerification.service.js';
 import { maskReference } from './referenceMask.js';
 
 const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10);
@@ -89,6 +94,23 @@ export async function recheckHostedPayment(args: {
   paymentId: string;
 }): Promise<HostedRecheckResult> {
   return recheckHostedPaymentFlow(args);
+}
+
+/**
+ * Verifies the transaction reference a customer paid with, and activates Premium only if the provider both
+ * confirms the transaction and permanently consumes it.
+ */
+export async function verifyPaymentTransaction(args: {
+  paymentId: string;
+  userId: string;
+  transactionId: unknown;
+}): Promise<TrxVerificationResult> {
+  return verifyPaymentTransactionFlow(args);
+}
+
+/** Whether this deployment offers transaction-reference verification at all. */
+export function isTransactionVerificationAvailable(): boolean {
+  return isTransactionVerificationAvailableFlow();
 }
 
 /**

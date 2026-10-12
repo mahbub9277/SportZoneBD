@@ -25,7 +25,9 @@ import { resolvePaymentUrlConfig } from './paymentUrls.js'
 import {
   buildProviderEvidence,
   readProviderEvidence,
+  readTrxEvidence,
   toAdminEvidenceView,
+  withTrxEvidence,
 } from './providerEvidence.js'
 import {
   ZiniPayCheckoutFailure,
@@ -219,18 +221,22 @@ function nextEvidence(
   check: ZiniPayInvoiceCheck | undefined,
   failure: { kind: string; note?: string | null } | null,
 ): Prisma.InputJsonValue {
-  return asJson(
-    buildProviderEvidence(
-      readProviderEvidence(payment.providerVerification),
-      {
-        invoiceId: payment.providerPaymentId,
-        expectedMerchantReference: payment.transactionId,
-        check,
-        failure,
-      },
-      new Date(),
-    ),
+  const previousRaw = payment.providerVerification
+  const evidence = buildProviderEvidence(
+    readProviderEvidence(previousRaw),
+    {
+      invoiceId: payment.providerPaymentId,
+      expectedMerchantReference: payment.transactionId,
+      check,
+      failure,
+    },
+    new Date(),
   )
+
+  // A transaction verification recorded for the same payment stays where it is: the invoice record and the
+  // transaction record describe different facts and neither may overwrite the other.
+  const trx = readTrxEvidence(previousRaw)
+  return asJson(trx ? withTrxEvidence(evidence, trx) : evidence)
 }
 
 export interface HostedCheckoutDeps {
@@ -266,8 +272,9 @@ export interface StartHostedCheckoutResult {
  * Concurrency is handled by the database, not by the read-then-write check: the payment row that backs a
  * session is the reservation, and the partial unique index on (`userId`, `subscriptionPlanId`) for open
  * reservations means two simultaneous requests for the same customer and plan cannot both create an invoice.
- * The loser of that race looks the winner up instead. Different customers, and the same customer on a
- * different plan, are unaffected.
+ * The loser of that race waits for the winner's invoice and then reuses it, so a double click resolves to one
+ * usable session instead of an error. Different customers, and the same customer on a different plan, are
+ * unaffected.
  *
  * The provider call happens outside any transaction, so a slow or hanging provider never holds a database
  * transaction open. A reservation that never produced an invoice (a crash or a provider timeout) is not
@@ -276,6 +283,22 @@ export interface StartHostedCheckoutResult {
 export async function startHostedCheckout(
   args: StartHostedCheckoutArgs,
   deps: HostedCheckoutDeps = {},
+): Promise<StartHostedCheckoutResult> {
+  return startHostedCheckoutAttempt(args, deps, 0)
+}
+
+/**
+ * One attempt at creating the session, and at most one retry.
+ *
+ * The retry exists for the case where the request that won the reservation died before its invoice was
+ * attached: the loser has waited, found nothing usable and is not going to be answered by a session that no
+ * longer exists, so it reserves instead. `attempt` bounds that, so a repeatedly failing provider can never
+ * turn one request into a loop.
+ */
+async function startHostedCheckoutAttempt(
+  args: StartHostedCheckoutArgs,
+  deps: HostedCheckoutDeps,
+  attempt: number,
 ): Promise<StartHostedCheckoutResult> {
   const env = deps.env ?? process.env
   const createInvoice = deps.createInvoice ?? createZiniPayInvoice
@@ -329,7 +352,7 @@ export async function startHostedCheckout(
     checkoutReservationAt: reservedAt,
     providerCheckout: asJson({ url: null, environment: null, createdAt: null, lastCheckedAt: null, lastStatus: null, lastFailure: null }),
     // The unique index is the gate: a duplicate means another request already holds the reservation, which is
-    // looked up below instead of turning into a second invoice.
+    // waited for below instead of turning into a second invoice.
     conflict: 'null',
     notification: {
       title: 'Payment Started',
@@ -349,6 +372,30 @@ export async function startHostedCheckout(
         reused: true,
       }
     }
+
+    // The other request is holding the reservation while it calls the provider, which is what a double click
+    // looks like. Waiting here is what turns it into the same usable session rather than an error.
+    const settled = winner ? await waitForSessionUrl(winner.id, now, deps) : null
+    if (settled?.url) {
+      logger.info({ paymentId: settled.id }, 'ZiniPay checkout race resolved onto the winner session')
+      return {
+        paymentId: settled.id,
+        paymentUrl: settled.url,
+        amount: settled.amount,
+        currency: settled.currency,
+        planName: plan.name,
+        reused: true,
+      }
+    }
+
+    // Nothing is holding the reservation any more (the winner failed or was abandoned), so this request may
+    // reserve for itself rather than telling the customer to try again for no reason.
+    const stillOpen = await findOpenSession(args.userId, plan.id, now)
+    if (!stillOpen && attempt === 0) {
+      logger.warn({ attempt }, 'ZiniPay checkout race left no open session; reserving again')
+      return startHostedCheckoutAttempt(args, deps, attempt + 1)
+    }
+
     throw new AppError(409, 'A payment session for this plan is already being created. Please try again in a moment.')
   }
 
@@ -770,7 +817,10 @@ export async function recheckHostedPayment(
       : result.message,
     paymentId: payment.id,
     providerContacted,
-    evidence: toAdminEvidenceView(readProviderEvidence(stored?.providerVerification ?? payment.providerVerification)),
+    evidence: toAdminEvidenceView(
+      readProviderEvidence(stored?.providerVerification ?? payment.providerVerification),
+      readTrxEvidence(stored?.providerVerification ?? payment.providerVerification),
+    ),
     paymentStatus: stored?.status ?? payment.status,
   }
 }

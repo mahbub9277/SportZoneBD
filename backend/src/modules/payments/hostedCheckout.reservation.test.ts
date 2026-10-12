@@ -452,6 +452,101 @@ test('losing the insert race reuses the winner session instead of creating a sec
   }
 })
 
+test('an insert race whose winner is still calling the provider waits for that invoice instead of failing', async () => {
+  const db = installFakeDatabase()
+  const clock = fakeClock()
+  const provider = invoiceProvider()
+
+  const winner = reservation('payment-1')
+  const payment = prisma.payment as unknown as Record<string, unknown>
+  const create = payment.create as (args: unknown) => Promise<unknown>
+  const findFirst = payment.findFirst as (args: { select?: Record<string, unknown> }) => Promise<unknown>
+
+  // The winner commits its reservation first and is still talking to the provider when this request loses the
+  // insert race. The invoice appears while the loser is waiting, which is what a double click looks like.
+  let polls = 0
+  payment.create = async () => {
+    db.payments.push(winner)
+    throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+  }
+  payment.findFirst = async (args: { select?: Record<string, unknown> }) => {
+    const selected = args.select ?? {}
+    if ('status' in selected) {
+      polls += 1
+      if (polls >= 2) {
+        winner.providerPaymentId = 'INVOICE-1'
+        winner.providerCheckout = { url: 'https://secure.zinipay.com/payment/INVOICE-1', environment: 'live', createdAt: null, lastCheckedAt: null, lastStatus: null, lastFailure: null }
+      }
+    }
+    return findFirst(args)
+  }
+
+  try {
+    const session = await startHostedCheckout(
+      { userId: 'user-1', subscriptionPlanId: 'plan-1', customerEmail: 'a@b.test', customerName: null },
+      { env: ENV, createInvoice: provider.createInvoice, now: clock.now, sleep: clock.sleep },
+    )
+
+    assert.equal(session.reused, true)
+    assert.equal(session.paymentId, 'payment-1')
+    assert.equal(session.paymentUrl, 'https://secure.zinipay.com/payment/INVOICE-1')
+    assert.equal(provider.calls.length, 0, 'the loser never creates a second payable invoice')
+    assert.equal(db.created.length, 0)
+  } finally {
+    payment.findFirst = findFirst
+    payment.create = create
+    db.restore()
+  }
+})
+
+test('an insert race whose winner died is recovered by reserving again instead of failing the customer', async () => {
+  const db = installFakeDatabase()
+  const clock = fakeClock()
+  const provider = invoiceProvider()
+
+  const winner = reservation('payment-1')
+  const payment = prisma.payment as unknown as Record<string, unknown>
+  const create = payment.create as (args: unknown) => Promise<unknown>
+  const findFirst = payment.findFirst as (args: { select?: Record<string, unknown> }) => Promise<unknown>
+
+  let insertAttempted = false
+  let winnerFailed = false
+  payment.create = async (args: unknown) => {
+    if (!insertAttempted) {
+      insertAttempted = true
+      db.payments.push(winner)
+      throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+    }
+    return create(args)
+  }
+  payment.findFirst = async (args: { select?: Record<string, unknown> }) => {
+    const selected = args.select ?? {}
+    if ('status' in selected && !winnerFailed) {
+      // The winner's provider call failed: it marks its own reservation as failed, so nothing is left to wait for.
+      winnerFailed = true
+      winner.status = 'FAILED'
+    }
+    return findFirst(args)
+  }
+
+  try {
+    const session = await startHostedCheckout(
+      { userId: 'user-1', subscriptionPlanId: 'plan-1', customerEmail: 'a@b.test', customerName: null },
+      { env: ENV, createInvoice: provider.createInvoice, now: clock.now, sleep: clock.sleep },
+    )
+
+    assert.equal(session.reused, false, 'a dead reservation must not block the customer for the whole TTL')
+    assert.equal(db.created.length, 1, 'exactly one new reservation is created')
+    assert.equal(provider.calls.length, 1, 'exactly one invoice is created for it')
+    assert.equal(winner.status, 'FAILED')
+    assert.equal(db.created[0].providerPaymentId, 'INVOICE-1')
+  } finally {
+    payment.findFirst = findFirst
+    payment.create = create
+    db.restore()
+  }
+})
+
 test('an abandoned reservation is failed and replaced instead of blocking the customer for ever', async () => {
   const stale = reservation('payment-1', { checkoutReservationAt: new Date('2026-10-11T11:50:00.000Z'), createdAt: new Date('2026-10-11T11:50:00.000Z') })
   const db = installFakeDatabase({ payments: [stale] })

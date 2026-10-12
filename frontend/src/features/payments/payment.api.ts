@@ -36,6 +36,24 @@ export interface HostedCheckoutState {
   /** A sentence from the backend, safe to show as-is. */
   message: string
   payment: Payment
+  /**
+   * Whether this deployment offers the transaction-reference path. The page only shows that form when the
+   * backend says the capability is switched on, so a customer is never offered an action that cannot work.
+   */
+  trxVerificationEnabled?: boolean
+}
+
+/**
+ * The outcome of verifying the transaction reference a customer paid with.
+ *
+ * `activated` is true only when the provider confirmed *and permanently consumed* the transaction; anything
+ * else keeps the customer informed without granting anything.
+ */
+export interface TransactionVerificationResult {
+  paymentId: string
+  activated: boolean
+  status: 'CONFIRMED' | 'PENDING'
+  message: string
 }
 
 interface CompletePaymentPayload {
@@ -72,6 +90,21 @@ export const paymentApi = emptyApi.injectEndpoints({
       transformResponse: (response: ApiResponse<HostedCheckoutState>) => unwrapApiResponse(response),
       invalidatesTags: (result) => (result?.status === 'COMPLETED' ? ['Payments', 'ME'] : ['Payments']),
     }),
+    /**
+     * Asks the backend to verify the transaction reference the customer paid with.
+     *
+     * The browser sends only the reference: the amount, the plan and the ownership come from the stored payment
+     * record, and the backend only activates premium if the provider confirms and consumes the transaction.
+     */
+    verifyPaymentTransaction: builder.mutation<TransactionVerificationResult, { paymentId: string; transactionId: string }>({
+      query: ({ paymentId, transactionId }) => ({
+        url: `/payments/${paymentId}/transaction-verification`,
+        method: 'POST',
+        body: { transactionId },
+      }),
+      transformResponse: (response: ApiResponse<TransactionVerificationResult>) => unwrapApiResponse(response),
+      invalidatesTags: (result) => (result?.activated ? ['Payments', 'ME'] : ['Payments']),
+    }),
     completePayment: builder.mutation<User, CompletePaymentPayload>({
       query: (body) => ({
         url: 'payments/complete',
@@ -93,4 +126,4 @@ export const paymentApi = emptyApi.injectEndpoints({
   }),
 })
 
-export const { useGetSubscriptionPlansQuery, useStartHostedCheckoutMutation, useVerifyHostedCheckoutMutation, useCompletePaymentMutation, useGetPaymentHistoryQuery, useClearPaymentHistoryMutation } = paymentApi
+export const { useGetSubscriptionPlansQuery, useStartHostedCheckoutMutation, useVerifyHostedCheckoutMutation, useVerifyPaymentTransactionMutation, useCompletePaymentMutation, useGetPaymentHistoryQuery, useClearPaymentHistoryMutation } = paymentApi
