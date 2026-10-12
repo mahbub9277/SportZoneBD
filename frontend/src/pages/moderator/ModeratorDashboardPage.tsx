@@ -43,6 +43,7 @@ const ACTION_LABELS: Record<string, string> = {
   'report.status.updated': 'Report updated',
   'payment.review.approved': 'Payment approved',
   'payment.review.rejected': 'Payment rejected',
+  'payment.review.rechecked': 'Payment rechecked',
   'push.campaign.sent': 'Push campaign',
   'email.campaign.sent': 'Email campaign',
 }

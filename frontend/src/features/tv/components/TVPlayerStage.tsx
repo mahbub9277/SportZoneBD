@@ -20,7 +20,7 @@ export interface TVTransport {
 const CONTROLS_IDLE_MS = 4000
 
 /** The channel popup is intentionally brief: it is a reminder, not a permanent overlay. */
-const CHANNEL_INFO_MS = 2000
+const CHANNEL_INFO_MS = 3000
 
 interface TVPlayerStageProps {
   channel: TVChannel | null

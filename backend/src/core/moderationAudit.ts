@@ -20,6 +20,7 @@ export type ModerationAction =
   | 'report.status.updated'
   | 'payment.review.approved'
   | 'payment.review.rejected'
+  | 'payment.review.rechecked'
   | 'push.campaign.sent'
   | 'push.campaign.blocked'
   | 'email.campaign.sent'
@@ -37,6 +38,7 @@ export const MODERATION_ACTIONS: Record<ModerationAction, ModerationActionDescri
   'report.status.updated': { message: `${MODERATION_AUDIT_PREFIX} Report status updated`, entityType: 'report' },
   'payment.review.approved': { message: `${MODERATION_AUDIT_PREFIX} Manual payment approved`, entityType: 'payment' },
   'payment.review.rejected': { message: `${MODERATION_AUDIT_PREFIX} Manual payment rejected`, entityType: 'payment' },
+  'payment.review.rechecked': { message: `${MODERATION_AUDIT_PREFIX} Payment rechecked with the provider`, entityType: 'payment' },
   'push.campaign.sent': { message: `${MODERATION_AUDIT_PREFIX} Push campaign queued`, entityType: 'push-campaign' },
   'push.campaign.blocked': { message: `${MODERATION_AUDIT_PREFIX} Push campaign blocked`, entityType: 'push-campaign' },
   'email.campaign.sent': { message: `${MODERATION_AUDIT_PREFIX} Email campaign sent`, entityType: 'email-campaign' },

@@ -17,6 +17,7 @@ const ACTION_LABELS: Record<string, string> = {
   'report.status.updated': 'Report status updated',
   'payment.review.approved': 'Manual payment approved',
   'payment.review.rejected': 'Manual payment rejected',
+  'payment.review.rechecked': 'Payment rechecked with the provider',
   'push.campaign.sent': 'Push campaign',
   'email.campaign.sent': 'Email campaign',
 }

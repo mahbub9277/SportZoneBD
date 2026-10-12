@@ -10,11 +10,15 @@ import { applyApprovedPayment, loadApprovalContext } from './paymentWorkflow.js'
 import {
   startHostedCheckout as startHostedCheckoutFlow,
   verifyHostedCheckout as verifyHostedCheckoutFlow,
+  recheckHostedPayment as recheckHostedPaymentFlow,
+  type HostedCheckoutDeps,
   type HostedCheckoutResult,
+  type HostedRecheckResult,
   type StartHostedCheckoutResult,
 } from './hostedCheckout.service.js';
 import { resolveZiniPayWebhookReference } from './zinipay.webhook.js';
- 
+import { maskReference } from './referenceMask.js';
+
 const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10);
 
 interface CreatePaymentIntentArgs {
@@ -76,16 +80,31 @@ export async function verifyHostedCheckout(args: {
 }
 
 /**
+ * Re-runs the provider-side verification for a hosted payment an administrator asked about.
+ *
+ * It is the same verification the customer's return page triggers, so an administrator can only ever see what
+ * the provider actually reports: there is no way to approve, override or mark a payment as paid from here.
+ */
+export async function recheckHostedPayment(args: {
+  paymentId: string;
+}): Promise<HostedRecheckResult> {
+  return recheckHostedPaymentFlow(args);
+}
+
+/**
  * Handles a provider callback for the hosted checkout.
  *
  * The callback carries no signature per the provider's own documentation, so it is only used to decide which
  * payment to look at: the payment is then proven by asking the provider from the server. A reference we do
  * not know is ignored without any provider request.
  */
-export async function handleZiniPayWebhook(payload: {
-  body: Record<string, unknown> | undefined;
-  query: Record<string, unknown>;
-}): Promise<{ message: string }> {
+export async function handleZiniPayWebhook(
+  payload: {
+    body: Record<string, unknown> | undefined;
+    query: Record<string, unknown>;
+  },
+  deps: HostedCheckoutDeps = {},
+): Promise<{ message: string }> {
   const reference = resolveZiniPayWebhookReference(payload.body, payload.query)
   if (!reference) {
     logger.warn('ZiniPay webhook carried no invoice reference');
@@ -109,7 +128,7 @@ export async function handleZiniPayWebhook(payload: {
     return { message: 'Ignored: unknown payment.' };
   }
 
-  const result = await verifyHostedCheckoutFlow({ paymentId: payment.id, userId: null });
+  const result = await verifyHostedCheckoutFlow({ paymentId: payment.id, userId: null }, deps);
   return { message: `Checked: ${result.status}.` };
 }
 
@@ -193,6 +212,9 @@ export async function verifyAndCompleteWebhookPayment(webhookPayload: { transact
     throw new AppError(400, 'Webhook payload is missing transactionId.');
   }
 
+  // The customer's transaction id is payment data: it is matched here, but never reproduced in a log line.
+  const reference = maskReference(transactionId);
+
   // 1. Find the payment in our database using the transaction ID.
   const payment = await prisma.payment.findUnique({
     where: { transactionId },
@@ -200,18 +222,18 @@ export async function verifyAndCompleteWebhookPayment(webhookPayload: { transact
   });
 
   if (!payment) {
-    logger.warn({ transactionId }, 'Webhook received for unknown transaction');
+    logger.warn({ reference }, 'Webhook received for unknown transaction');
     // We return success to the provider to prevent retries for a non-existent transaction.
     return;
   }
 
   // 2. Idempotency Check: If payment is already completed, do nothing.
   if (payment.status === 'COMPLETED') {
-    logger.info({ transactionId }, 'Webhook for already completed transaction - ignoring duplicate');
+    logger.info({ reference }, 'Webhook for already completed transaction - ignoring duplicate');
     return;
   }
 
-  logger.info({ transactionId }, 'Automatic bKash verification is unavailable; payment remains pending review');
+  logger.info({ reference }, 'Automatic bKash verification is unavailable; payment remains pending review');
 }
 
 export async function getPaymentHistory(userId: string) {

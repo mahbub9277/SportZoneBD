@@ -3,10 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select'
 import { useDebounce } from '../../hooks/useDebounce'
-import { Check, Search, X } from 'lucide-react'
+import { Check, RefreshCw, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Skeleton } from '../../components/ui/Skeleton'
-import { useGetAdminPaymentsQuery, useProcessAdminPaymentMutation, type AdminPayment } from '../../features/admin/adminPayments.api'
+import {
+  useGetAdminPaymentsQuery,
+  useProcessAdminPaymentMutation,
+  useRecheckHostedPaymentMutation,
+  type AdminPayment,
+} from '../../features/admin/adminPayments.api'
+import { useAppSelector } from '../../app/hooks'
+import { selectCurrentUser } from '../../features/auth/authSlice'
+import { hasPermission } from '../../features/auth/roleExperience'
 import { cn } from '../../lib/utils'
 import { motion } from 'framer-motion'
 import { Receipt } from 'lucide-react'
@@ -36,6 +44,10 @@ const getStatusClass = (status: string) => {
   }
 }
 
+/** A hosted payment the provider has not confirmed yet: it can be rechecked, but never approved. */
+const isHostedPending = (payment: AdminPayment) =>
+  payment.provider?.toLowerCase() === 'zinipay' && payment.status.toUpperCase() === 'PENDING'
+
 export function PaymentsManagementPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [searchTerm, setSearchTerm] = useState('')
@@ -48,6 +60,9 @@ export function PaymentsManagementPage() {
     status: statusFilter === 'all' ? undefined : statusFilter,
   })
   const [processPayment, { isLoading: isProcessing }] = useProcessAdminPaymentMutation()
+  const [recheckPayment, { isLoading: isRechecking }] = useRecheckHostedPaymentMutation()
+  const currentUser = useAppSelector(selectCurrentUser)
+  const canRecheck = hasPermission(currentUser, 'admin.payments.review')
   const payments = data?.items ?? []
   const totalPages = data?.meta?.totalPages ?? 1
   const currentPageSafe = Math.min(Math.max(currentPage, 1), totalPages)
@@ -61,6 +76,18 @@ export function PaymentsManagementPage() {
       toast.success(`Payment ${action === 'approve' ? 'approved' : 'rejected'} successfully.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Unable to ${actionLabel} payment.`)
+    }
+  }
+
+  const handleRecheck = async (payment: AdminPayment) => {
+    try {
+      const result = await recheckPayment({ id: payment.id }).unwrap()
+      // The provider's answer decides which message is truthful; a suppressed check is never shown as a result.
+      if (result.outcome === 'COMPLETED') toast.success(result.message)
+      else if (result.outcome === 'PENDING') toast.info(result.message)
+      else toast.warning(result.message)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to recheck this payment.')
     }
   }
 
@@ -119,6 +146,7 @@ export function PaymentsManagementPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="pending">Pending (hosted checkout)</SelectItem>
                 <SelectItem value="verified">Verified</SelectItem>
                 <SelectItem value="pending_review">Pending review</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
@@ -186,6 +214,16 @@ export function PaymentsManagementPage() {
                               <X className="h-3.5 w-3.5" /> Reject
                             </button>
                           </div>
+                        ) : isHostedPending(payment) ? (
+                          canRecheck ? (
+                            // Recheck only asks the payment provider again; it cannot mark a payment as paid, so the
+                            // button never pretends to succeed on its own.
+                            <button type="button" onClick={() => handleRecheck(payment)} disabled={isRechecking} className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Recheck payment with the provider for ${payment.user.fullName}`}>
+                              <RefreshCw className={cn('h-3.5 w-3.5', isRechecking && 'animate-spin')} /> Recheck
+                            </button>
+                          ) : (
+                            <span className="text-xs text-brand-text-muted">Awaiting confirmation</span>
+                          )
                         ) : (
                           <span className="text-xs text-brand-text-muted">No action</span>
                         )}

@@ -23,6 +23,11 @@ import { invalidateTags } from '../../core/cache.js'
 import { createPendingPaymentRecord, loadActivePlan, applyApprovedPayment, type ApprovalContext } from './paymentWorkflow.js'
 import { resolvePaymentUrlConfig } from './paymentUrls.js'
 import {
+  buildProviderEvidence,
+  readProviderEvidence,
+  toAdminEvidenceView,
+} from './providerEvidence.js'
+import {
   ZiniPayCheckoutFailure,
   createZiniPayInvoice,
   getZiniPayCheckoutStatus,
@@ -66,7 +71,7 @@ interface CheckoutState {
 }
 
 /** Prisma stores the state as JSON; the domain type is a plain object with known keys. */
-const asJson = (state: CheckoutState) => state as unknown as Prisma.InputJsonValue
+const asJson = (value: unknown) => value as unknown as Prisma.InputJsonValue
 
 /** An open hosted session: the reservation row and, once the provider has answered, its payment page. */
 interface OpenSession {
@@ -195,6 +200,37 @@ function readCheckoutState(value: unknown): CheckoutState {
       ? (record.lastFailure as CheckoutState['lastFailure'])
       : null,
   }
+}
+
+/** True when the last server-side check is too recent to repeat at the provider. */
+export const isVerifyThrottled = (state: CheckoutState): boolean =>
+  Boolean(state.lastCheckedAt) &&
+  Date.now() - new Date(state.lastCheckedAt as string).getTime() < VERIFY_THROTTLE_MS &&
+  state.lastStatus === 'PENDING'
+
+/**
+ * Builds the next provider-evidence record in its stored shape.
+ *
+ * Only ever called with the provider's own verified answer, so the record cannot be polluted by a callback
+ * payload or a customer-supplied value. A later answer that omits a fact cannot erase an earlier one.
+ */
+function nextEvidence(
+  payment: PaymentRow,
+  check: ZiniPayInvoiceCheck | undefined,
+  failure: { kind: string; note?: string | null } | null,
+): Prisma.InputJsonValue {
+  return asJson(
+    buildProviderEvidence(
+      readProviderEvidence(payment.providerVerification),
+      {
+        invoiceId: payment.providerPaymentId,
+        expectedMerchantReference: payment.transactionId,
+        check,
+        failure,
+      },
+      new Date(),
+    ),
+  )
 }
 
 export interface HostedCheckoutDeps {
@@ -409,12 +445,14 @@ export interface VerifyHostedCheckoutArgs {
 interface PaymentRow {
   id: string
   userId: string
+  provider: string
   status: string
   amount: string
   currency: string
   providerPaymentId: string | null
   transactionId: string
   providerCheckout: unknown
+  providerVerification: unknown
   subscriptionPlanId: string | null
   subscriptionPlan: { name: string; durationDays: number } | null
 }
@@ -424,12 +462,14 @@ async function loadPayment(paymentId: string): Promise<PaymentRow | null> {
     select: {
       id: true,
       userId: true,
+      provider: true,
       status: true,
       amount: true,
       currency: true,
       providerPaymentId: true,
       transactionId: true,
       providerCheckout: true,
+      providerVerification: true,
       subscriptionPlanId: true,
       subscriptionPlan: { select: { name: true, durationDays: true } },
     },
@@ -486,7 +526,7 @@ export async function verifyHostedCheckout(
   }
 
   const state = readCheckoutState(payment.providerCheckout)
-  if (state.lastCheckedAt && Date.now() - new Date(state.lastCheckedAt).getTime() < VERIFY_THROTTLE_MS && state.lastStatus === 'PENDING') {
+  if (isVerifyThrottled(state)) {
     return { status: 'PENDING', message: messageForStatus('PENDING'), paymentId: payment.id }
   }
 
@@ -495,7 +535,11 @@ export async function verifyHostedCheckout(
     check = await verifyInvoice({ invoiceId: payment.providerPaymentId }, { env })
   } catch (error) {
     const failure = error instanceof ZiniPayCheckoutFailure ? error : null
-    await storeCheckState(payment, state, { lastStatus: 'UNKNOWN', failureNote: failure?.message ?? 'unknown' })
+    await storeCheckState(payment, state, {
+      lastStatus: 'UNKNOWN',
+      failureNote: failure?.message ?? 'unknown',
+      failure: { kind: failure?.kind ? `provider-${failure.kind}` : 'provider-error', note: failure?.message ?? null },
+    })
     logger.warn({ paymentId: payment.id, kind: failure?.kind ?? 'unknown' }, 'ZiniPay invoice could not be checked')
 
     if (failure?.kind === 'not-found') {
@@ -509,14 +553,19 @@ export async function verifyHostedCheckout(
   }
 
   if (check.status === 'PENDING') {
-    await storeCheckState(payment, state, { lastStatus: 'PENDING' })
+    await storeCheckState(payment, state, { lastStatus: 'PENDING', check })
     return { status: 'PENDING', message: messageForStatus('PENDING'), paymentId: payment.id }
   }
 
   if (check.status === 'FAILED') {
     await prisma.payment.update({
       where: { id: payment.id },
-      data: { status: 'FAILED', verificationResult: 'zinipay-invoice-failed', providerCheckout: asJson({ ...state, lastCheckedAt: new Date().toISOString(), lastStatus: 'FAILED' }) },
+      data: {
+        status: 'FAILED',
+        verificationResult: 'zinipay-invoice-failed',
+        providerCheckout: asJson({ ...state, lastCheckedAt: new Date().toISOString(), lastStatus: 'FAILED' }),
+        providerVerification: nextEvidence(payment, check, null),
+      },
     })
     await invalidateTags([`user:${payment.userId}`])
     return { status: 'FAILED', message: messageForStatus('FAILED'), paymentId: payment.id }
@@ -540,6 +589,10 @@ async function finalizeCompletedInvoice(payment: PaymentRow, check: ZiniPayInvoi
       data: {
         verificationResult: 'zinipay-amount-mismatch',
         providerCheckout: asJson({ ...state, lastCheckedAt: new Date().toISOString(), lastStatus: 'COMPLETED' }),
+        providerVerification: nextEvidence(payment, check, {
+          kind: 'amount-mismatch',
+          note: `provider amount ${check.amount ?? 'missing'} does not match the stored plan amount; premium not activated`,
+        }),
       },
     })
     logger.error({ paymentId: payment.id, expected: expectedAmount, received: check.amount }, 'ZiniPay invoice amount does not match the stored payment')
@@ -553,7 +606,13 @@ async function finalizeCompletedInvoice(payment: PaymentRow, check: ZiniPayInvoi
   if (check.merchantReference && check.merchantReference !== payment.transactionId) {
     await prisma.payment.update({
       where: { id: payment.id },
-      data: { verificationResult: 'zinipay-reference-mismatch' },
+      data: {
+        verificationResult: 'zinipay-reference-mismatch',
+        providerVerification: nextEvidence(payment, check, {
+          kind: 'reference-mismatch',
+          note: 'the provider echoed a different merchant reference; premium not activated',
+        }),
+      },
     })
     logger.error({ paymentId: payment.id }, 'ZiniPay invoice reference does not match the stored payment')
     return {
@@ -564,7 +623,16 @@ async function finalizeCompletedInvoice(payment: PaymentRow, check: ZiniPayInvoi
   }
 
   if (check.metadata && typeof check.metadata.paymentId === 'string' && check.metadata.paymentId !== payment.id) {
-    await prisma.payment.update({ where: { id: payment.id }, data: { verificationResult: 'zinipay-metadata-mismatch' } })
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        verificationResult: 'zinipay-metadata-mismatch',
+        providerVerification: nextEvidence(payment, check, {
+          kind: 'metadata-mismatch',
+          note: 'the provider echoed metadata for another payment; premium not activated',
+        }),
+      },
+    })
     logger.error({ paymentId: payment.id }, 'ZiniPay invoice metadata belongs to another payment')
     return {
       status: 'UNKNOWN',
@@ -608,7 +676,10 @@ async function finalizeCompletedInvoice(payment: PaymentRow, check: ZiniPayInvoi
 
   await prisma.payment.update({
     where: { id: payment.id },
-    data: { providerCheckout: asJson({ ...state, lastCheckedAt: new Date().toISOString(), lastStatus: 'COMPLETED' }) },
+    data: {
+      providerCheckout: asJson({ ...state, lastCheckedAt: new Date().toISOString(), lastStatus: 'COMPLETED' }),
+      providerVerification: nextEvidence(payment, check, null),
+    },
   })
   await invalidateTags([`user:${payment.userId}`, 'user-list'])
 
@@ -616,7 +687,11 @@ async function finalizeCompletedInvoice(payment: PaymentRow, check: ZiniPayInvoi
   return { status: 'COMPLETED', message: messageForStatus('COMPLETED'), paymentId: payment.id }
 }
 
-async function storeCheckState(payment: PaymentRow, state: CheckoutState, update: { lastStatus: string; failureNote?: string }) {
+async function storeCheckState(
+  payment: PaymentRow,
+  state: CheckoutState,
+  update: { lastStatus: string; failureNote?: string; check?: ZiniPayInvoiceCheck; failure?: { kind: string; note?: string | null } | null },
+) {
   const next: CheckoutState = {
     ...state,
     lastCheckedAt: new Date().toISOString(),
@@ -626,5 +701,76 @@ async function storeCheckState(payment: PaymentRow, state: CheckoutState, update
       : state.lastFailure,
   }
 
-  await prisma.payment.update({ where: { id: payment.id }, data: { providerCheckout: asJson(next) } })
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      providerCheckout: asJson(next),
+      providerVerification: nextEvidence(payment, update.check, update.failure ?? null),
+    },
+  })
+}
+
+export interface HostedRecheckResult {
+  outcome: HostedCheckoutStatus
+  message: string
+  paymentId: string
+  /** False when nothing was asked of the provider, so the admin is not told a no-op succeeded. */
+  providerContacted: boolean
+  /** The sanitized evidence after the check, with references masked. */
+  evidence: ReturnType<typeof toAdminEvidenceView>
+  /** The payment's status after the check, for the admin's view and the audit event. */
+  paymentStatus: string
+}
+
+/**
+ * The admin recovery path for a hosted checkout that is stuck: it re-runs exactly the same server-side
+ * invoice verification the customer's return page uses, so recovery is never a second, weaker path.
+ *
+ * This deliberately cannot approve anything. It has no override, no "mark as paid" and no way to set a
+ * status: a payment becomes premium only if the provider itself reports the invoice as `COMPLETED` and every
+ * consistency check passes, at which point the shared compare-and-set does the activation exactly once. A
+ * payment that is already decided, or that never reached the provider, is refused before any provider call.
+ */
+export async function recheckHostedPayment(
+  args: { paymentId: string },
+  deps: HostedCheckoutDeps = {},
+): Promise<HostedRecheckResult> {
+  const env = deps.env ?? process.env
+
+  const payment = await loadPayment(args.paymentId)
+  if (!payment) throw new AppError(404, 'Payment not found.')
+
+  if (payment.provider !== 'zinipay') {
+    throw new AppError(400, 'Only payments made through the hosted ZiniPay checkout can be rechecked. Review this payment with the manual verification flow instead.')
+  }
+  if (payment.status === 'APPROVED' || payment.status === 'COMPLETED') {
+    throw new AppError(400, 'This payment is already confirmed, so there is nothing to recheck.')
+  }
+  if (payment.status !== 'PENDING') {
+    throw new AppError(400, `A payment with status ${payment.status} is closed and cannot be rechecked.`)
+  }
+  if (!payment.providerPaymentId) {
+    throw new AppError(400, 'This payment never reached the payment provider, so there is no invoice to check. The customer can start the checkout again.')
+  }
+
+  const state = readCheckoutState(payment.providerCheckout)
+  const throttled = isVerifyThrottled(state)
+  const providerContacted = !throttled && isHostedCheckoutAvailable(env)
+
+  const result = await verifyHostedCheckout({ paymentId: payment.id, userId: null }, deps)
+  const stored = await prisma.payment.findFirst({
+    where: { id: payment.id },
+    select: { providerVerification: true, status: true },
+  })
+
+  return {
+    outcome: result.status,
+    message: throttled
+      ? 'This payment was checked moments ago and the provider still has not confirmed it. Wait a few seconds and try again.'
+      : result.message,
+    paymentId: payment.id,
+    providerContacted,
+    evidence: toAdminEvidenceView(readProviderEvidence(stored?.providerVerification ?? payment.providerVerification)),
+    paymentStatus: stored?.status ?? payment.status,
+  }
 }

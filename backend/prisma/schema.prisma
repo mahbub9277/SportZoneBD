@@ -187,9 +187,10 @@ model Payment {
   status             PaymentStatus @default(PENDING)
   verificationResult String?
   /**
-   * Sanitized record of the provider (ZiniPay) verification behind this payment: the verification id,
-   * the verified amount/provider/status, a masked sender and the confirm outcome with its timestamps.
-   * Null for a payment nobody verified automatically.
+   * Sanitized record of the provider (ZiniPay) invoice verification behind this payment: the provider status,
+   * amount, wallet, transaction and invoice references as the server-side verification returned them, with the
+   * timestamps and the last failure summary. Written only from the provider's own verified answer, never from a
+   * browser or callback payload, and it never decides anything by itself. Null for a payment nobody verified.
    */
   providerVerification Json?
   /**

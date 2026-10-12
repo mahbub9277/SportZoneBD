@@ -78,13 +78,30 @@ export const completePayment = asyncHandler(async (req: Request, res: Response) 
 });
 
 /**
+ * The ZiniPay hosted-invoice callback, in the form the provider actually calls it.
+ *
+ * ZiniPay documents its callback payload as a JSON body *or* query parameters, and production shows it calling
+ * this route with `GET …?invoice_id=…&status=…`, which used to 404 because only the POST route was
+ * registered. The payload is still an untrusted hint: its reference only decides which payment to look at, and
+ * the payment is proven by the server-side verification this shared handler runs.
+ */
+const processZiniPayCallback = async (req: Request, res: Response) => {
+  const result = await paymentService.handleZiniPayWebhook({
+    body: req.body as Record<string, unknown> | undefined,
+    query: req.query as Record<string, unknown>,
+  });
+  return res.status(200).json({ success: true, message: result.message });
+};
+
+/** `GET` form of the callback, for the provider's query-parameter deliveries. */
+export const handleZiniPayCallback = asyncHandler(processZiniPayCallback);
+
+/**
  * Provider callbacks.
  *
- * `zinipay`: the hosted-checkout callback. The provider documents no signature for it, so the payload is
- * treated as an untrusted hint: it only decides *which* payment to look at, and the payment is then proven by
- * asking the provider's verification endpoint from the server. A callback about an invoice we do not know is
- * answered with 200 and no provider request, so the public URL cannot be used to make us call the provider in
- * a loop.
+ * `zinipay`: the hosted-checkout callback, accepted as POST (body form) and, on its own route, as GET (query
+ * form). A callback about an invoice we do not know is answered with 200 and no provider request, so the
+ * public URL cannot be used to make us call the provider in a loop.
  *
  * `bkash`: the pre-existing direct-webhook branch, kept exactly as it was.
  */
@@ -93,11 +110,7 @@ export const handleWebhook = asyncHandler(async (req: Request, res: Response) =>
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
 
   if (provider.toLowerCase() === 'zinipay') {
-    const result = await paymentService.handleZiniPayWebhook({
-      body: req.body as Record<string, unknown> | undefined,
-      query: req.query as Record<string, unknown>,
-    });
-    return res.status(200).json({ success: true, message: result.message });
+    return processZiniPayCallback(req, res);
   }
 
   const signature = req.headers['x-bkash-signature'] as string; // Or the header your provider uses
@@ -194,6 +207,59 @@ export const processVerification = asyncHandler(async (req: Request, res: Respon
   })
 
   res.status(200).json(successResponse(payment, 'Payment review recorded.'));
+});
+
+/**
+ * Re-runs the provider-side verification for a hosted payment an administrator is worried about.
+ *
+ * The administrator cannot approve, override or mark anything as paid: this calls exactly the same
+ * server-side check the customer's return page calls, and the outcome is whatever the provider reports. Every
+ * attempt — successful or not — is written to the audit trail with the actor, the outcome and the sanitized
+ * provider evidence, so a recovery attempt is reviewable later.
+ */
+export const recheckHostedPayment = asyncHandler(async (req: Request, res: Response) => {
+  const actorId = (req.user as { id: string })?.id;
+  if (!actorId) {
+    return res.status(401).json(errorResponse('Authentication required.'));
+  }
+
+  const paymentId = typeof req.params.id === 'string' ? req.params.id : '';
+  const actorName = (req.user as { fullName?: string | null } | undefined)?.fullName ?? null;
+  const requestId = (req as Request & { id?: string }).id ?? null;
+
+  try {
+    const result = await paymentService.recheckHostedPayment({ paymentId });
+
+    await recordModerationEvent({
+      action: 'payment.review.rechecked',
+      actorId,
+      actorName,
+      entityId: result.paymentId,
+      outcome: 'success',
+      reason: result.providerContacted
+        ? `provider reported ${result.outcome}`
+        : 'no provider request: this payment was checked moments ago',
+      requestId,
+      after: { status: result.paymentStatus },
+      details: { outcome: result.outcome, providerContacted: result.providerContacted, evidence: result.evidence },
+    });
+
+    return res.status(200).json(successResponse(result, result.message));
+  } catch (error) {
+    // A refused or failed recheck is recorded too: an attempt to recover a payment is part of the trail even
+    // when it changes nothing. The message is only echoed when the service itself produced it.
+    await recordModerationEvent({
+      action: 'payment.review.rechecked',
+      actorId,
+      actorName,
+      entityId: paymentId,
+      outcome: 'failure',
+      reason: error instanceof Error ? error.message : 'unexpected error',
+      requestId,
+    });
+
+    throw error;
+  }
 });
 
 /** Premium members and their payment history, read-only, for moderators and administrators. */

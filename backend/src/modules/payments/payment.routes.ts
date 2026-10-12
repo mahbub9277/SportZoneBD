@@ -6,12 +6,14 @@ import {
   createIntent,
   completePayment,
   handleWebhook,
+  handleZiniPayCallback,
   getHistory,
   clearHistory,
   getAllPayments,
   getPendingVerifications,
   getPremiumMembers,
   processVerification,
+  recheckHostedPayment,
   startHostedCheckout,
   verifyHostedCheckout,
   createIntentSchema,
@@ -23,7 +25,8 @@ import { webhookLimiter } from '../../middleware/rateLimiter.js'
 
 export const paymentRouter: ExpressRouter = Router()
 
-paymentRouter.get('/methods', async (_req: Request, res: Response) => {  const methods = await prisma.paymentMethod.findMany({
+paymentRouter.get('/methods', async (_req: Request, res: Response) => {
+  const methods = await prisma.paymentMethod.findMany({
     where: { deletedAt: null },
     orderBy: { displayName: 'asc' },
     select: {
@@ -53,12 +56,22 @@ paymentRouter.post('/checkout/:paymentId/verify', authenticate, verifyHostedChec
 // call it, so it carries its own (separate, more generous) limit and never trusts what it is told.
 paymentRouter.post('/webhook/:provider', webhookLimiter, handleWebhook as RequestHandler);
 
+// ZiniPay delivers its hosted-invoice callback with query parameters too, and production shows it calling this
+// exact path with GET (which used to 404). Only this one provider gets a GET route: every other provider stays
+// POST-only, and the request is still an untrusted hint that merely triggers server-side verification.
+paymentRouter.get('/webhook/zinipay', webhookLimiter, handleZiniPayCallback as RequestHandler);
+
 // Payment records and the review queue. Both are gated by permission rather than by role name, so the
 // same moderator console that lists payments is the only way in and the backend decides for itself.
 paymentRouter.get('/', requirePermission('admin.payments.view'), getAllPayments as RequestHandler)
 
 paymentRouter.get('/manual-verification', requirePermission('admin.payments.review'), getPendingVerifications as RequestHandler)
 paymentRouter.patch('/manual-verification/:id', requirePermission('admin.payments.review'), processVerification as RequestHandler)
+
+// The recovery path for a hosted payment that is stuck: an administrator re-runs the provider's own
+// verification and can only ever see what the provider reports. It cannot approve or override anything, so it
+// is gated by the review permission rather than by a role name.
+paymentRouter.post('/manual-verification/:id/recheck', requirePermission('admin.payments.review'), recheckHostedPayment as RequestHandler)
 
 // Read-only premium membership view: subscription records joined with the payments behind them.
 paymentRouter.get('/premium-members', requirePermission('admin.premium.view'), getPremiumMembers as RequestHandler)
