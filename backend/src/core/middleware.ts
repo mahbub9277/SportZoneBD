@@ -6,6 +6,7 @@ import { verifyAccessToken } from './auth.js'
 import { cache } from './cache.js'
 import { prisma } from './prisma.js'
 import logger from './logger.js'
+import { pathOnly } from './requestLog.js'
 
 interface UserPayload {
   id: string
@@ -351,7 +352,9 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
     requestId,
     userId,
     method: req.method,
-    url: req.originalUrl,
+    // The path only: `req.originalUrl` includes the query string, which on the provider callback carries a
+    // customer email, a sender number, a transaction reference and payment identifiers.
+    url: pathOnly(req.originalUrl),
     ip: req.ip,
     userAgent: req.get('user-agent'),
     errorCode: code,

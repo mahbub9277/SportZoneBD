@@ -9,6 +9,7 @@ import helmet from 'helmet'
 import addRequestId from 'express-request-id'
 import { pinoHttp } from 'pino-http'
 import logger from './core/logger.js'
+import { REQUEST_LOG_SERIALIZERS, requestLogSummary } from './core/requestLog.js'
 import rateLimit from 'express-rate-limit'
 import { errorHandler, notFound } from './core/middleware/index.js'
 import { ensureDefaultRBAC } from './core/rbac.js'
@@ -76,6 +77,10 @@ app.use(cors(corsOptions) as any)
 app.use(compression() as any)
 app.use(pinoHttp({
   logger,
+  // The request and response shapes are an allowlist: the path without its query string, the request id, the
+  // client address, a few non-identifying headers and the status code. The query string, path parameters, all
+  // other headers and the response headers (which carry Set-Cookie) are never written down.
+  serializers: REQUEST_LOG_SERIALIZERS,
   customProps: (req: Request, _res: Response) => ({
     id: req.id,
     userId: (req.user as { id: string })?.id ?? 'anonymous',
@@ -86,8 +91,9 @@ app.use(pinoHttp({
     if (res.statusCode >= 300 && res.statusCode < 400) return 'silent'
     return 'info'
   },
-  customSuccessMessage: (req: Request, res: Response) => `${req.method} ${req.url} - ${res.statusCode} ${http.STATUS_CODES[res.statusCode] ?? 'unknown'}`,
-  customErrorMessage: (req: Request, res: Response, err: Error) => `${req.method} ${req.url} - ${res.statusCode} ${http.STATUS_CODES[res.statusCode] ?? 'unknown'} - ${err.message}`,
+  // The summary reports the path only: the query string on the provider callback holds customer and payment data.
+  customSuccessMessage: (req: Request, res: Response) => requestLogSummary(req.method, req.url, res.statusCode, http.STATUS_CODES[res.statusCode] ?? 'unknown'),
+  customErrorMessage: (req: Request, res: Response, err: Error) => requestLogSummary(req.method, req.url, res.statusCode, http.STATUS_CODES[res.statusCode] ?? 'unknown', err.message),
 } as any))
 
 // Use express.json with a 'verify' function to capture the raw body.
