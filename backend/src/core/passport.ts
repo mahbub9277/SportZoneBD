@@ -5,7 +5,7 @@ import { prisma } from './prisma.js';
 import { getUserProfile } from '../services/user.service.js';
 import logger from './logger.js';
 import { sendWelcomeEmail } from '../services/email.service.js';
-import { uploadStreamToCloudinary } from '../services/upload.service.js'
+import { uploadAvatarToCloudinary } from '../services/upload.service.js'
 
 const canonicalizeGoogleAvatarUrl = (value: string | null): string | null => {
   if (!value) return null
@@ -161,7 +161,7 @@ const cacheGoogleAvatar = async (value: string | null): Promise<string | null> =
 
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.length === 0 || buffer.length > 2 * 1024 * 1024) return null
-    return await uploadStreamToCloudinary(buffer, 'sportzone/avatars')
+    return await uploadAvatarToCloudinary(buffer, contentType)
   } catch (error) {
     logger.warn({ error: error instanceof Error ? error.message : 'Unknown avatar cache error' }, 'Google avatar caching failed; continuing OAuth login')
     return null

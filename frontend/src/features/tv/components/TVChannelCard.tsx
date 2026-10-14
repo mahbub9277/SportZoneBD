@@ -51,6 +51,7 @@ export const TVChannelCard = memo(function TVChannelCard({ channel, selected, pl
       <span className="tv-channel-meta">
         <span className="tv-channel-name">{channel.name}</span>
         <span className="tv-channel-category">{channel.categoryName}</span>
+        {!isAvailable && <span className="tv-channel-unavailable">Unavailable</span>}
       </span>
 
       {flagsVisible && (

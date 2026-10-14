@@ -32,15 +32,15 @@ type UploadPolicy = {
   maxBytes: number
   mimeTypes: readonly string[]
   mediaType?: 'LOGO' | 'BANNER'
+  maxWidth?: number
+  maxHeight?: number
 }
 
-const imageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as const
+const imageMimeTypes = ['image/webp'] as const
 const videoMimeTypes = ['video/mp4', 'video/webm', 'video/quicktime'] as const
 /** The match-page pre-kick-off clip is played by the browser, so only the formats every target browser decodes are accepted. */
 const browserVideoMimeTypes = ['video/mp4', 'video/webm'] as const
 const formatsByMimeType: Record<string, readonly string[]> = {
-  'image/jpeg': ['jpg', 'jpeg'],
-  'image/png': ['png'],
   'image/webp': ['webp'],
   'video/mp4': ['mp4'],
   'video/webm': ['webm'],
@@ -48,20 +48,20 @@ const formatsByMimeType: Record<string, readonly string[]> = {
 }
 const imageMaxBytes = 10 * 1024 * 1024
 const smallImageMaxBytes = 5 * 1024 * 1024
-const uploadPolicies: Record<UploadPurpose, UploadPolicy> = {
-  'highlight-image': { folder: 'sportzone/highlights', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes },
+export const uploadPolicies: Record<UploadPurpose, UploadPolicy> = {
+  'highlight-image': { folder: 'sportzone/highlights', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1600, maxHeight: 1600 },
   'highlight-video': { folder: 'sportzone/highlights', resourceType: 'video', maxBytes: 300 * 1024 * 1024, mimeTypes: videoMimeTypes },
-  'banner-image': { folder: 'sportzone/banners', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes },
+  'banner-image': { folder: 'sportzone/banners', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1920, maxHeight: 1920 },
   'banner-video': { folder: 'sportzone/banners', resourceType: 'video', maxBytes: 100 * 1024 * 1024, mimeTypes: videoMimeTypes },
-  'banner-poster': { folder: 'sportzone/banners', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes },
-  'advertisement-image': { folder: 'sportzone/advertisements', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes },
-  'event-logo': { folder: 'sportzone/events', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO' },
-  'event-banner': { folder: 'sportzone/events', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'BANNER' },
-  'popup-image': { folder: 'sportzone/popups', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes },
-  'team-logo': { folder: 'sportzone/team-logos', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes },
-  'stream-logo': { folder: 'sportzone/stream-logos', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes },
-  'channel-logo': { folder: 'sportzone/channels', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO' },
-  'channel-category-logo': { folder: 'sportzone/channel-categories', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO' },
+  'banner-poster': { folder: 'sportzone/banners', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1920, maxHeight: 1920 },
+  'advertisement-image': { folder: 'sportzone/advertisements', resourceType: 'image', maxBytes: imageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1920, maxHeight: 1920 },
+  'event-logo': { folder: 'sportzone/events', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO', maxWidth: 1024, maxHeight: 1024 },
+  'event-banner': { folder: 'sportzone/events', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'BANNER', maxWidth: 1920, maxHeight: 1920 },
+  'popup-image': { folder: 'sportzone/popups', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1920, maxHeight: 1920 },
+  'team-logo': { folder: 'sportzone/team-logos', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1024, maxHeight: 1024 },
+  'stream-logo': { folder: 'sportzone/stream-logos', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, maxWidth: 1024, maxHeight: 1024 },
+  'channel-logo': { folder: 'sportzone/channels', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO', maxWidth: 1024, maxHeight: 1024 },
+  'channel-category-logo': { folder: 'sportzone/channel-categories', resourceType: 'image', maxBytes: smallImageMaxBytes, mimeTypes: imageMimeTypes, mediaType: 'LOGO', maxWidth: 1024, maxHeight: 1024 },
   'match-prestart-video': { folder: 'sportzone/match-prestart', resourceType: 'video', maxBytes: 100 * 1024 * 1024, mimeTypes: browserVideoMimeTypes },
 }
 
@@ -93,6 +93,73 @@ function isMatchingSignature(received: string, expected: string): boolean {
   const receivedBuffer = Buffer.from(received, 'utf8')
   const expectedBuffer = Buffer.from(expected, 'utf8')
   return receivedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
+}
+
+type CloudinaryResourceMetadata = {
+  asset_folder?: string
+  bytes?: number
+  duration?: number
+  format?: string
+  height?: number
+  public_id?: string
+  resource_type?: string
+  secure_url?: string
+  version?: number
+  width?: number
+}
+
+export function isCloudinaryResourceMetadataValid(
+  resource: CloudinaryResourceMetadata,
+  expected: { cloudName: string; mimeType: string; policy: UploadPolicy; publicId: string; version: number },
+): resource is CloudinaryResourceMetadata & { secure_url: string } {
+  const { cloudName, mimeType, policy, publicId, version } = expected
+  const format = resource.format?.toLowerCase()
+  const secureUrl = resource.secure_url
+
+  if (
+    (policy.resourceType === 'image' && !policy.mimeTypes.includes(mimeType))
+    || resource.public_id !== publicId
+    || resource.resource_type !== policy.resourceType
+    || resource.version !== version
+    || (policy.resourceType === 'image'
+      ? resource.asset_folder !== policy.folder
+      : Boolean(resource.asset_folder) && resource.asset_folder !== policy.folder)
+    || !Number.isInteger(resource.bytes)
+    || Number(resource.bytes) <= 0
+    || Number(resource.bytes) > policy.maxBytes
+    || !format
+    || !formatsByMimeType[mimeType]?.includes(format)
+    || !secureUrl
+  ) {
+    return false
+  }
+
+  const parsedUrl = new URL(secureUrl)
+
+  if (
+    parsedUrl.protocol !== 'https:'
+    || parsedUrl.hostname !== 'res.cloudinary.com'
+    || parsedUrl.pathname.split('/')[1] !== cloudName
+  ) {
+    return false
+  }
+
+  if (policy.resourceType === 'image') {
+    return Number.isInteger(resource.width)
+      && Number.isInteger(resource.height)
+      && Number(resource.width) > 0
+      && Number(resource.height) > 0
+      && Number(resource.width) <= Number(policy.maxWidth)
+      && Number(resource.height) <= Number(policy.maxHeight)
+      && !parsedUrl.username
+      && !parsedUrl.password
+      && !parsedUrl.port
+      && !parsedUrl.search
+      && !parsedUrl.hash
+      && parsedUrl.pathname === `/${cloudName}/image/upload/v${version}/${publicId}.${format}`
+  }
+
+  return true
 }
 
 export const createCloudinaryUploadSignature = asyncHandler(async (req: Request, res: Response) => {
@@ -136,41 +203,12 @@ export const completeCloudinaryUpload = asyncHandler(async (req: Request, res: R
     return res.status(403).json(errorResponse('Cloudinary upload signature is invalid.'))
   }
 
-  const resource = await cloudinary.api.resource(publicId, { resource_type: policy.resourceType }) as {
-    asset_folder?: string
-    bytes?: number
-    duration?: number
-    format?: string
-    height?: number
-    public_id?: string
-    resource_type?: string
-    secure_url?: string
-    version?: number
-    width?: number
-  }
+  const resource = await cloudinary.api.resource(publicId, { resource_type: policy.resourceType }) as CloudinaryResourceMetadata
 
   if (
-    resource.public_id !== publicId
-    || resource.resource_type !== policy.resourceType
-    || resource.version !== version
-    || (resource.asset_folder && resource.asset_folder !== policy.folder)
-    || !Number.isInteger(resource.bytes)
-    || Number(resource.bytes) <= 0
-    || Number(resource.bytes) > policy.maxBytes
-    || !resource.format
-    || !formatsByMimeType[mimeType]?.includes(resource.format.toLowerCase())
-    || !resource.secure_url
+    !isCloudinaryResourceMetadataValid(resource, { cloudName, mimeType, policy, publicId, version })
   ) {
     return res.status(403).json(errorResponse('Cloudinary asset metadata does not match the authorized upload.'))
-  }
-
-  const secureUrl = new URL(resource.secure_url)
-  if (
-    secureUrl.protocol !== 'https:'
-    || secureUrl.hostname !== 'res.cloudinary.com'
-    || secureUrl.pathname.split('/')[1] !== cloudName
-  ) {
-    return res.status(403).json(errorResponse('Cloudinary returned an unexpected delivery URL.'))
   }
 
   if (policy.mediaType) {

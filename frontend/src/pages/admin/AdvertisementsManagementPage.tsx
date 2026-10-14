@@ -36,26 +36,6 @@ const defaultFormState = {
 }
 const emptyAdvertisements: Advertisement[] = []
 
-async function normalizeImageFile(file: File) {
-  const bitmap = await createImageBitmap(file)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = 1200
-    canvas.height = 300
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Your browser cannot prepare this image for upload.')
-    const scale = Math.max(canvas.width / bitmap.width, canvas.height / bitmap.height)
-    const width = bitmap.width * scale
-    const height = bitmap.height * scale
-    context.drawImage(bitmap, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height)
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9))
-    if (!blob) throw new Error('The advertisement image could not be prepared for upload.')
-    return new File([blob], file.name.replace(/\.[^.]+$/i, '.jpg'), { type: 'image/jpeg', lastModified: file.lastModified })
-  } finally {
-    bitmap.close()
-  }
-}
-
 export default function AdvertisementsManagementPage() {
   const [form, setForm] = useState<Omit<Advertisement, 'id'>>(defaultFormState)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -118,8 +98,7 @@ export default function AdvertisementsManagementPage() {
       return
     }
     try {
-      const normalizedFile = await normalizeImageFile(selectedImageFile)
-      const result = await uploadFiles({ files: [normalizedFile], folder: 'sportzone/advertisements', mediaType: 'BANNER' })
+      const result = await uploadFiles({ files: [selectedImageFile], folder: 'sportzone/advertisements', mediaType: 'BANNER' })
       const uploadedUrl = result.uploads[0]?.url
       if (!uploadedUrl) throw new Error('Upload succeeded but no image URL was returned.')
       setForm((current) => ({ ...current, imageUrl: uploadedUrl }))
@@ -248,7 +227,7 @@ export default function AdvertisementsManagementPage() {
                   <input id="ad-image-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImageSelection} className="sr-only" />
                   <Button type="button" variant="outline" onClick={() => void handleImageUpload()} disabled={!selectedImageFile || isUploadingImage} className="gap-2">{isUploadingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}{isUploadingImage ? 'Uploading...' : 'Upload image'}</Button>
                 </div>
-                <p className="mt-2 text-xs text-(--text-muted)">{selectedImageFile ? selectedImageFile.name : form.imageUrl ? '1200 x 300 banner attached.' : 'Optional: choose and upload a 1200 x 300 banner.'}</p>
+                <p className="mt-2 text-xs text-(--text-muted)">{selectedImageFile ? selectedImageFile.name : form.imageUrl ? '4:1 banner attached.' : 'Optional: choose and upload a 4:1 banner image.'}</p>
                 <UploadProgress update={imageUploadProgress.update} error={imageUploadProgress.error} className="mt-2" />
               </div>
             </div>

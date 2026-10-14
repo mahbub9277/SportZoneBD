@@ -246,10 +246,11 @@ export function TVPlayerStage({
       poster={poster}
       autoPlay
       globalShortcuts={false}
+      onFullscreenToggle={onToggleFullscreen}
       onTransportReady={handlePlayerTransport}
       onPlayerError={handlePlayerError}
     />
-  ), [channel?.id, channel?.name, channel?.streamUrl, handlePlayerError, handlePlayerTransport, poster])
+  ), [channel?.id, channel?.name, channel?.streamUrl, handlePlayerError, handlePlayerTransport, onToggleFullscreen, poster])
 
   // A tap anywhere on the player surface reveals the channel identity again, without touching any player
   // control: this handler never prevents the default or stops propagation. Taps on TV Mode's own buttons

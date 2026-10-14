@@ -10,16 +10,19 @@ import { getUpcomingVisibilityBounds } from '../../core/upcomingWindow.js'
 export const RECENT_MATCH_WINDOW_DAYS = 7
 /** A match added to the catalogue inside this window is recent regardless of how far away its kickoff is. */
 export const RECENT_MATCH_ADDED_WINDOW_HOURS = 24
+/** A finished match may remain in a Live section for this short display window; this is not DB retention. */
+export const LIVE_SECTION_FINISHED_GRACE_MINUTES = 20
 
 export interface MatchListFilters {
   status?: 'UPCOMING' | 'LIVE' | 'FINISHED'
   premium?: boolean
   activeOnly?: boolean
   recentOnly?: boolean
+  liveSection?: boolean
 }
 
 export function buildMatchListWhere(filters: MatchListFilters, now: Date = new Date()): Prisma.MatchWhereInput {
-  const { status, premium, activeOnly, recentOnly } = filters
+  const { status, premium, activeOnly, recentOnly, liveSection } = filters
 
   // The Recent feed is "what is relevant right now", not "what finished recently": a match is recent
   // while it is live, while its kickoff is imminent (the existing upcoming visibility window), while it
@@ -38,6 +41,21 @@ export function buildMatchListWhere(filters: MatchListFilters, now: Date = new D
         { createdAt: { gte: new Date(now.getTime() - RECENT_MATCH_ADDED_WINDOW_HOURS * 60 * 60 * 1000) } },
       ]
     : null
+  const liveSectionCandidates = liveSection && !recentOnly && (!status || status === 'LIVE')
+    ? [
+        ...(!status || status === 'LIVE' ? [{ status: 'LIVE' } as Prisma.MatchWhereInput] : []),
+        ...(!status && activeOnly
+          ? [{ status: 'UPCOMING', kickoffAt: getUpcomingVisibilityBounds(now) } as Prisma.MatchWhereInput]
+          : []),
+        {
+          status: 'FINISHED',
+          finishedAt: {
+            gt: new Date(now.getTime() - LIVE_SECTION_FINISHED_GRACE_MINUTES * 60 * 1000),
+            lte: now,
+          },
+        } as Prisma.MatchWhereInput,
+      ]
+    : null
 
   return {
     deletedAt: null,
@@ -49,8 +67,9 @@ export function buildMatchListWhere(filters: MatchListFilters, now: Date = new D
     AND: [
       { status: { notIn: ['PENDING', 'REJECTED'] } },
       ...(recentCandidates ? [{ OR: recentCandidates }] : []),
+      ...(liveSectionCandidates ? [{ OR: liveSectionCandidates }] : []),
     ],
-    ...(recentOnly
+    ...(recentOnly || liveSectionCandidates
       ? {}
       : status === 'UPCOMING'
         ? { status, kickoffAt: getUpcomingVisibilityBounds(now) }

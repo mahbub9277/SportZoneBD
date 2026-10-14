@@ -619,7 +619,8 @@ html.theme-switching * {
 }
 
 .tv-shell :focus-visible {
-  outline: none;
+  outline: 0.15em solid #bfe8ff;
+  outline-offset: 0.12em;
 }
 
 /* Focus is the primary interaction: it is drawn with a border plus a single cheap shadow, and it is
@@ -637,16 +638,16 @@ html.theme-switching * {
 }
 
 .tv-lite [data-tv-item]:focus {
+  outline: 0.15em solid #bfe8ff;
+  outline-offset: 0.12em;
   box-shadow: none;
   transform: none;
   background: var(--tv-accent-strong);
 }
 
 /* ---------------------------------------------------------------- left panel
-   The channel panel is an overlay on top of the full-size player, but it is a solid Nightfall surface
-   rather than a glass sheet: one opaque dark-navy background so the channel cards, names and numbers
-   keep a stable contrast no matter what is playing behind it. Depth comes from the card surfaces and a
-   single edge shadow, not from transparency. */
+   A restrained 12% transparency keeps a hint of the live picture visible without sacrificing text
+   contrast. The dark navy fill remains readable without an expensive blur over the video. */
 .tv-panel {
   position: absolute;
   inset: 0 auto 0 0;
@@ -659,12 +660,12 @@ html.theme-switching * {
   padding: 0.9em;
   overflow: hidden;
   border-right: 1px solid color-mix(in srgb, var(--tv-border) 45%, transparent);
-  background: var(--tv-surface);
+  background: rgb(7 22 40 / 0.88);
   box-shadow: 0.35em 0 1.4em rgb(2 8 18 / 0.45);
 }
 
 .tv-lite .tv-panel {
-  background: var(--tv-surface);
+  background: rgb(7 22 40 / 0.88);
   box-shadow: none;
 }
 
@@ -926,8 +927,7 @@ html.theme-switching * {
      never a glow. */
   border: 1px solid color-mix(in srgb, var(--tv-border) 52%, transparent);
   border-radius: 0.8em;
-  /* The opaque Nightfall card surface. Nothing behind the panel shows through a card. */
-  background: var(--tv-surface-soft);
+  background: rgb(17 42 70 / 0.88);
   color: var(--tv-text);
   text-align: left;
   cursor: pointer;
@@ -938,7 +938,7 @@ html.theme-switching * {
    selectable (so the viewer can see why) but never looks like a working channel. */
 .tv-channel-card[data-tv-available='false'] {
   border-color: color-mix(in srgb, var(--tv-border) 22%, transparent);
-  background: color-mix(in srgb, var(--tv-surface-soft) 62%, var(--tv-surface));
+  background: rgb(7 22 40 / 0.9);
 }
 
 .tv-channel-card[data-tv-available='false'] .tv-channel-number,
@@ -970,8 +970,12 @@ html.theme-switching * {
 
 .tv-channel-card[data-tv-selected='true'] {
   border-color: var(--tv-accent);
-  background: var(--tv-navy);
+  background: rgb(7 22 40 / 0.97);
   color: var(--tv-text-strong);
+}
+
+.tv-channel-card[data-tv-playing='true'] {
+  border-color: color-mix(in srgb, var(--tv-live) 72%, var(--tv-border));
 }
 
 .tv-channel-card[data-tv-selected='true']::before {
@@ -1070,6 +1074,21 @@ html.theme-switching * {
   font-size: 0.62em;
   font-weight: 800;
   letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tv-channel-unavailable {
+  justify-self: start;
+  padding: 0.15em 0.4em;
+  border: 1px solid rgb(255 153 166 / 0.48);
+  border-radius: 999px;
+  background: rgb(77 31 44 / 0.82);
+  color: #ffe1e5;
+  font-size: 0.55em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-align: center;
   text-transform: uppercase;
 }
 

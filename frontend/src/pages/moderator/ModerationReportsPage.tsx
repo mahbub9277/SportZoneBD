@@ -1,6 +1,6 @@
 ﻿import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, FileText, History, Inbox } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileText, Filter, History, Inbox, Search, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -134,22 +134,74 @@ export function ModerationReportsPage() {
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
-      <div>
-        <h1 className="text-2xl font-semibold text-(--text-primary) sm:text-3xl">Report queue</h1>
-        <p className="mt-1 text-sm text-(--text-muted)">
-          Every report the community submitted, with the moderation actions recorded against it. Actions are attributed to
-          the signed-in moderator and cannot be edited afterwards.
-        </p>
-      </div>
+      <motion.header
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="relative isolate overflow-hidden rounded-4xl border border-(--border) bg-linear-to-br from-amber-500/10 via-(--surface) to-rose-500/10 p-5 shadow-sm sm:p-7"
+      >
+        <motion.div
+          aria-hidden="true"
+          className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-amber-500/10 blur-3xl"
+          animate={{ x: [0, -8, 0], y: [0, 10, 0] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <FileText className="pointer-events-none absolute -bottom-10 right-9 h-44 w-44 rotate-12 text-amber-500/5" aria-hidden="true" />
+        <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-amber-500 to-rose-500 text-white shadow-lg shadow-amber-500/20">
+              <ShieldCheck className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div>
+              <span className="mb-2 inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Community care
+              </span>
+              <h1 className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">Report queue</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-(--text-muted)">
+                Review community reports, follow the recorded history and take the next permitted moderation action.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-(--border) bg-(--surface)/80 px-4 py-3 shadow-sm backdrop-blur">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-300">
+              <Inbox className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-(--text-primary)">Review workspace</span>
+              <span className="block text-xs text-(--text-muted)">{meta?.totalItems ?? 0} matching reports</span>
+            </span>
+          </div>
+        </div>
+      </motion.header>
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
+        <CardHeader className="flex-row items-center gap-3 pb-2">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+            <Filter className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <div>
+            <CardTitle className="text-base">Find a report</CardTitle>
+            <p className="mt-0.5 text-xs text-(--text-muted)">Search and filter the queue to focus your review.</p>
+          </div>
+        </CardHeader>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Input
-            aria-label="Search reports"
-            placeholder="Search summary, details or reporter"
-            value={query}
-            onChange={(event) => applyFilter(() => setQuery(event.target.value))}
-          />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-(--text-muted)" aria-hidden="true" />
+            <Input
+              aria-label="Search reports"
+              className="pl-9"
+              placeholder="Search summary, details or reporter"
+              value={query}
+              onChange={(event) => applyFilter(() => setQuery(event.target.value))}
+            />
+          </div>
           <select
             aria-label="Filter by category"
             value={category}
@@ -184,12 +236,29 @@ export function ModerationReportsPage() {
           </div>
         </CardContent>
       </Card>
+      </motion.section>
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+        className="grid gap-4 lg:grid-cols-[1.4fr_1fr]"
+      >
+        <Card className="border-(--border) shadow-sm">
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="text-base">Reports</CardTitle>
-            <span className="text-xs text-(--text-muted)">{meta ? `${meta.totalItems} total` : ''}</span>
+            <div className="flex items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-300">
+                <FileText className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <div>
+                <CardTitle className="text-base">Reports</CardTitle>
+                <p className="mt-0.5 text-xs text-(--text-muted)">Select a report to inspect its details.</p>
+              </div>
+            </div>
+            <span className="rounded-full border border-(--border) bg-(--surface-soft) px-3 py-1 text-xs font-medium text-(--text-muted)">
+              {meta ? `${meta.totalItems} total` : 'Loading'}
+            </span>
           </CardHeader>
           <CardContent className="space-y-2">
             {reportsQuery.isLoading && (
@@ -217,28 +286,45 @@ export function ModerationReportsPage() {
               </div>
             )}
 
-            {reports.map((report) => (
-              <button
+            {reports.map((report, index) => (
+              <motion.button
                 key={report.id}
                 type="button"
                 onClick={() => setSelectedId(report.id)}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.24, delay: Math.min(index * 0.035, 0.2) }}
+                whileHover={{ y: -1 }}
                 className={cn(
-                  'w-full rounded-2xl border p-3 text-left transition',
+                  'group w-full rounded-2xl border p-3 text-left shadow-sm transition-colors',
                   report.id === selectedId
-                    ? 'border-(--accent) bg-(--surface-soft)'
-                    : 'border-(--border) bg-(--surface-soft)/40 hover:border-(--accent)/40',
+                    ? 'border-(--accent)/60 bg-(--accent)/5 ring-1 ring-inset ring-(--accent)/15'
+                    : 'border-(--border) bg-(--surface-soft)/40 hover:border-(--accent)/40 hover:bg-(--surface-soft)/80',
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-(--text-primary)">{report.summary}</p>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
+                      report.status === 'RESOLVED'
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                        : report.status === 'CLOSED'
+                          ? 'bg-slate-500/10 text-slate-500'
+                          : report.status === 'IN_PROGRESS'
+                            ? 'bg-sky-500/10 text-sky-600 dark:text-sky-300'
+                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                    }`}>
+                      {report.status === 'RESOLVED' ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <FileText className="h-4 w-4" aria-hidden="true" />}
+                    </span>
+                    <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-(--text-primary)">{report.summary}</p>
                     <p className="mt-0.5 text-xs text-(--text-muted)">
                       {report.category} Â· {report.user?.fullName ?? 'Unknown member'} Â· {formatMoment(report.createdAt)}
                     </p>
+                    </div>
                   </div>
                   <Badge variant={statusBadgeVariant(report.status)}>{STATUS_LABELS[report.status]}</Badge>
                 </div>
-              </button>
+              </motion.button>
             ))}
 
             {meta && meta.totalPages > 1 && (
@@ -257,7 +343,7 @@ export function ModerationReportsPage() {
           report={selectedReport}
           onDecide={(report, nextStatus, requiresReason) => setPending({ report, status: nextStatus, requiresReason, reason: '' })}
         />
-      </div>
+      </motion.section>
 
       <AlertDialog open={Boolean(pending)} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent>
@@ -322,9 +408,15 @@ function ReportDetailPanel({ report, onDecide }: ReportDetailPanelProps) {
   }
 
   return (
-    <Card className="border-(--border)">
-      <CardHeader>
-        <CardTitle className="text-base">Report details</CardTitle>
+    <Card className="border-(--border) shadow-sm">
+      <CardHeader className="flex-row items-center gap-3">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+          <History className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div>
+          <CardTitle className="text-base">Report details</CardTitle>
+          <p className="mt-0.5 text-xs text-(--text-muted)">Context, decision history and available actions.</p>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1">
@@ -348,9 +440,17 @@ function ReportDetailPanel({ report, onDecide }: ReportDetailPanelProps) {
           {!detailQuery.isLoading && (detail?.history.length ?? 0) === 0 && (
             <p className="text-xs text-(--text-muted)">No moderation action has been recorded on this report yet.</p>
           )}
-          {detail?.history.map((event) => (
-            <div key={event.id} className="flex items-start gap-2 rounded-2xl border border-(--border) p-2.5">
-              <History className="mt-0.5 h-3.5 w-3.5 text-(--text-muted)" aria-hidden="true" />
+          {detail?.history.map((event, index) => (
+            <motion.div
+              key={event.id}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.22, delay: Math.min(index * 0.04, 0.16) }}
+              className="flex items-start gap-2 rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-2.5"
+            >
+              <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+                <History className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
               <div className="min-w-0">
                 <p className="text-xs font-medium text-(--text-primary)">
                   {event.before?.status ?? 'â€”'} â†’ {event.after?.status ?? 'â€”'}
@@ -361,7 +461,7 @@ function ReportDetailPanel({ report, onDecide }: ReportDetailPanelProps) {
                   {event.reason ? ` Â· ${event.reason}` : ''}
                 </p>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
 
@@ -372,14 +472,16 @@ function ReportDetailPanel({ report, onDecide }: ReportDetailPanelProps) {
           )}
           <div className="flex flex-wrap gap-2">
             {transitions.map((transition) => (
-              <Button
-                key={transition.status}
-                variant={transition.status === 'RESOLVED' ? 'default' : 'outline'}
-                title={transition.requiresReason ? 'A reason is required' : undefined}
-                onClick={() => onDecide(report, transition.status, transition.requiresReason)}
-              >
-                {ACTION_LABELS[transition.status]}
-              </Button>
+              <motion.div key={transition.status} whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  variant={transition.status === 'RESOLVED' ? 'default' : 'outline'}
+                  title={transition.requiresReason ? 'A reason is required' : undefined}
+                  onClick={() => onDecide(report, transition.status, transition.requiresReason)}
+                >
+                  {transition.status === 'RESOLVED' && <CheckCircle2 className="mr-1.5 h-4 w-4" aria-hidden="true" />}
+                  {ACTION_LABELS[transition.status]}
+                </Button>
+              </motion.div>
             ))}
           </div>
           <p className="text-xs text-(--text-muted)">

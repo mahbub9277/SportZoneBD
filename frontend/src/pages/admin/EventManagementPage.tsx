@@ -11,6 +11,7 @@ import { getErrorMessage } from '../../utils/get-error-message'
 import { UploadProgress } from '../../components/ui/UploadProgress'
 import type { MediaUploadProgressUpdate } from '../../utils/uploadProgress'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { isSupportedImageMimeType } from '../../utils/prepareUploadImage'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -178,7 +179,7 @@ export default function EventManagementPage() {
   }
 
   const selectImage = (file: File, kind: 'logo' | 'banner') => {
-    if (!file.type.startsWith('image/')) { toast.error('Please select an image file.'); return }
+    if (!isSupportedImageMimeType(file.type)) { toast.error('Choose a JPG, PNG, or WebP image.'); return }
     if (file.size > 5 * 1024 * 1024) { toast.error('Image must be smaller than 5 MB.'); return }
     if (kind === 'banner') {
       revokePreviewUrl(cropImageSrc)

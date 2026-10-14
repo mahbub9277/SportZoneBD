@@ -96,6 +96,8 @@ export interface CustomVideoPlayerProps {
   globalShortcuts?: boolean
   /** Publishes the transport controls so a host (TV Mode) can drive play/pause from outside the player. */
   onTransportReady?: (transport: { playPause: () => void; isPlaying: boolean } | null) => void
+  /** Lets an enclosing experience fullscreen its whole UI instead of only the video player. */
+  onFullscreenToggle?: () => void
 }
 
 type ReactPlayerModule = typeof import('react-player')
@@ -255,6 +257,7 @@ export function CustomVideoPlayer({
   matchMetadata,
   globalShortcuts = true,
   onTransportReady,
+  onFullscreenToggle,
 }: CustomVideoPlayerProps) {
   const { socket } = useSocket()
   const { deviceTier, networkQuality, shouldReduceEffects, isSmartTV, reducedMotion } = usePerformanceProfile()
@@ -1452,8 +1455,12 @@ export function CustomVideoPlayer({
   }, [dispatch, selectSubtitleLanguage, subtitleChoices.length])
   
   const handleToggleFullscreen = useCallback(async () => {
+    if (onFullscreenToggle) {
+      onFullscreenToggle()
+      return
+    }
     await toggleFullscreen()
-  }, [toggleFullscreen])
+  }, [onFullscreenToggle, toggleFullscreen])
 
   const handleControlsSurfaceDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation()

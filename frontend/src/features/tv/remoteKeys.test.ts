@@ -26,11 +26,11 @@ test('media and channel remotes reach the same actions as the arrow keys', () =>
 })
 
 test('the values smart-TV browsers send for Back and OK are recognized', () => {
-  for (const key of ['GoBack', 'BrowserBack', 'Back', 'Backspace']) {
+  for (const key of ['GoBack', 'BrowserBack', 'Back', 'Backspace', 'Exit', 'XF86Back']) {
     assert.equal(actionFromRemote({ key }), 'back')
   }
   // Tizen and webOS report the confirm button by name rather than as Enter.
-  for (const key of ['Select', 'Accept']) {
+  for (const key of ['Select', 'Accept', 'OK', 'Ok', 'ok', 'Space']) {
     assert.equal(actionFromRemote({ key }), 'activate')
   }
 })

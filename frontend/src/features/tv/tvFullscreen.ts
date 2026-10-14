@@ -13,6 +13,8 @@ function getFallbackElement(): HTMLElement | null {
 }
 
 let viewerDismissedFullscreen = false
+let pendingFullscreenRequest: Promise<boolean> | null = null
+let activationFullscreenRequest: Promise<boolean> | null = null
 
 export function isFullscreenSupported(): boolean {
   return typeof document !== 'undefined'
@@ -51,20 +53,33 @@ export function beginFullscreenSession(): void {
  * expected outcome, not an error: the promise is never left to reject and `false` is returned so the
  * caller can fall back to the manual control.
  */
-export async function requestTVFullscreen(target?: HTMLElement | null): Promise<boolean> {
-  if (!isFullscreenSupported()) return false
-  if (isFullscreenActive()) return true
+export function requestTVFullscreen(target?: HTMLElement | null): Promise<boolean> {
+  if (!isFullscreenSupported()) return Promise.resolve(false)
+  if (isFullscreenActive()) return Promise.resolve(true)
+  if (pendingFullscreenRequest) return pendingFullscreenRequest
 
   const element = target ?? getFallbackElement()
-  if (!element?.requestFullscreen) return false
+  if (!element?.requestFullscreen) return Promise.resolve(false)
 
+  let nativeRequest: Promise<void>
   try {
-    await element.requestFullscreen()
-    viewerDismissedFullscreen = false
-    return isFullscreenActive()
+    nativeRequest = element.requestFullscreen()
   } catch {
-    return false
+    return Promise.resolve(false)
   }
+
+  const request = Promise.resolve(nativeRequest)
+    .then(() => {
+      if (!isFullscreenActive()) return false
+      viewerDismissedFullscreen = false
+      return true
+    })
+    .catch(() => false)
+    .finally(() => {
+      if (pendingFullscreenRequest === request) pendingFullscreenRequest = null
+    })
+  pendingFullscreenRequest = request
+  return request
 }
 
 /** Leaves fullscreen when one is active. Best effort: the API can reject and nothing depends on it. */
@@ -85,12 +100,20 @@ export async function exitTVFullscreenByViewer(): Promise<void> {
   await exitTVFullscreen()
 }
 
-export function subscribeToFullscreenChange(listener: (isFullscreen: boolean) => void): () => void {
+export function subscribeToFullscreenChange(
+  listener: (isFullscreen: boolean) => void,
+  onError?: () => void,
+): () => void {
   if (typeof document === 'undefined') return () => undefined
 
   const handleChange = () => listener(isFullscreenActive())
+  const handleError = () => onError?.()
   document.addEventListener('fullscreenchange', handleChange)
-  return () => document.removeEventListener('fullscreenchange', handleChange)
+  document.addEventListener('fullscreenerror', handleError)
+  return () => {
+    document.removeEventListener('fullscreenchange', handleChange)
+    document.removeEventListener('fullscreenerror', handleError)
+  }
 }
 
 /**
@@ -103,5 +126,12 @@ export function subscribeToFullscreenChange(listener: (isFullscreen: boolean) =>
  */
 export function requestTVFullscreenFromActivation(): void {
   beginFullscreenSession()
-  void requestTVFullscreen(null)
+  activationFullscreenRequest = requestTVFullscreen(null)
+}
+
+/** Hands the click-time request to the lazy TV route without asking the browser a second time. */
+export function consumeTVFullscreenActivationRequest(): Promise<boolean> | null {
+  const request = activationFullscreenRequest
+  activationFullscreenRequest = null
+  return request
 }

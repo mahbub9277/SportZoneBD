@@ -10,8 +10,9 @@ import { cn } from '../../lib/utils'
 import { MatchCardDisplay } from '../../components/MatchCardDisplay'
 import type { Match } from '../../features/matches/matches.types'
 import { useAdvertisementGate } from '../../hooks/useAdvertisementGate'
-import { filterMatches, rankRecentMatches, sortMatches } from '../../features/matches/matchOrdering'
+import { filterMatches, selectLiveSectionMatches, selectRecentMatches, selectUpcomingMatches, sortMatches } from '../../features/matches/matchOrdering'
 import { getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
+import { useMatchSectionClock } from '../../hooks/useMatchSectionClock'
 import { useEffect, useMemo, useState, memo, useCallback } from 'react'
 
 const matchStatuses = ['LIVE', 'UPCOMING'] as const
@@ -80,7 +81,15 @@ export function AllMatchesPage() {
     ...(isRecent
       ? { recentOnly: true }
       : normalizedStatus
-        ? { status: normalizedStatus, ...(normalizedStatus === 'UPCOMING' ? { sort: 'date-asc' } : {}) }
+        ? {
+            status: normalizedStatus,
+            ...(normalizedStatus === 'LIVE' ? { liveSection: true } : {}),
+            ...(normalizedStatus === 'UPCOMING'
+              ? { sort: 'date-asc' }
+              : normalizedStatus === 'LIVE'
+                ? { sort: 'date-desc' }
+                : {}),
+          }
         : {}),
   }, { skip: status === 'All' })
 
@@ -122,23 +131,22 @@ export function AllMatchesPage() {
   const matches = status === 'All'
     ? allMatchesResult?.key === allQueryKey ? allMatchesResult.items : emptyMatches
     : matchQuery.data?.items ?? emptyMatches
+  const now = useMatchSectionClock(matches)
 
   const activeMatches = useMemo(() => {
     if (isRecent) {
-      return rankRecentMatches(matches).slice(0, RECENT_MATCH_LIMIT)
+      return selectRecentMatches(matches, now).slice(0, RECENT_MATCH_LIMIT)
     }
     if (status === 'UPCOMING') {
-      const now = new Date()
-      const nowTime = now.getTime()
-      const windowEnd = getMatchCalendarWindowEnd(now, 2)
-      const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : nowTime
-      return sortMatches(filterMatches(matches, 'UPCOMING', premium)).filter((match) => {
-        const kickoffAt = new Date(match.kickoffAt).getTime()
-        return Number.isFinite(kickoffAt) && kickoffAt >= nowTime && kickoffAt < windowEndTime
-      })
+      const windowEnd = getMatchCalendarWindowEnd(new Date(now), 2)
+      const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : now
+      return selectUpcomingMatches(matches, now, windowEndTime, premium)
+    }
+    if (status === 'LIVE') {
+      return selectLiveSectionMatches(matches, now).filter((match) => !premium || match.premium === true)
     }
     return sortMatches(filterMatches(matches, normalizedStatus, premium))
-  }, [isRecent, matches, normalizedStatus, premium, status])
+  }, [isRecent, matches, normalizedStatus, now, premium, status])
   const visibleMatches = activeMatches
   const hasNoMatches = !isLoading && (isError || visibleMatches.length === 0)
 

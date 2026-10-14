@@ -44,8 +44,8 @@ export function SidebarNav({ isAuthenticated, onLogout, onNavigate }: SidebarNav
         label="TV Mode"
         icon={Tv}
         onClick={() => {
-          onNavigate?.()
           requestTVFullscreenFromActivation()
+          onNavigate?.()
         }}
       />
       <NavItem href="/matches" label="All Matches" icon={Swords} onClick={onNavigate} />

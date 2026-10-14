@@ -39,7 +39,7 @@ import {
   shouldResetFailureCounterBeforeIncrement,
   type StreamHealthStatus,
 } from './streamHealthState.js'
-import { isFinishedMatchExpired, resolveFinishedMatchCleanupCutoff, resolveFinishedMatchRetentionMinutes, FINISHED_MATCH_MIN_RETENTION_MINUTES } from './finishedMatchRetention.js'
+import { isFinishedMatchExpired, resolveFinishedMatchCleanupCutoff, resolveFinishedMatchRetentionMinutes, resolveFinishedMatchTimestamp, FINISHED_MATCH_MIN_RETENTION_MINUTES } from './finishedMatchRetention.js'
 
 const PRE_MATCH_HEALTH_WINDOW_MINUTES = Number(process.env.PRE_MATCH_HEALTH_WINDOW_MINUTES ?? 90)
 const STREAM_HEALTH_TIMEOUT_MS = Number(process.env.STREAM_HEALTH_TIMEOUT_MS ?? 8000)
@@ -664,6 +664,7 @@ export class MatchAutomationService {
         sport: true,
         status: true,
         finishedAt: true,
+        updatedAt: true,
         tournamentName: true,
         season: true,
         round: true,
@@ -793,15 +794,21 @@ export class MatchAutomationService {
           const season = fixture.season?.trim() || existingMatch.season || null
           // Same rule for the round: an omitted matchday keeps the stored one (which an admin may have set).
           const round = fixture.round ?? existingMatch.round ?? null
-            const status = existingMatch.status === 'FINISHED'
-              ? 'FINISHED'
-              : existingMatch.status === 'PENDING'
-                // A pending match stays pending until an admin accepts it; provider sync never publishes it.
-                ? 'PENDING'
-                : existingMatch.status === 'LIVE' && providerStatus === 'UPCOMING'
-                  ? 'LIVE'
-                  : providerStatus
-            const finishedAt = status === 'FINISHED' ? existingMatch.finishedAt ?? new Date() : null
+          const status = existingMatch.status === 'FINISHED'
+            ? 'FINISHED'
+            : existingMatch.status === 'PENDING'
+              // A pending match stays pending until an admin accepts it; provider sync never publishes it.
+              ? 'PENDING'
+              : existingMatch.status === 'LIVE' && providerStatus === 'UPCOMING'
+                ? 'LIVE'
+                : providerStatus
+          const finishedAt = resolveFinishedMatchTimestamp(
+            status,
+            existingMatch.status,
+            existingMatch.finishedAt,
+            existingMatch.updatedAt,
+            new Date(),
+          )
           const needsUpdate =
             existingMatch.title !== `${homeName} vs ${awayName}` ||
             existingMatch.homeTeamName !== homeName ||

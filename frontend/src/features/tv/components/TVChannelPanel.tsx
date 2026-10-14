@@ -1,6 +1,7 @@
 import { ArrowLeft, ChevronDown, Loader2, LogOut, Radar, RefreshCw, Search } from 'lucide-react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '../../../lib/utils'
+import { actionFromRemote } from '../remoteKeys'
 import type { TVCategory, TVChannel } from '../tvChannels'
 import type { AutoTuneStatus } from '../useAutoTune'
 import { TVChannelCard } from './TVChannelCard'
@@ -15,6 +16,25 @@ const isMenuStepKey = (key: string): boolean =>
   key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End' || key in MENU_KEY_ALIASES
 
 const toMenuKey = (key: string): string => MENU_KEY_ALIASES[key] ?? key
+
+function menuNavigationKey(key: string, code: string): string | null {
+  const candidates = !key || key === 'Unidentified' ? [code] : [key, code]
+  const match = candidates.find(isMenuStepKey)
+  return match ? toMenuKey(match) : null
+}
+
+function focusMenuOption(option: HTMLButtonElement, menu: HTMLElement | null): void {
+  option.focus({ preventScroll: true })
+  if (!menu) return
+
+  const optionRect = option.getBoundingClientRect()
+  const menuRect = menu.getBoundingClientRect()
+  const top = menuRect.top + menu.clientTop
+  const bottom = top + menu.clientHeight
+
+  if (optionRect.top < top) menu.scrollTop -= top - optionRect.top
+  else if (optionRect.bottom > bottom) menu.scrollTop += optionRect.bottom - bottom
+}
 
 interface TVChannelPanelProps {
   categories: TVCategory[]
@@ -93,7 +113,8 @@ export const TVChannelPanel = memo(function TVChannelPanel({
       : key === 'End'
         ? options.length - 1
         : (activeIndex === -1 ? 0 : (activeIndex + (key === 'ArrowUp' ? -1 : 1) + options.length) % options.length)
-    options[index]?.focus({ preventScroll: true })
+    const option = options[index]
+    if (option) focusMenuOption(option, categoryMenuRef.current)
   }, [categoryOptions])
 
   /** Opens the menu from the trigger and puts focus straight on the current category. */
@@ -102,14 +123,19 @@ export const TVChannelPanel = memo(function TVChannelPanel({
     if (options.length === 0) return
     const selected = options.find((option) => option.getAttribute('data-tv-selected') === 'true')
     const from = step === -1 ? options.length - 1 : 0
-    ;(selected ?? options[from]).focus({ preventScroll: true })
+    focusMenuOption(selected ?? options[from], categoryMenuRef.current)
   }, [categoryOptions])
 
   const commitCategory = useCallback((categoryId: string) => {
     setCategoryMenuOpen(false)
     onSelectCategory(categoryId)
-    categoryTriggerRef.current?.focus()
+    categoryTriggerRef.current?.focus({ preventScroll: true })
   }, [onSelectCategory])
+
+  const closeCategoryMenu = useCallback(() => {
+    setCategoryMenuOpen(false)
+    categoryTriggerRef.current?.focus({ preventScroll: true })
+  }, [])
 
   /** Collapsing the panel must not leave an open menu behind for the next time the panel is restored. */
   const handleEnterPlayerView = useCallback(() => {
@@ -144,7 +170,7 @@ export const TVChannelPanel = memo(function TVChannelPanel({
   // Opening search is a mode change, not a new screen: the input takes focus immediately so a remote
   // can type straight away, and the list below stays exactly where it was.
   useEffect(() => {
-    if (isSearchOpen) searchRef.current?.focus()
+    if (isSearchOpen) searchRef.current?.focus({ preventScroll: true })
   }, [isSearchOpen])
 
   // A filter or a refresh can replace the whole list; scroll back to the top only when the browsing
@@ -252,11 +278,21 @@ export const TVChannelPanel = memo(function TVChannelPanel({
               // must not also zap the list below or pull focus out of the dropdown.
               onKeyDown={(event) => {
                 if (!isCategoryMenuOpen) return
-                if (isMenuStepKey(event.key) || event.key === 'Enter' || event.key === ' ') {
+                const navigationKey = menuNavigationKey(event.key, event.code)
+                const action = actionFromRemote({ key: event.key, code: event.code })
+                if (navigationKey) {
                   event.preventDefault()
                   event.stopPropagation()
-                  focusCategoryOption(event.key === 'ArrowUp' || event.key === 'PageUp' ? -1 : 1)
-                } else if (event.key === 'Escape') {
+                  moveCategoryFocus(navigationKey)
+                } else if (action === 'activate') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  focusCategoryOption(1)
+                } else if (action === 'back') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  closeCategoryMenu()
+                } else if (action === 'left' || action === 'right') {
                   event.preventDefault()
                   event.stopPropagation()
                   setCategoryMenuOpen(false)
@@ -273,17 +309,31 @@ export const TVChannelPanel = memo(function TVChannelPanel({
                 className="tv-category-menu"
                 role="listbox"
                 aria-labelledby="tv-category-label"
+                data-tv-scroll-container
                 ref={categoryMenuRef}
                 onKeyDown={(event) => {
-                  if (isMenuStepKey(event.key)) {
+                  const navigationKey = menuNavigationKey(event.key, event.code)
+                  const action = actionFromRemote({ key: event.key, code: event.code })
+                  if (navigationKey) {
                     event.preventDefault()
                     event.stopPropagation()
-                    moveCategoryFocus(toMenuKey(event.key))
-                  } else if (event.key === 'Escape') {
+                    moveCategoryFocus(navigationKey)
+                  } else if (
+                    action === 'activate'
+                    && event.key !== 'Enter'
+                    && event.key !== ' '
+                    && event.key !== 'Spacebar'
+                  ) {
                     event.preventDefault()
                     event.stopPropagation()
-                    setCategoryMenuOpen(false)
-                    categoryTriggerRef.current?.focus()
+                    const active = document.activeElement
+                    if (!event.repeat && active instanceof HTMLElement && categoryMenuRef.current?.contains(active)) {
+                      active.click()
+                    }
+                  } else if (action === 'back' || action === 'left' || action === 'right') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    closeCategoryMenu()
                   }
                 }}
               >
@@ -329,7 +379,14 @@ export const TVChannelPanel = memo(function TVChannelPanel({
         </div>
       </div>
 
-      <div ref={listRef} data-tv-zone="channels" className="tv-channel-list" aria-label="Channels" role="list">
+      <div
+        ref={listRef}
+        data-tv-zone="channels"
+        data-tv-scroll-container
+        className="tv-channel-list"
+        aria-label="Channels"
+        role="list"
+      >
         {isLoading && (
           <div className="tv-channel-skeleton" aria-hidden="true">
             {[0, 1, 2, 3, 4].map((row) => <span key={row} className="tv-channel-skeleton-row" />)}

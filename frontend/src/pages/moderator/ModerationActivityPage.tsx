@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Activity, Clock, Info, MonitorPlay } from 'lucide-react'
+import { Activity, CalendarDays, CheckCircle2, Clock, Filter, Info, MonitorPlay, Search, ShieldCheck, Users, XCircle } from 'lucide-react'
 import {
   useGetModerationActivityQuery,
   useGetModerationAuditOptionsQuery,
@@ -82,15 +82,63 @@ export function ModerationActivityPage() {
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
-      <div>
-        <h1 className="text-2xl font-semibold text-(--text-primary) sm:text-3xl">Activity and history</h1>
-        <p className="mt-1 text-sm text-(--text-muted)">
-          What was done in the moderation console, by whom, and when â€” read from the audit records the backend writes for
-          each action. Audit records cannot be edited or deleted from the console.
-        </p>
-      </div>
+      <motion.header
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="relative isolate overflow-hidden rounded-[2rem] border border-(--border) bg-linear-to-br from-violet-500/10 via-(--surface) to-sky-500/10 p-5 shadow-sm sm:p-7"
+      >
+        <motion.div
+          aria-hidden="true"
+          className="absolute -right-12 -top-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl"
+          animate={{ x: [0, -8, 0], y: [0, 10, 0] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <Activity className="pointer-events-none absolute -bottom-9 right-8 h-40 w-40 rotate-6 text-violet-500/5" aria-hidden="true" />
+        <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/20">
+              <Activity className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div>
+              <span className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-600 dark:text-violet-300">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Immutable audit trail
+              </span>
+              <h1 className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">Activity and history</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-(--text-muted)">
+                What was done in the moderation console, by whom, and when — recorded by the backend and not editable from this console.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-(--border) bg-(--surface)/80 px-4 py-3 shadow-sm backdrop-blur">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-300">
+              <Users className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-(--text-primary)">{scope === 'me' ? 'Personal activity' : 'Team activity'}</span>
+              <span className="block text-xs text-(--text-muted)">{events.length} events on this page</span>
+            </span>
+          </div>
+        </div>
+      </motion.header>
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
+        <CardHeader className="flex-row items-center gap-3 pb-2">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-300">
+            <Filter className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <div>
+            <CardTitle className="text-base">Filter the audit trail</CardTitle>
+            <p className="mt-0.5 text-xs text-(--text-muted)">Narrow the records by moderator, action, outcome or date.</p>
+          </div>
+        </CardHeader>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
           <select
             aria-label="Whose activity"
@@ -149,36 +197,68 @@ export function ModerationActivityPage() {
             value={to}
             onChange={(event) => applyFilter(() => setTo(event.target.value))}
           />
-          <Input
-            aria-label="Search events"
-            placeholder="Search the recorded action"
-            value={search}
-            onChange={(event) => applyFilter(() => setSearch(event.target.value))}
-          />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-(--text-muted)" aria-hidden="true" />
+            <Input
+              aria-label="Search events"
+              className="pl-9"
+              placeholder="Search the recorded action"
+              value={search}
+              onChange={(event) => applyFilter(() => setSearch(event.target.value))}
+            />
+          </div>
         </CardContent>
       </Card>
+      </motion.section>
 
       {summary && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className="border-(--border)">
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.08 }}
+          transition={{ duration: 0.4 }}
+          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <Card className="group border-(--border) shadow-sm transition hover:border-sky-500/40">
             <CardContent className="p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Events</p>
-              <p className="mt-1 text-2xl font-semibold text-(--text-primary)">{summary.totalItems}</p>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Events</p>
+                  <p className="mt-1 text-3xl font-semibold tracking-tight text-(--text-primary)">{summary.totalItems}</p>
+                </div>
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/10 text-sky-600 transition-transform group-hover:scale-110 dark:text-sky-300">
+                  <Activity className="h-5 w-5" aria-hidden="true" />
+                </span>
+              </div>
             </CardContent>
           </Card>
-          <Card className="border-(--border)">
+          <Card className="group border-(--border) shadow-sm transition hover:border-emerald-500/40">
             <CardContent className="p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Succeeded</p>
-              <p className="mt-1 text-2xl font-semibold text-(--text-primary)">{summary.successCount}</p>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Succeeded</p>
+                  <p className="mt-1 text-3xl font-semibold tracking-tight text-(--text-primary)">{summary.successCount}</p>
+                </div>
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 transition-transform group-hover:scale-110 dark:text-emerald-300">
+                  <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                </span>
+              </div>
             </CardContent>
           </Card>
-          <Card className="border-(--border)">
+          <Card className="group border-(--border) shadow-sm transition hover:border-rose-500/40">
             <CardContent className="p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Failed</p>
-              <p className="mt-1 text-2xl font-semibold text-(--text-primary)">{summary.failureCount}</p>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Failed</p>
+                  <p className="mt-1 text-3xl font-semibold tracking-tight text-(--text-primary)">{summary.failureCount}</p>
+                </div>
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-rose-500/10 text-rose-600 transition-transform group-hover:scale-110 dark:text-rose-300">
+                  <XCircle className="h-5 w-5" aria-hidden="true" />
+                </span>
+              </div>
             </CardContent>
           </Card>
-          <Card className="border-(--border)">
+          <Card className="border-(--border) shadow-sm">
             <CardContent className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">By action</p>
               <ul className="mt-2 space-y-1 text-xs text-(--text-muted)">
@@ -192,13 +272,29 @@ export function ModerationActivityPage() {
               </ul>
             </CardContent>
           </Card>
-        </div>
+        </motion.section>
       )}
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="text-base">Audit events</CardTitle>
-          <Activity className="h-4 w-4 text-(--text-muted)" aria-hidden="true" />
+          <div className="flex items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+              <Activity className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <CardTitle className="text-base">Audit events</CardTitle>
+              <p className="mt-0.5 text-xs text-(--text-muted)">Recent actions and their recorded outcomes.</p>
+            </div>
+          </div>
+          <span className="rounded-full border border-(--border) bg-(--surface-soft) px-3 py-1 text-xs font-medium text-(--text-muted)">
+            Page {page}
+          </span>
         </CardHeader>
         <CardContent className="space-y-2">
           {activityQuery.isLoading && (
@@ -220,12 +316,25 @@ export function ModerationActivityPage() {
             </p>
           )}
 
-          {events.map((event) => (
-            <div key={event.id} className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3">
+          {events.map((event, index) => (
+            <motion.div
+              key={event.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: Math.min(index * 0.035, 0.2) }}
+              className="group rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3 transition-colors hover:border-(--accent)/35 hover:bg-(--surface-soft)/70"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-(--text-primary)">
-                  {event.action ? ACTION_LABELS[event.action] ?? event.action : event.message}
-                </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
+                    event.outcome === 'success' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300' : 'bg-rose-500/10 text-rose-600 dark:text-rose-300'
+                  }`}>
+                    {event.outcome === 'success' ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />}
+                  </span>
+                  <p className="truncate text-sm font-medium text-(--text-primary)">
+                    {event.action ? ACTION_LABELS[event.action] ?? event.action : event.message}
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={event.outcome === 'success' ? 'success' : 'destructive'}>
                     {event.outcome === 'success' ? 'Succeeded' : 'Failed'}
@@ -245,7 +354,7 @@ export function ModerationActivityPage() {
                 </p>
               )}
               {event.reason && <p className="mt-1 text-xs text-(--text-secondary)">Reason: {event.reason}</p>}
-            </div>
+            </motion.div>
           ))}
 
           {summary && summary.totalItems > 20 && (
@@ -269,15 +378,30 @@ export function ModerationActivityPage() {
           )}
         </CardContent>
       </Card>
+      </motion.section>
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-          <CardTitle className="text-base">Session activity</CardTitle>
+          <div className="flex items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <CalendarDays className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <CardTitle className="text-base">Session activity</CardTitle>
+              <p className="mt-0.5 text-xs text-(--text-muted)">Recorded sign-ins and estimated active time.</p>
+            </div>
+          </div>
           <select
             aria-label="Whose sessions"
             value={sessionModeratorId}
             onChange={(event) => setSessionModeratorId(event.target.value)}
-            className="h-9 rounded-md border border-(--border) bg-(--surface-soft) px-3 text-sm text-(--text-primary)"
+            className="h-9 rounded-xl border border-(--border) bg-(--surface-soft) px-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           >
             <option value="">My sessions</option>
             {(optionsQuery.data?.moderators ?? []).map((moderator) => (
@@ -298,19 +422,19 @@ export function ModerationActivityPage() {
 
           {sessions && (
             <div className="grid gap-3 sm:grid-cols-4">
-              <div className="rounded-2xl border border-(--border) p-3">
+              <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3">
                 <p className="text-xs text-(--text-muted)">Sessions</p>
                 <p className="text-lg font-semibold text-(--text-primary)">{sessions.summary.sessionCount}</p>
               </div>
-              <div className="rounded-2xl border border-(--border) p-3">
+              <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3">
                 <p className="text-xs text-(--text-muted)">Recorded session time</p>
                 <p className="text-lg font-semibold text-(--text-primary)">{formatDuration(sessions.summary.totalDurationMs)}</p>
               </div>
-              <div className="rounded-2xl border border-(--border) p-3">
+              <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3">
                 <p className="text-xs text-(--text-muted)">Estimated active time</p>
                 <p className="text-lg font-semibold text-(--text-primary)">{formatDuration(sessions.summary.totalActiveMs)}</p>
               </div>
-              <div className="rounded-2xl border border-(--border) p-3">
+              <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3">
                 <p className="text-xs text-(--text-muted)">Last activity</p>
                 <p className="text-sm font-medium text-(--text-primary)">{formatMoment(sessions.summary.lastSeenAt)}</p>
               </div>
@@ -325,10 +449,21 @@ export function ModerationActivityPage() {
             </p>
           )}
 
-          {sessions?.items.map((session) => (
-            <div key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-(--border) p-3">
+          {sessions?.items.map((session, index) => (
+            <motion.div
+              key={session.id}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.25, delay: Math.min(index * 0.035, 0.2) }}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-(--border) bg-(--surface-soft)/30 p-3 transition-colors hover:border-(--accent)/30"
+            >
               <div className="min-w-0">
-                <p className="text-sm font-medium text-(--text-primary)">{session.moderator.fullName}</p>
+                <p className="flex items-center gap-2 text-sm font-medium text-(--text-primary)">
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-300">
+                    <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  {session.moderator.fullName}
+                </p>
                 <p className="text-xs text-(--text-muted)">
                   {formatMoment(session.startedAt)} â†’ {formatMoment(session.endedAt)} Â·{' '}
                   {END_SOURCE_LABELS[session.endSource] ?? session.endSource}
@@ -345,10 +480,11 @@ export function ModerationActivityPage() {
                 </span>
                 {session.isEstimated && <Badge variant="secondary">Estimated</Badge>}
               </div>
-            </div>
+            </motion.div>
           ))}
         </CardContent>
       </Card>
+      </motion.section>
     </motion.div>
   )
 }

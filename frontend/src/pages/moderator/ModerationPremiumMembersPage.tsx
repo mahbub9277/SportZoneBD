@@ -1,6 +1,6 @@
 ﻿import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CreditCard, Search, ShieldCheck, Star } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, Search, ShieldCheck, Star, UserRound, Users, WalletCards } from 'lucide-react'
 
 import { useGetPremiumMembersQuery, type PremiumMemberRecord } from '../../features/moderation/moderation.api'
 import { useDebounce } from '../../hooks/useDebounce'
@@ -36,9 +36,18 @@ function MemberRow({ record }: { record: PremiumMemberRecord }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-4">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.24 }}
+      className="group rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-4 shadow-sm transition-colors hover:border-(--accent)/30 hover:bg-(--surface-soft)/70"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+            <UserRound className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-semibold text-(--text-primary)">
             {record.member.fullName ?? 'Unnamed member'}
             {record.membership.isActive
@@ -48,35 +57,38 @@ function MemberRow({ record }: { record: PremiumMemberRecord }) {
           <p className="mt-0.5 text-xs text-(--text-muted)">
             {record.member.email ?? 'no email on record'} Â· account {record.member.id.slice(0, 8)}â€¦
           </p>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => setExpanded((current) => !current)}>
+        <Button variant="outline" onClick={() => setExpanded((current) => !current)} className="inline-flex items-center gap-2">
+          <WalletCards className="h-4 w-4" aria-hidden="true" />
           {expanded ? 'Hide payments' : 'Payment history'}
+          {expanded ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
         </Button>
       </div>
 
-      <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
-        <div>
-          <p className="text-(--text-muted)">Plan</p>
+      <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-(--border) bg-(--surface)/60 p-3">
+          <p className="flex items-center gap-1.5 text-(--text-muted)"><Star className="h-3.5 w-3.5" aria-hidden="true" />Plan</p>
           <p className="font-medium text-(--text-primary)">
             {record.plan ? `${record.plan.name} (${record.plan.durationDays} days)` : 'Plan no longer available'}
           </p>
         </div>
-        <div>
-          <p className="text-(--text-muted)">Membership</p>
+        <div className="rounded-xl border border-(--border) bg-(--surface)/60 p-3">
+          <p className="flex items-center gap-1.5 text-(--text-muted)"><Clock3 className="h-3.5 w-3.5" aria-hidden="true" />Membership</p>
           <p className="font-medium text-(--text-primary)">
             {formatDate(record.membership.startedAt)} â†’ {formatDate(record.membership.expiresAt)}
           </p>
         </div>
-        <div>
-          <p className="text-(--text-muted)">Latest payment</p>
+        <div className="rounded-xl border border-(--border) bg-(--surface)/60 p-3">
+          <p className="flex items-center gap-1.5 text-(--text-muted)"><CreditCard className="h-3.5 w-3.5" aria-hidden="true" />Latest payment</p>
           <p className="font-medium text-(--text-primary)">
             {record.latestPayment
               ? `${record.latestPayment.amount} ${record.latestPayment.currency} Â· ${record.latestPayment.methodLabel}`
               : 'No payment recorded'}
           </p>
         </div>
-        <div>
-          <p className="text-(--text-muted)">Payment status</p>
+        <div className="rounded-xl border border-(--border) bg-(--surface)/60 p-3">
+          <p className="flex items-center gap-1.5 text-(--text-muted)"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />Payment status</p>
           <p className="flex items-center gap-2">
             {record.latestPayment
               ? <Badge variant={PAYMENT_STATUS_VARIANT(record.latestPayment)}>{record.latestPayment.status}</Badge>
@@ -86,16 +98,28 @@ function MemberRow({ record }: { record: PremiumMemberRecord }) {
       </div>
 
       {expanded && (
-        <div className="mt-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mt-4 space-y-3 border-t border-(--border) pt-4"
+        >
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+            <WalletCards className="h-4 w-4" aria-hidden="true" />
             Recent payments ({record.paymentSummary.recorded} shown Â· {record.paymentSummary.approved} approved Â·{' '}
             {record.paymentSummary.rejected} rejected)
           </p>
           {record.paymentHistory.length === 0 && (
             <p className="text-xs text-(--text-muted)">No payment record is linked to this membership.</p>
           )}
-          {record.paymentHistory.map((payment) => (
-            <div key={payment.id} className="rounded-2xl border border-(--border) p-3 text-xs">
+          {record.paymentHistory.map((payment, index) => (
+            <motion.div
+              key={payment.id}
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.22, delay: Math.min(index * 0.04, 0.16) }}
+              className="rounded-2xl border border-(--border) bg-(--surface)/70 p-3 text-xs"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium text-(--text-primary)">
                   {payment.amount} {payment.currency} Â· {payment.methodLabel}
@@ -112,11 +136,11 @@ function MemberRow({ record }: { record: PremiumMemberRecord }) {
                     ? `Not successful${payment.rejectionReason ? ` Â· ${payment.rejectionReason}` : ''}`
                     : 'Awaiting review'}
               </p>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -144,15 +168,63 @@ export function ModerationPremiumMembersPage() {
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
-      <div>
-        <h1 className="text-2xl font-semibold text-(--text-primary) sm:text-3xl">Premium members</h1>
-        <p className="mt-1 text-sm text-(--text-muted)">
-          Read-only view of the subscriptions the platform has recorded, with the payments behind each one. Entitlement is
-          decided by the subscription, never by a payment submission on its own.
-        </p>
-      </div>
+      <motion.header
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="relative isolate overflow-hidden rounded-4xl border border-(--border) bg-linear-to-br from-amber-500/10 via-(--surface) to-orange-500/10 p-5 shadow-sm sm:p-7"
+      >
+        <motion.div
+          aria-hidden="true"
+          className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-amber-500/10 blur-3xl"
+          animate={{ x: [0, -8, 0], y: [0, 10, 0] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <Star className="pointer-events-none absolute -bottom-10 right-9 h-44 w-44 rotate-12 text-amber-500/5" aria-hidden="true" />
+        <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-amber-400 to-orange-500 text-white shadow-lg shadow-amber-500/20">
+              <Star className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div>
+              <span className="mb-2 inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Read-only insights
+              </span>
+              <h1 className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">Premium members</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-(--text-muted)">
+                Review recorded subscriptions and payment history. Entitlement is decided by the subscription, never by a payment submission alone.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-(--border) bg-(--surface)/80 px-4 py-3 shadow-sm backdrop-blur">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <Users className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-(--text-primary)">{meta?.totalItems ?? '—'} records</span>
+              <span className="block text-xs text-(--text-muted)">Premium memberships</span>
+            </span>
+          </div>
+        </div>
+      </motion.header>
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
+        <CardHeader className="flex-row items-center gap-3 pb-2">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-300">
+            <Search className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <div>
+            <CardTitle className="text-base">Find members</CardTitle>
+            <p className="mt-0.5 text-xs text-(--text-muted)">Search accounts or filter by membership status.</p>
+          </div>
+        </CardHeader>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
           <div className="relative sm:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-(--text-muted)" aria-hidden="true" />
@@ -178,14 +250,28 @@ export function ModerationPremiumMembersPage() {
           </select>
         </CardContent>
       </Card>
+      </motion.section>
 
-      <Card className="border-(--border)">
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4 }}
+      >
+      <Card className="border-(--border) shadow-sm">
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Star className="h-4 w-4 text-(--accent)" aria-hidden="true" />
-            Memberships
-          </CardTitle>
-          <span className="text-xs text-(--text-muted)">{meta ? `${meta.totalItems} records` : ''}</span>
+          <div className="flex items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <Star className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <CardTitle className="text-base">Memberships</CardTitle>
+              <p className="mt-0.5 text-xs text-(--text-muted)">Subscription state and related payment records.</p>
+            </div>
+          </div>
+          <span className="rounded-full border border-(--border) bg-(--surface-soft) px-3 py-1 text-xs font-medium text-(--text-muted)">
+            {meta ? `${meta.totalItems} records` : 'Loading'}
+          </span>
         </CardHeader>
         <CardContent className="space-y-3">
           {membersQuery.isLoading && (
@@ -229,6 +315,7 @@ export function ModerationPremiumMembersPage() {
           </p>
         </CardContent>
       </Card>
+      </motion.section>
     </motion.div>
   )
 }

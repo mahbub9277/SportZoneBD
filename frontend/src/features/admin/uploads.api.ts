@@ -2,6 +2,7 @@ import { emptyApi } from '../../app/api/emptyApi'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse } from '../../app/api/types'
 import { toTransferPercent, type MediaUploadProgressUpdate } from '../../utils/uploadProgress'
+import { prepareUploadFile, type UploadPurpose } from '../../utils/prepareUploadImage'
 
 export interface UploadedFile {
   fileName: string
@@ -15,22 +16,6 @@ export interface UploadResponse {
   uploads: UploadedFile[]
   failedUploads: string[]
 }
-
-type UploadPurpose =
-  | 'highlight-image'
-  | 'highlight-video'
-  | 'banner-image'
-  | 'banner-video'
-  | 'banner-poster'
-  | 'advertisement-image'
-  | 'event-logo'
-  | 'event-banner'
-  | 'popup-image'
-  | 'team-logo'
-  | 'stream-logo'
-  | 'channel-logo'
-  | 'channel-category-logo'
-  | 'match-prestart-video'
 
 interface UploadAuthorization {
   asset_folder: string
@@ -190,24 +175,33 @@ export const uploadsApi = emptyApi.injectEndpoints({
           }
 
           onProgress?.({ ...position, stage: 'preparing', percent: 0 })
+          let preparedFile: File
+          try {
+            preparedFile = await prepareUploadFile(file, purpose, api.signal)
+          } catch (error) {
+            if (api.signal.aborted) return { error: toCustomError(error) }
+            failedUploads.push(`${file.name}: ${error instanceof Error ? error.message : 'Image preparation failed.'}`)
+            continue
+          }
+
           const signatureResponse = await baseQuery({
             url: '/admin/uploads/cloudinary/signature',
             method: 'POST',
-            body: { purpose, fileName: file.name, fileSize: file.size, mimeType: file.type },
+            body: { purpose, fileName: preparedFile.name, fileSize: preparedFile.size, mimeType: preparedFile.type },
           })
           if (signatureResponse.error) return { error: signatureResponse.error }
 
           try {
             const authorization = unwrapApiResponse<UploadAuthorization>(signatureResponse.data as ApiResponse<UploadAuthorization>)
-            if (!authorization || authorization.maxBytes < file.size) {
+            if (!authorization || authorization.maxBytes < preparedFile.size) {
               throw new Error('Selected file exceeds the authorized upload size.')
             }
 
             // The percentage is reported on change only: `progress` fires far more often than the value
             // actually moves, and every report is a React state update.
             let reportedPercent = -1
-            const cloudinaryResult = await uploadCloudinaryFile(file, authorization, api.signal, (loadedBytes) => {
-              const percent = toTransferPercent(loadedBytes, file.size)
+            const cloudinaryResult = await uploadCloudinaryFile(preparedFile, authorization, api.signal, (loadedBytes) => {
+              const percent = toTransferPercent(loadedBytes, preparedFile.size)
               if (percent === reportedPercent) return
               reportedPercent = percent
               onProgress?.({ ...position, stage: 'uploading', percent })
@@ -218,8 +212,8 @@ export const uploadsApi = emptyApi.injectEndpoints({
               method: 'POST',
               body: {
                 purpose,
-                fileName: file.name,
-                mimeType: file.type,
+                fileName: preparedFile.name,
+                mimeType: preparedFile.type,
                 publicId: cloudinaryResult.public_id,
                 version: cloudinaryResult.version,
                 signature: cloudinaryResult.signature,

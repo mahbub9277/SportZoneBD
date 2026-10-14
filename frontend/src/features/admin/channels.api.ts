@@ -2,17 +2,19 @@ import { emptyApi } from '../../app/api/emptyApi'
 import type { Channel, ChannelCategory } from '../../shared/types'
 import { unwrapApiResponse } from '../../app/api/api.utils'
 import type { ApiResponse } from '../../app/api/types'
+import type { ChannelReactionSummary, ChannelReactionType } from './channelReactionState'
 
 export const channelsApi = emptyApi.injectEndpoints({
   endpoints: (builder) => ({
-    getChannelReactions: builder.query<{ likeCount: number; dislikeCount: number; userReaction: 'LIKE' | 'DISLIKE' | null }, string>({
-      query: (id) => `/channels/${id}/reactions`,
-      transformResponse: (response: ApiResponse<{ likeCount: number; dislikeCount: number; userReaction: 'LIKE' | 'DISLIKE' | null }>) => unwrapApiResponse(response),
-      providesTags: (_result, _error, id) => [{ type: 'Channels' as const, id: `REACTIONS_${id}` }],
+    getChannelReactions: builder.query<ChannelReactionSummary, { id: string; viewerId: string | null }>({
+      // viewerId scopes this identity-dependent response in RTK Query; the server still uses the auth cookie.
+      query: ({ id }) => `/channels/${id}/reactions`,
+      transformResponse: (response: ApiResponse<ChannelReactionSummary>) => unwrapApiResponse(response),
+      providesTags: (_result, _error, { id }) => [{ type: 'Channels' as const, id: `REACTIONS_${id}` }],
     }),
-    toggleChannelReaction: builder.mutation<{ likeCount: number; dislikeCount: number; userReaction: 'LIKE' | 'DISLIKE' | null }, { id: string; type: 'LIKE' | 'DISLIKE' }>({
+    toggleChannelReaction: builder.mutation<ChannelReactionSummary, { id: string; type: ChannelReactionType }>({
       query: ({ id, type }) => ({ url: `/channels/${id}/reactions`, method: 'POST', body: { type } }),
-      transformResponse: (response: ApiResponse<{ likeCount: number; dislikeCount: number; userReaction: 'LIKE' | 'DISLIKE' | null }>) => unwrapApiResponse(response),
+      transformResponse: (response: ApiResponse<ChannelReactionSummary>) => unwrapApiResponse(response),
       invalidatesTags: (_result, _error, { id }) => [{ type: 'Channels', id: `REACTIONS_${id}` }, { type: 'Channels', id: 'LIST' }],
     }),
     // --- PUBLIC QUERIES (SHOULD BE MOVED TO A PUBLIC API SLICE) ---

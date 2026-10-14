@@ -20,6 +20,7 @@ const getAllMatchesQuerySchema = z.object({
   }, z.boolean().optional()),
   activeOnly: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
   recentOnly: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
+  liveSection: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
   sort: z.string().optional(),
   status: z.preprocess((value) => {
     if (typeof value !== 'string') return value
@@ -36,7 +37,7 @@ const getAllMatchesQuerySchema = z.object({
  */
 export const getAllMatches = asyncHandler(async (req, res) => {
   const parsedQuery = getAllMatchesQuerySchema.parse(req.query);
-  const { status, premium, activeOnly, recentOnly, sort, ...paginationQuery } = parsedQuery
+  const { status, premium, activeOnly, recentOnly, liveSection, sort, ...paginationQuery } = parsedQuery
   const now = new Date()
   let sortBy = parsedQuery.sortBy
   if (!sortBy && sort) {
@@ -48,7 +49,7 @@ export const getAllMatches = asyncHandler(async (req, res) => {
     }
   }
   sortBy ??= 'createdAt:desc'
-  const where: Prisma.MatchWhereInput = buildMatchListWhere({ status, premium, activeOnly, recentOnly }, now)
+  const where: Prisma.MatchWhereInput = buildMatchListWhere({ status, premium, activeOnly, recentOnly, liveSection }, now)
   const { items, meta } = await getPaginatedData({
     model: 'match',
     query: { ...paginationQuery, sortBy },

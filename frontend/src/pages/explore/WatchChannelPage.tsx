@@ -10,7 +10,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Ta
 import { useAppDispatch, useAppSelector } from '../../app/hooks'
 import { selectFavoriteChannelIds, toggleFavoriteChannel } from '../../features/favorites/favorites.slice'
 import { addRecentChannel } from '../../features/recent/recent.slice' //
-import { selectIsAuthenticated, selectIsPremiumSubscriber } from '../../features/auth/authSlice'
+import { selectCurrentUser, selectIsAuthenticated, selectIsPremiumSubscriber } from '../../features/auth/authSlice'
+import {
+  EMPTY_CHANNEL_REACTION_SUMMARY,
+  getChannelReactionScopeKey,
+  isChannelReactionActive,
+  selectChannelReactionSummary,
+  setChannelUserReaction,
+  toggleChannelUserReaction,
+  type ChannelReactionSummary,
+  type ChannelReactionType,
+  type ScopedChannelReactionSummary,
+} from '../../features/admin/channelReactionState'
 import { cn } from '../../lib/utils'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { startTransition, useEffect, useState, useMemo, useRef } from 'react'
@@ -70,14 +81,6 @@ export function WatchChannelPage() {
     skip: !channelId,
     refetchOnMountOrArgChange: 10,
   })
-  const { data: reactions } = useGetChannelReactionsQuery(channelId, { skip: !channelId })
-  const [toggleReaction] = useToggleChannelReactionMutation()
-  const [optimisticReactions, setOptimisticReactions] = useState<ReactionSummary | null>(null)
-  const reactionStateRef = useRef<ReactionSummary | null>(null)
-  const serverReactionRef = useRef<ReactionSummary | null>(null)
-  const desiredReactionRef = useRef<ReactionType | null>(null)
-  const reactionTimerRef = useRef<number | null>(null)
-  const reactionRequestActiveRef = useRef(false)
   const { setActivePlayer } = useMiniPlayer()
 
   const navigate = useNavigate()
@@ -88,6 +91,8 @@ export function WatchChannelPage() {
 
   const favoriteChannelIds = useAppSelector(selectFavoriteChannelIds)
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
+  const currentUser = useAppSelector(selectCurrentUser)
+  const reactionViewerId = isAuthenticated ? currentUser?.id ?? null : null
   const isPremiumSubscriber = useAppSelector(selectIsPremiumSubscriber)
   const openChannel = useAdvertisementGate('CHANNEL')
   const [openSubscriptionModal, setOpenSubscriptionModal] = useState(false)
@@ -105,92 +110,6 @@ export function WatchChannelPage() {
     } catch { toast.info('Share cancelled.') }
   }
 
-  useEffect(() => {
-    if (!reactions) return
-    const next = { likeCount: reactions.likeCount, dislikeCount: reactions.dislikeCount, userReaction: reactions.userReaction }
-    if (reactionRequestActiveRef.current || reactionTimerRef.current !== null) return
-    serverReactionRef.current = next
-    reactionStateRef.current = next
-    desiredReactionRef.current = next.userReaction
-    setOptimisticReactions(next)
-  }, [reactions])
-
-  useEffect(() => {
-    if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
-    reactionTimerRef.current = null
-    reactionRequestActiveRef.current = false
-    reactionStateRef.current = null
-    serverReactionRef.current = null
-    desiredReactionRef.current = null
-    startTransition(() => setOptimisticReactions(null))
-  }, [channelId])
-
-  useEffect(() => () => {
-    if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
-  }, [])
-
-  const flushReaction = async () => {
-    if (reactionRequestActiveRef.current) return
-    // Without a resolved query there is no server snapshot to compare against, but the viewer's click
-    // must still reach the API: the response is authoritative and replaces this empty baseline.
-    const serverState = serverReactionRef.current ?? { likeCount: 0, dislikeCount: 0, userReaction: null }
-    const desiredReaction = desiredReactionRef.current
-    if (desiredReaction === serverState.userReaction) return
-
-    const requestType = desiredReaction ?? serverState.userReaction
-    if (!requestType) return
-
-    reactionRequestActiveRef.current = true
-    try {
-      const result = await toggleReaction({ id: channelId, type: requestType }).unwrap()
-      const confirmed = { likeCount: result.likeCount, dislikeCount: result.dislikeCount, userReaction: result.userReaction }
-      serverReactionRef.current = confirmed
-      reactionStateRef.current = confirmed
-      setOptimisticReactions(confirmed)
-    } catch {
-      const rollback = serverReactionRef.current
-      if (rollback) {
-        reactionStateRef.current = rollback
-        desiredReactionRef.current = rollback.userReaction
-        setOptimisticReactions(rollback)
-      }
-      toast.error('Could not update your reaction. Please try again.')
-    } finally {
-      reactionRequestActiveRef.current = false
-      if (desiredReactionRef.current !== serverReactionRef.current?.userReaction) {
-        reactionTimerRef.current = window.setTimeout(() => {
-          reactionTimerRef.current = null
-          void flushReaction()
-        }, 400)
-      }
-    }
-  }
-
-  const handleReaction = (type: ReactionType) => {
-    if (!isAuthenticated) {
-      navigate(`/login?redirect=${encodeURIComponent(`/watch/${channelId}`)}`)
-      return
-    }
-
-    // The counts come from the reactions query; if it has not resolved yet (or failed) the interaction
-    // still has to work, so it starts from an empty summary that the server response then corrects.
-    const current = reactionStateRef.current ?? optimisticReactions ?? serverReactionRef.current ?? { likeCount: 0, dislikeCount: 0, userReaction: null }
-    const nextReaction = current.userReaction === type ? null : type
-    const next = {
-      likeCount: Math.max(0, current.likeCount + (nextReaction === 'LIKE' ? 1 : current.userReaction === 'LIKE' ? -1 : 0)),
-      dislikeCount: Math.max(0, current.dislikeCount + (nextReaction === 'DISLIKE' ? 1 : current.userReaction === 'DISLIKE' ? -1 : 0)),
-      userReaction: nextReaction,
-    }
-
-    reactionStateRef.current = next
-    desiredReactionRef.current = nextReaction
-    setOptimisticReactions(next)
-    if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
-    reactionTimerRef.current = window.setTimeout(() => {
-      reactionTimerRef.current = null
-      void flushReaction()
-    }, 400)
-  }
   const [relatedPage, setRelatedPage] = useState(1)
   const relatedChannelsPerPage = 6
   const [hasMoreRelated, setHasMoreRelated] = useState(true)
@@ -351,13 +270,14 @@ export function WatchChannelPage() {
       {/* No entrance animation here: the page root (.app-page) and the route transition already fade
           and lift this content in, so animating it a third time only added work during page entry. */}
       <div>
-      <Card className="mb-3 border-(--border) bg-(--surface)/70 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant={optimisticReactions?.userReaction === 'LIKE' ? 'default' : 'outline'} size="sm" className="tabular-nums" aria-pressed={optimisticReactions?.userReaction === 'LIKE'} onClick={() => handleReaction('LIKE')} aria-label={isAuthenticated ? 'Like channel' : 'Sign in to like channel'}><ThumbsUp className="mr-1.5 h-4 w-4" />{optimisticReactions?.likeCount ?? reactions?.likeCount ?? 0}</Button>
-          <Button type="button" variant={optimisticReactions?.userReaction === 'DISLIKE' ? 'default' : 'outline'} size="sm" className="tabular-nums" aria-pressed={optimisticReactions?.userReaction === 'DISLIKE'} onClick={() => handleReaction('DISLIKE')} aria-label={isAuthenticated ? 'Dislike channel' : 'Sign in to dislike channel'}><ThumbsDown className="mr-1.5 h-4 w-4" />{optimisticReactions?.dislikeCount ?? reactions?.dislikeCount ?? 0}</Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleShare()} aria-label="Share channel"><Share2 className="mr-1.5 h-4 w-4" />Share</Button>
-        </div>
-      </Card>
+      <ChannelReactionBar
+        key={getChannelReactionScopeKey(channelId, reactionViewerId)}
+        channelId={channelId}
+        viewerId={reactionViewerId}
+        isAuthenticated={isAuthenticated}
+        onSignIn={() => navigate(`/login?redirect=${encodeURIComponent(`/watch/${channelId}`)}`)}
+        onShare={() => void handleShare()}
+      />
       <Card className="p-3 sm:p-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <motion.div
@@ -578,7 +498,7 @@ function ChannelsBrowser() {
 
         {isGridReady ? (
           <>
-          <TabsContent value="byCategory" className="pt-4">
+          <TabsContent value="byCategory" className="rounded-none border-0 bg-transparent p-0 pt-4">
           {processedCategories.map((category: ChannelCategory) => (
             <div key={category.id} className="mb-6">
               <h3 className="text-lg font-semibold mb-3">{category.name}</h3>
@@ -596,7 +516,7 @@ function ChannelsBrowser() {
           ))}
         </TabsContent>
 
-        <TabsContent value="all" className="pt-4">
+        <TabsContent value="all" className="rounded-none border-0 bg-transparent p-0 pt-4">
           {(() => {
             const allFilteredChannels = processedCategories.flatMap((c: ChannelCategory) => c.channels ?? [])
             const totalPages = Math.max(1, Math.ceil(allFilteredChannels.length / channelsPerPage))
@@ -662,7 +582,7 @@ function ChannelsBrowser() {
         </TabsContent>
         </>
       ) : (
-        <div className="mt-4 rounded-3xl border border-(--border) bg-(--surface-soft) p-5" aria-hidden="true">
+        <div className="mt-4" aria-hidden="true">
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />)}
           </div>
@@ -670,6 +590,163 @@ function ChannelsBrowser() {
       )}
       </Tabs>
     </div>
+  )
+}
+
+function ChannelReactionBar({
+  channelId,
+  viewerId,
+  isAuthenticated,
+  onSignIn,
+  onShare,
+}: {
+  channelId: string
+  viewerId: string | null
+  isAuthenticated: boolean
+  onSignIn: () => void
+  onShare: () => void
+}) {
+  const scope = getChannelReactionScopeKey(channelId, viewerId)
+  const { currentData: reactions } = useGetChannelReactionsQuery(
+    { id: channelId, viewerId },
+    { skip: !channelId, refetchOnMountOrArgChange: true },
+  )
+  const [toggleReaction] = useToggleChannelReactionMutation()
+  const [optimisticReactions, setOptimisticReactions] = useState<ScopedChannelReactionSummary | null>(null)
+  const reactionStateRef = useRef<ScopedChannelReactionSummary | null>(null)
+  const serverReactionRef = useRef<ScopedChannelReactionSummary | null>(null)
+  const desiredReactionRef = useRef<{ scope: string; userReaction: ChannelReactionType | null } | null>(null)
+  const reactionTimerRef = useRef<number | null>(null)
+  const reactionRequestActiveRef = useRef(false)
+
+  const visibleReactions = selectChannelReactionSummary(reactions, optimisticReactions, scope)
+
+  useEffect(() => {
+    if (!reactions) return
+    if (reactionRequestActiveRef.current || reactionTimerRef.current !== null) return
+    const confirmed = { scope, summary: reactions }
+    serverReactionRef.current = confirmed
+    reactionStateRef.current = confirmed
+    desiredReactionRef.current = { scope, userReaction: reactions.userReaction }
+    setOptimisticReactions(confirmed)
+  }, [reactions, scope])
+
+  useEffect(() => () => {
+    if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
+  }, [])
+
+  const flushReaction = async () => {
+    if (reactionRequestActiveRef.current || !reactions) return
+    const knownServerState = serverReactionRef.current?.scope === scope
+      ? serverReactionRef.current.summary
+      : reactions
+    serverReactionRef.current = { scope, summary: knownServerState }
+    const desiredReaction = desiredReactionRef.current?.scope === scope
+      ? desiredReactionRef.current.userReaction
+      : knownServerState.userReaction
+    if (desiredReaction === knownServerState.userReaction) return
+
+    const requestType = desiredReaction ?? knownServerState.userReaction
+    if (!requestType) return
+
+    reactionRequestActiveRef.current = true
+    try {
+      const result = await toggleReaction({ id: channelId, type: requestType }).unwrap()
+      const confirmed = { likeCount: result.likeCount, dislikeCount: result.dislikeCount, userReaction: result.userReaction }
+      serverReactionRef.current = { scope, summary: confirmed }
+      const latestDesiredReaction = desiredReactionRef.current?.scope === scope
+        ? desiredReactionRef.current.userReaction
+        : confirmed.userReaction
+      const displayed = setChannelUserReaction(confirmed, latestDesiredReaction)
+      reactionStateRef.current = { scope, summary: displayed }
+      setOptimisticReactions({ scope, summary: displayed })
+    } catch {
+      const rollback = serverReactionRef.current?.scope === scope
+        ? serverReactionRef.current.summary
+        : reactions
+      const scopedRollback = { scope, summary: rollback }
+      reactionStateRef.current = scopedRollback
+      desiredReactionRef.current = { scope, userReaction: rollback.userReaction }
+      setOptimisticReactions(scopedRollback)
+      toast.error('Could not update your reaction. Please try again.')
+    } finally {
+      reactionRequestActiveRef.current = false
+      const serverState = serverReactionRef.current?.scope === scope
+        ? serverReactionRef.current.summary
+        : reactions
+      const latestDesiredReaction = desiredReactionRef.current?.scope === scope
+        ? desiredReactionRef.current.userReaction
+        : serverState.userReaction
+      if (latestDesiredReaction !== serverState.userReaction) {
+        if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
+        reactionTimerRef.current = window.setTimeout(() => {
+          reactionTimerRef.current = null
+          void flushReaction()
+        }, 400)
+      }
+    }
+  }
+
+  const scheduleReactionFlush = () => {
+    if (reactionTimerRef.current !== null) window.clearTimeout(reactionTimerRef.current)
+    reactionTimerRef.current = window.setTimeout(() => {
+      reactionTimerRef.current = null
+      void flushReaction()
+    }, 400)
+  }
+
+  const handleReaction = (type: ChannelReactionType) => {
+    if (!isAuthenticated) {
+      onSignIn()
+      return
+    }
+    if (!reactions) return
+
+    const current = reactionStateRef.current?.scope === scope
+      ? reactionStateRef.current.summary
+      : visibleReactions ?? reactions
+    const next = toggleChannelUserReaction(current, type)
+    const scopedNext = { scope, summary: next }
+    reactionStateRef.current = scopedNext
+    desiredReactionRef.current = { scope, userReaction: next.userReaction }
+    setOptimisticReactions(scopedNext)
+    scheduleReactionFlush()
+  }
+
+  const reactionSummary: ChannelReactionSummary = visibleReactions ?? EMPTY_CHANNEL_REACTION_SUMMARY
+
+  return (
+    <Card className="mb-3 border-(--border) bg-(--surface)/70 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant={isChannelReactionActive(reactionSummary, 'LIKE') ? 'default' : 'outline'}
+          size="sm"
+          className="tabular-nums"
+          aria-pressed={isChannelReactionActive(reactionSummary, 'LIKE')}
+          onClick={() => handleReaction('LIKE')}
+          aria-label={isAuthenticated ? 'Like channel' : 'Sign in to like channel'}
+          disabled={!reactions}
+        >
+          <ThumbsUp className="mr-1.5 h-4 w-4" />{reactionSummary.likeCount}
+        </Button>
+        <Button
+          type="button"
+          variant={isChannelReactionActive(reactionSummary, 'DISLIKE') ? 'default' : 'outline'}
+          size="sm"
+          className="tabular-nums"
+          aria-pressed={isChannelReactionActive(reactionSummary, 'DISLIKE')}
+          onClick={() => handleReaction('DISLIKE')}
+          aria-label={isAuthenticated ? 'Dislike channel' : 'Sign in to dislike channel'}
+          disabled={!reactions}
+        >
+          <ThumbsDown className="mr-1.5 h-4 w-4" />{reactionSummary.dislikeCount}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onShare} aria-label="Share channel">
+          <Share2 className="mr-1.5 h-4 w-4" />Share
+        </Button>
+      </div>
+    </Card>
   )
 }
 
@@ -695,6 +772,3 @@ function ViewerCountDisplay({ channelId, initial }: { channelId: string; initial
     </p>
   )
 }
-
-type ReactionType = 'LIKE' | 'DISLIKE'
-type ReactionSummary = { likeCount: number; dislikeCount: number; userReaction: ReactionType | null }

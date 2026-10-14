@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { BellRing, Send } from 'lucide-react'
+import { BellRing, CheckCircle2, Megaphone, Radio, Send, Smartphone, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -88,18 +88,63 @@ export function PushCampaignPage() {
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
-      <div>
-        <h1 className="text-2xl font-semibold text-(--text-primary) sm:text-3xl">Push campaigns</h1>
-        <p className="mt-1 text-sm text-(--text-muted)">
-          Compose a notification, choose an audience, confirm the real recipient count and send. Every campaign is recorded
-          with your account as its sender.
-        </p>
-      </div>
+      <motion.header
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="relative isolate overflow-hidden rounded-4xl border border-(--border) bg-linear-to-br from-cyan-500/10 via-(--surface) to-blue-500/10 p-5 shadow-sm sm:p-7"
+      >
+        <motion.div
+          aria-hidden="true"
+          className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-cyan-500/10 blur-3xl"
+          animate={{ x: [0, -8, 0], y: [0, 10, 0] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <Megaphone className="pointer-events-none absolute -bottom-10 right-9 h-44 w-44 -rotate-12 text-cyan-500/5" aria-hidden="true" />
+        <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
+              <BellRing className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div>
+              <span className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
+                <Radio className="h-3.5 w-3.5" aria-hidden="true" />
+                Audience messaging
+              </span>
+              <h1 className="text-2xl font-semibold tracking-tight text-(--text-primary) sm:text-3xl">Push campaigns</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-(--text-muted)">
+                Compose a notification, confirm the live audience count and queue the campaign. Every send is recorded with your account.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-(--border) bg-(--surface)/80 px-4 py-3 shadow-sm backdrop-blur">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-300">
+              <Users className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-(--text-primary)">{preview?.recipients ?? '—'} recipients</span>
+              <span className="block text-xs text-(--text-muted)">{AUDIENCE_LABELS[audience]}</span>
+            </span>
+          </div>
+        </div>
+      </motion.header>
 
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <Card className="border-(--border)">
-          <CardHeader>
-            <CardTitle className="text-base">Compose</CardTitle>
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.08 }}
+          transition={{ duration: 0.4 }}
+        >
+        <Card className="border-(--border) shadow-sm">
+          <CardHeader className="flex-row items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-300">
+              <Megaphone className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <CardTitle className="text-base">Compose campaign</CardTitle>
+              <p className="mt-0.5 text-xs text-(--text-muted)">Prepare and preview the message before it is queued.</p>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
@@ -167,7 +212,7 @@ export function PushCampaignPage() {
               </div>
             </div>
 
-            <label className="flex items-start gap-2 rounded-2xl border border-(--border) bg-(--surface-soft)/50 p-3 text-xs text-(--text-secondary)">
+            <label className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-5 text-(--text-secondary)">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -182,12 +227,21 @@ export function PushCampaignPage() {
 
             {/* The preview is the same text the recipients receive, so nothing has to be imagined. */}
             <div className="space-y-1 rounded-2xl border border-(--border) bg-(--nav-surface,var(--surface-soft)) p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Preview</p>
-              <div className="rounded-2xl bg-(--surface) p-3">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+                <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
+                Live preview
+              </p>
+              <motion.div
+                key={`${title}|${body}|${link}`}
+                initial={{ opacity: 0.75, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-2xl bg-(--surface) p-3 shadow-sm"
+              >
                 <p className="text-sm font-semibold text-(--text-primary)">{title.trim() || 'Notification title'}</p>
                 <p className="mt-1 text-xs text-(--text-secondary)">{body.trim() || 'The message body appears here.'}</p>
                 {link.trim() && <p className="mt-1 text-xs text-(--accent)">{link.trim()}</p>}
-              </div>
+              </motion.div>
               <p className="text-xs text-(--text-muted)">
                 {channel === 'IN_APP'
                   ? 'Shown in the in-app notification list only.'
@@ -198,22 +252,31 @@ export function PushCampaignPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button
-                onClick={() => void handleSend()}
-                disabled={!isValid || !confirmed || isLoading}
-                className="inline-flex items-center gap-2"
-              >
-                <Send className="h-4 w-4" aria-hidden="true" />
-                {isLoading ? 'Starting…' : 'Start campaign'}
-              </Button>
+              <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  onClick={() => void handleSend()}
+                  disabled={!isValid || !confirmed || isLoading}
+                  className="inline-flex items-center gap-2 shadow-sm"
+                >
+                  <Send className="h-4 w-4" aria-hidden="true" />
+                  {isLoading ? 'Starting…' : 'Start campaign'}
+                </Button>
+              </motion.div>
               <p className="text-xs text-(--text-muted)">
                 {isValid ? 'Ready to send once confirmed.' : 'A title and a message of at least 3 characters are required.'}
               </p>
             </div>
 
             {result && (
-              <div className="space-y-1 rounded-2xl border border-(--border) bg-(--surface-soft)/60 p-3 text-xs">
-                <p className="font-medium text-(--text-primary)">Campaign {result.campaignId.slice(0, 8)}… started</p>
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="space-y-1 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs"
+              >
+                <p className="flex items-center gap-2 font-medium text-(--text-primary)">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" aria-hidden="true" />
+                  Campaign {result.campaignId.slice(0, 8)}… started
+                </p>
                 <p className="text-(--text-muted)">
                   Audience size {result.audienceSize} · push-eligible {result.pushEligibleRecipients} · queued{' '}
                   {result.queuedRecipients}
@@ -222,15 +285,30 @@ export function PushCampaignPage() {
                   Queued is not the same as delivered: the queue accepted these recipients, and per-recipient delivery is not
                   recorded for a campaign.
                 </p>
-              </div>
+              </motion.div>
             )}
           </CardContent>
         </Card>
+        </motion.section>
 
-        <div className="space-y-4">
-          <Card className="border-(--border)">
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.08 }}
+          transition={{ duration: 0.4, delay: 0.08 }}
+          className="space-y-4"
+        >
+          <Card className="border-(--border) shadow-sm">
             <CardHeader className="flex-row items-center justify-between">
-              <CardTitle className="text-base">Audience</CardTitle>
+              <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-300">
+                  <Users className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <CardTitle className="text-base">Audience reach</CardTitle>
+                  <p className="mt-0.5 text-xs text-(--text-muted)">Live estimate for the selected group.</p>
+                </div>
+              </div>
               <BellRing className="h-4 w-4 text-(--text-muted)" aria-hidden="true" />
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -242,13 +320,13 @@ export function PushCampaignPage() {
               )}
               {preview && (
                 <>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-(--text-muted)">Recipients</span>
-                    <span className="font-semibold text-(--text-primary)">{preview.recipients}</span>
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-(--surface-soft)/70 p-3">
+                    <span className="flex items-center gap-2 text-(--text-muted)"><Users className="h-4 w-4" aria-hidden="true" />Recipients</span>
+                    <span className="text-lg font-semibold text-(--text-primary)">{preview.recipients}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-(--text-muted)">With a push subscription</span>
-                    <span className="font-semibold text-(--text-primary)">{preview.pushEligibleRecipients}</span>
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-(--surface-soft)/70 p-3">
+                    <span className="flex items-center gap-2 text-(--text-muted)"><Smartphone className="h-4 w-4" aria-hidden="true" />Push enabled</span>
+                    <span className="text-lg font-semibold text-(--text-primary)">{preview.pushEligibleRecipients}</span>
                   </div>
                   {willSendPush && preview.pushEligibleRecipients < preview.recipients && (
                     <p className="rounded-2xl bg-(--surface-soft)/60 p-3 text-xs text-(--text-muted)">
@@ -267,19 +345,31 @@ export function PushCampaignPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-(--border)">
-            <CardHeader>
-              <CardTitle className="text-base">Previous campaigns</CardTitle>
+          <Card className="border-(--border) shadow-sm">
+            <CardHeader className="flex-row items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+                <Radio className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <div>
+                <CardTitle className="text-base">Previous campaigns</CardTitle>
+                <p className="mt-0.5 text-xs text-(--text-muted)">Recent queue activity.</p>
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {historyQuery.isLoading && <Skeleton className="h-16 rounded-2xl" />}
               {!historyQuery.isLoading && (historyQuery.data?.items.length ?? 0) === 0 && (
                 <p className="text-xs text-(--text-muted)">No push campaign has been recorded yet.</p>
               )}
-              {historyQuery.data?.items.map((event) => {
+              {historyQuery.data?.items.map((event, index) => {
                 const details = (event.details ?? {}) as Record<string, unknown>
                 return (
-                  <div key={event.id} className="rounded-2xl border border-(--border) p-3 text-xs">
+                  <motion.div
+                    key={event.id}
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.24, delay: Math.min(index * 0.04, 0.16) }}
+                    className="rounded-2xl border border-(--border) bg-(--surface-soft)/40 p-3 text-xs transition-colors hover:border-(--accent)/30"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium text-(--text-primary)">
                         {typeof details.title === 'string' ? details.title : 'Campaign'}
@@ -292,12 +382,12 @@ export function PushCampaignPage() {
                       {event.actorName ?? 'unknown'} · {formatMoment(event.createdAt)} ·{' '}
                       {String(details.audience ?? 'ALL')} · {String(details.queuedRecipients ?? 0)} queued
                     </p>
-                  </div>
+                  </motion.div>
                 )
               })}
             </CardContent>
           </Card>
-        </div>
+        </motion.section>
       </div>
     </motion.div>
   )

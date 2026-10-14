@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import {
   beginFullscreenSession,
+  consumeTVFullscreenActivationRequest,
   exitTVFullscreen,
   exitTVFullscreenByViewer,
   hasViewerDismissedFullscreen,
@@ -35,6 +36,7 @@ export function useTVFullscreen(rootRef: RefObject<HTMLElement | null>): TVFulls
   const [isFullscreen, setIsFullscreen] = useState(() => isFullscreenActive())
   const [isBlocked, setIsBlocked] = useState(false)
   const releaseTimerRef = useRef<number | null>(null)
+  const gestureRetryAttemptedRef = useRef(false)
 
   // A visit to TV Mode always begins by asking again, even if the previous visit ended with the viewer
   // leaving fullscreen on purpose.
@@ -42,18 +44,25 @@ export function useTVFullscreen(rootRef: RefObject<HTMLElement | null>): TVFulls
     beginFullscreenSession()
   }, [])
 
-  useEffect(() => subscribeToFullscreenChange((active) => {
-    setIsFullscreen(active)
-    if (active) setIsBlocked(false)
-  }), [])
+  useEffect(() => subscribeToFullscreenChange(
+    (active) => {
+      setIsFullscreen(active)
+      if (active) setIsBlocked(false)
+    },
+    () => {
+      setIsFullscreen(isFullscreenActive())
+      setIsBlocked(!isFullscreenActive())
+    },
+  ), [])
 
-  // Ask once, as soon as the shell exists. The activation click has usually already taken fullscreen;
-  // when TV Mode was opened another way this is the attempt that may still be honoured.
+  // Reuse the entry click's request if it is still pending. A direct visit gets one best-effort
+  // request after the shell mounts, then waits for a real gesture if the browser rejects it.
   useEffect(() => {
+    const activationRequest = consumeTVFullscreenActivationRequest()
     if (!isSupported || isFullscreenActive()) return
 
     let cancelled = false
-    void requestTVFullscreen(rootRef.current).then((entered) => {
+    void (activationRequest ?? requestTVFullscreen(rootRef.current)).then((entered) => {
       if (cancelled) return
       setIsFullscreen(entered)
       setIsBlocked(!entered)
@@ -67,12 +76,16 @@ export function useTVFullscreen(rootRef: RefObject<HTMLElement | null>): TVFulls
   // The fallback for a browser that refused the automatic request: the next real gesture inside TV Mode
   // asks again. The key press is still handled normally — this only adds the request.
   useEffect(() => {
-    if (!isBlocked) return undefined
+    if (!isBlocked) {
+      gestureRetryAttemptedRef.current = false
+      return undefined
+    }
     const root = rootRef.current
     if (!root) return undefined
 
     const retry = () => {
-      if (hasViewerDismissedFullscreen() || isFullscreenActive()) return
+      if (gestureRetryAttemptedRef.current || hasViewerDismissedFullscreen() || isFullscreenActive()) return
+      gestureRetryAttemptedRef.current = true
       void requestTVFullscreen(root).then((entered) => {
         if (!entered) return
         setIsFullscreen(true)
@@ -116,7 +129,7 @@ export function useTVFullscreen(rootRef: RefObject<HTMLElement | null>): TVFulls
     // The click itself is the gesture, so this request is honoured where an automatic one would not be.
     void requestTVFullscreen(rootRef.current).then((entered) => {
       setIsFullscreen(entered)
-      if (entered) setIsBlocked(false)
+      setIsBlocked(!entered)
     })
   }, [isSupported, rootRef])
 

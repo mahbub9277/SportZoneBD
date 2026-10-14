@@ -3,6 +3,7 @@ import { AppError } from '../core/errors.js';
 import logger from '../core/logger.js';
 import { parseCloudinaryAssetReference } from './cloudinaryAsset.js';
 import { Readable } from 'stream';
+import { optimizeAvatarImage } from './imageOptimization.service.js'
 
 /**
  * Uploads a file buffer to Cloudinary using a stream.
@@ -74,6 +75,11 @@ export const uploadStreamToCloudinary = (
     readableStream.pipe(uploadStream); // Pipe the stream to start the upload
   });
 };
+
+export const uploadAvatarToCloudinary = async (buffer: Buffer, mimeType: string): Promise<string> => {
+  const optimizedImage = await optimizeAvatarImage(buffer, mimeType)
+  return uploadStreamToCloudinary(optimizedImage, 'sportzone/avatars')
+}
 
 /**
  * Deletes a file from Cloudinary based on its public ID.

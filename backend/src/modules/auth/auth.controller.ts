@@ -9,8 +9,8 @@ import { getUserProfile } from '../users/user.service.js';
 import { getPasswordResetTemplate, getRegistrationOtpTemplate } from '../../services/email.templates.js'
 import { sendEmail, sendPasswordResetOTPEmail, sendVerificationOTPEmail } from '../../services/email.service.js'
 import logger from '../../core/logger.js'
-import { AppError, BadRequestError, UnauthorizedError } from '../../core/errors.js'
-import { uploadStreamToCloudinary } from '../../services/upload.service.js'
+import { AppError, BadRequestError, UnauthorizedError, ValidationError } from '../../core/errors.js'
+import { uploadAvatarToCloudinary } from '../../services/upload.service.js'
 import { cleanupReplacedAsset } from '../../services/asset-cleanup.service.js'
 import { z } from 'zod';
 import { adminLoginSchema, consoleLoginSchema, forgotPasswordSchema, loginSchema, registerSchema, resendOtpSchema, resetPasswordSchema, verifyEmailSchema } from './auth.routes.js';
@@ -447,12 +447,7 @@ export async function updateProfile(req: Request, res: Response) {
       : null
 
     if (file) {
-      dataToUpdate.avatar = await uploadStreamToCloudinary(
-        file.buffer,
-        'sportzone/avatars',
-        undefined,
-        { width: 256, height: 256, crop: 'fill', gravity: 'face', quality: 'auto:good' },
-      )
+      dataToUpdate.avatar = await uploadAvatarToCloudinary(file.buffer, file.mimetype)
     }
 
     const updatedUser = await prisma.user.update({ where: { id: userId }, data: dataToUpdate })
@@ -464,6 +459,9 @@ export async function updateProfile(req: Request, res: Response) {
     const userProfile = await getUserProfile(updatedUser.id);
     return res.status(200).json(successResponse({ user: userProfile }, 'Profile updated successfully'));
   } catch (error) {
+    if (error instanceof ValidationError) {
+      throw error
+    }
     logger.error({ error }, 'Failed to update profile');
     throw new AppError(500, 'Failed to update profile.');
   }

@@ -11,6 +11,29 @@
 export const FINISHED_MATCH_MIN_RETENTION_MINUTES = 30
 
 /**
+ * Keeps a previously finished fixture's persisted finish moment. Legacy rows without one fall back to
+ * their existing updatedAt (the cleanup policy's established fallback) rather than being made "new"
+ * when a provider sync first sees them after a restart.
+ */
+export function resolveFinishedMatchTimestamp(
+  nextStatus: string,
+  previousStatus: string,
+  previousFinishedAt: Date | null,
+  previousUpdatedAt: Date,
+  transitionedAt: Date,
+): Date | null {
+  if (nextStatus !== 'FINISHED') return null
+
+  if (previousFinishedAt && Number.isFinite(previousFinishedAt.getTime())) {
+    return previousFinishedAt
+  }
+  if (previousStatus === 'FINISHED') {
+    return Number.isFinite(previousUpdatedAt.getTime()) ? previousUpdatedAt : null
+  }
+  return transitionedAt
+}
+
+/**
  * Resolves the retention window. FINISHED_MATCH_RETENTION_MINUTES can extend the grace period for
  * staging or longer archiving, but it can never shorten it below the 30 minute product rule.
  */

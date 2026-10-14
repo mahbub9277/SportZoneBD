@@ -17,7 +17,7 @@ import {
   type TVChannel,
 } from './tvChannels'
 import { readLastTVChannelId, writeLastTVChannelId } from './tvStorage'
-import { useTVFocus } from './useTVFocus'
+import { useTVFocus, type TVZone } from './useTVFocus'
 import { useAutoTune } from './useAutoTune'
 import { useTVFullscreen } from './useTVFullscreen'
 import { exitTVFullscreen } from './tvFullscreen'
@@ -95,6 +95,29 @@ function TVModeExperience() {
   const transportRef = useRef<TVTransport | null>(null)
   const initialisedRef = useRef(false)
   const orientationRequestedRef = useRef(false)
+  const overlayReturnFocusRef = useRef<{ zone: TVZone; key: string | null } | null>(null)
+  const captureOverlayReturnFocus = useCallback(
+    (fallback: { zone: TVZone; key: string | null }): { zone: TVZone; key: string | null } => {
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || !shellRef.current?.contains(active)) return fallback
+
+      const zone = active.closest<HTMLElement>('[data-tv-zone]')?.dataset.tvZone
+      const key = active.getAttribute('data-tv-key')
+      switch (zone) {
+        case 'toolbar':
+          return { zone: 'toolbar', key }
+        case 'categories':
+          return { zone: 'categories', key }
+        case 'channels':
+          return { zone: 'channels', key }
+        case 'player':
+          return { zone: 'player', key }
+        default:
+          return fallback
+      }
+    },
+    [],
+  )
 
   /** Fullscreen is real state, never an assumption: the browser confirms it through `fullscreenchange`. */
   const fullscreen = useTVFullscreen(shellRef)
@@ -329,9 +352,15 @@ function TVModeExperience() {
    */
   const handleDigitKey = useCallback((digit: string) => {
     if (isAutoTuneOpen) return
+    if (!isKeypadOpen) {
+      overlayReturnFocusRef.current = captureOverlayReturnFocus({
+        zone: isImmersive ? 'player' : 'channels',
+        key: isImmersive ? 'stage' : selectedChannelId ? `channel:${selectedChannelId}` : null,
+      })
+    }
     setKeypadOpen(true)
     setDigitRequest((previous) => ({ value: digit, seq: (previous?.seq ?? 0) + 1 }))
-  }, [isAutoTuneOpen])
+  }, [captureOverlayReturnFocus, isAutoTuneOpen, isImmersive, isKeypadOpen, selectedChannelId])
 
   /**
    * The pad reports every digit it applied, and the page then forgets it. A closed pad is unmounted, so
@@ -404,6 +433,12 @@ function TVModeExperience() {
    */
   useEffect(() => {
     if (isOverlayOpen) return
+    const returnFocus = overlayReturnFocusRef.current
+    overlayReturnFocusRef.current = null
+    if (returnFocus) {
+      focusZone(returnFocus.zone, returnFocus.key)
+      return
+    }
     if (isImmersive) {
       const active = document.activeElement
       if (active instanceof HTMLElement && active.closest('[data-tv-zone="player"]')) return
@@ -443,6 +478,7 @@ function TVModeExperience() {
     // The two overlays are mutually exclusive: whichever the viewer opens takes the stage, so neither
     // can end up typing into the other.
     setAutoTuneOpen(false)
+    overlayReturnFocusRef.current = { zone: 'player', key: 'keypad' }
     setKeypadOpen((open) => !open)
   }, [])
 
@@ -450,12 +486,14 @@ function TVModeExperience() {
 
   /** A tuned number goes through the same selection path as a channel card, so access rules are unchanged. */
   const tuneFromKeypad = useCallback((channel: TVChannel) => {
+    overlayReturnFocusRef.current = null
     setKeypadOpen(false)
     selectChannel(channel)
   }, [selectChannel])
 
   /** Auto Tune is the same deal in the other direction: it takes focus, and the keypad steps aside. */
   const openAutoTune = useCallback(() => {
+    overlayReturnFocusRef.current = { zone: 'categories', key: 'auto-tune' }
     setKeypadOpen(false)
     setAutoTuneOpen(true)
     autoTune.start()
@@ -463,6 +501,7 @@ function TVModeExperience() {
 
   const closeAutoTune = useCallback(() => {
     autoTune.cancel()
+    overlayReturnFocusRef.current = { zone: 'categories', key: 'auto-tune' }
     setAutoTuneOpen(false)
   }, [autoTune])
 
@@ -471,6 +510,7 @@ function TVModeExperience() {
 
   /** The viewer accepts the result: tune, close, and let the existing channel popup confirm it. */
   const acceptAutoTune = useCallback(() => {
+    overlayReturnFocusRef.current = null
     setAutoTuneOpen(false)
     autoTune.accept()
   }, [autoTune])

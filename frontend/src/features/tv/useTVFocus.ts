@@ -84,6 +84,24 @@ function currentZoneItem(root: HTMLElement): { zone: TVZone | null; element: HTM
   return { zone: zone ?? null, element: active }
 }
 
+function revealInTVScrollContainer(item: HTMLElement): void {
+  const container = item.closest<HTMLElement>('[data-tv-scroll-container]')
+  if (!container) return
+
+  const itemRect = item.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  const top = containerRect.top + container.clientTop
+  const left = containerRect.left + container.clientLeft
+  const bottom = top + container.clientHeight
+  const right = left + container.clientWidth
+
+  if (itemRect.top < top) container.scrollTop -= top - itemRect.top
+  else if (itemRect.bottom > bottom) container.scrollTop += itemRect.bottom - bottom
+
+  if (itemRect.left < left) container.scrollLeft -= left - itemRect.left
+  else if (itemRect.right > right) container.scrollLeft += itemRect.right - right
+}
+
 export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseTVFocusOptions): TVFocusApi {
   const { onBack, onChannelStep, onTogglePlayback, onDigitKey, preferredKey, listVersion = '', suspendAutoFocus = false } = options
   const lastKeyRef = useRef<string | null>(null)
@@ -93,7 +111,7 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
     item.focus({ preventScroll: true })
     // Instant scrolling: smooth scrolling over a long channel list is exactly the kind of continuous
     // animation a weak TV GPU drops frames on.
-    item.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    revealInTVScrollContainer(item)
     lastKeyRef.current = item.getAttribute('data-tv-key')
     return true
   }, [])
@@ -143,6 +161,31 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
       if (event.repeat) return
     }
 
+    const onPlayerSurface = zone === 'player' && document.activeElement?.getAttribute('data-tv-key') === 'stage'
+    if (action === 'activate') {
+      if (event.repeat) {
+        event.preventDefault()
+        return
+      }
+
+      if (onPlayerSurface) {
+        event.preventDefault()
+        onTogglePlayback()
+        return
+      }
+
+      if (isEditable(target)) return
+
+      const nativeActivation = event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar'
+      if (!nativeActivation) {
+        event.preventDefault()
+        event.stopPropagation()
+        const active = document.activeElement
+        if (active instanceof HTMLElement && active !== root) active.click()
+      }
+      return
+    }
+
     switch (action) {
       case 'playPause':
         onTogglePlayback()
@@ -156,8 +199,8 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
       }
       case 'back':
         if (isEditable(target)) {
-          // Backspace inside text entry stays a delete; Escape is the key that leaves the field.
-          if (event.key !== 'Escape') return
+          // Backspace inside text entry stays a delete; other Back keys leave the field first.
+          if (event.key === 'Backspace') return
           event.preventDefault()
           target?.blur()
           focusZone('toolbar')
@@ -194,13 +237,6 @@ export function useTVFocus(rootRef: RefObject<HTMLElement | null>, options: UseT
 
     // The player surface itself is a focus stop: OK/Enter on it is play/pause, and the arrows zap
     // channels, which is what a viewer expects with nothing but the video on screen.
-    const onPlayerSurface = zone === 'player' && document.activeElement?.getAttribute('data-tv-key') === 'stage'
-    if (onPlayerSurface && action === 'activate') {
-      event.preventDefault()
-      onTogglePlayback()
-      return
-    }
-
     switch (action) {
       case 'down': {
         event.preventDefault()

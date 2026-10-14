@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildMatchListWhere, RECENT_MATCH_ADDED_WINDOW_HOURS, RECENT_MATCH_WINDOW_DAYS } from './matchListQuery.js'
+import {
+  buildMatchListWhere,
+  LIVE_SECTION_FINISHED_GRACE_MINUTES,
+  RECENT_MATCH_ADDED_WINDOW_HOURS,
+  RECENT_MATCH_WINDOW_DAYS,
+} from './matchListQuery.js'
 
 const NOW = new Date('2026-10-08T12:00:00.000Z')
 const iso = (offsetMs: number) => new Date(NOW.getTime() + offsetMs).toISOString()
@@ -77,6 +82,50 @@ test('live and upcoming tabs keep their own unchanged filters', () => {
     status: 'UPCOMING',
     kickoffAt: { gte: iso(0), lte: iso(24 * HOUR) },
   })
+})
+
+test('the Live section may include just-finished matches without rewriting their actual status', () => {
+  const where = buildMatchListWhere({ status: 'LIVE', liveSection: true }, NOW)
+
+  assert.deepEqual(normalize(where.AND), [
+    { status: { notIn: ['PENDING', 'REJECTED'] } },
+    {
+      OR: [
+        { status: 'LIVE' },
+        {
+          status: 'FINISHED',
+          finishedAt: {
+            gt: iso(-LIVE_SECTION_FINISHED_GRACE_MINUTES * 60 * 1000),
+            lte: iso(0),
+          },
+        },
+      ],
+    },
+  ])
+  assert.equal(where.status, undefined)
+})
+
+test('homepage active-only Live section retains just-finished matches while preserving upcoming fixtures', () => {
+  const where = buildMatchListWhere({ activeOnly: true, liveSection: true }, NOW)
+
+  assert.deepEqual(normalize(where.AND), [
+    { status: { notIn: ['PENDING', 'REJECTED'] } },
+    {
+      OR: [
+        { status: 'LIVE' },
+        { status: 'UPCOMING', kickoffAt: { gte: iso(0), lte: iso(24 * HOUR) } },
+        {
+          status: 'FINISHED',
+          finishedAt: {
+            gt: iso(-LIVE_SECTION_FINISHED_GRACE_MINUTES * 60 * 1000),
+            lte: iso(0),
+          },
+        },
+      ],
+    },
+  ])
+  assert.equal(where.OR, undefined)
+  assert.equal(where.status, undefined)
 })
 
 test('the all tab and activeOnly keep their own unchanged filters', () => {

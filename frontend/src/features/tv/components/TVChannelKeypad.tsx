@@ -1,5 +1,6 @@
 import { Delete, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { actionFromRemote, digitFromRemote } from '../remoteKeys'
 import { appendChannelDigit, formatChannelNumber, type TVChannel } from '../tvChannels'
 
 interface TVChannelKeypadProps {
@@ -100,58 +101,64 @@ export function TVChannelKeypad({ resolveChannelNumber, onTune, onClose, digitRe
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     const active = document.activeElement
+    const action = actionFromRemote({ key: event.key, code: event.code })
     // -1 means focus is on the close button, which is outside the grid: any arrow returns to it.
     const index = keyRefs.current.findIndex((key) => key === active)
     const column = index % COLUMNS
     const row = Math.floor(index / COLUMNS)
+    const digit = digitFromRemote({ key: event.key, code: event.code })
 
-    switch (event.key) {
-      case 'Enter':
-        // OK/Enter tunes. Without this the browser's own button activation wins and "presses" whichever
-        // key has focus — so Enter on a digit appended it instead of submitting the number.
-        event.preventDefault()
-        tune()
-        break
-      case 'Escape':
-        event.preventDefault()
+    if (action === 'back') {
+      event.preventDefault()
+      if (event.key === 'Backspace') backspace()
+      else {
         onClose()
-        break
-      case 'Backspace':
-        event.preventDefault()
-        backspace()
-        break
-      case 'ArrowLeft':
-        event.preventDefault()
-        if (index === -1) focusKey(0)
-        else if (index > 0 && column > 0) focusKey(index - 1)
-        break
-      case 'ArrowRight':
-        event.preventDefault()
-        if (index === -1) focusKey(0)
-        else if (index >= 0 && column < COLUMNS - 1) focusKey(index + 1)
-        break
-      case 'ArrowUp':
-        event.preventDefault()
-        if (index === -1) focusKey(0)
-        else if (index >= 0 && row > 0) focusKey(index - COLUMNS)
-        break
-      case 'ArrowDown':
-        event.preventDefault()
-        if (index === -1) focusKey(0)
-        else if (index >= 0 && row < KEY_ORDER.length / COLUMNS - 1) focusKey(index + COLUMNS)
-        break
-      default:
-        if (/^[0-9]$/.test(event.key)) {
+      }
+    } else if (action === 'activate' && event.repeat) {
+      event.preventDefault()
+    } else if (
+      action === 'activate'
+      && event.key !== 'Enter'
+      && event.key !== ' '
+      && event.key !== 'Spacebar'
+    ) {
+      event.preventDefault()
+      if (active instanceof HTMLElement && event.currentTarget.contains(active)) active.click()
+    } else {
+      switch (action) {
+        case 'left':
           event.preventDefault()
-          appendDigit(event.key)
-        }
-        break
+          if (index === -1) focusKey(0)
+          else if (index > 0 && column > 0) focusKey(index - 1)
+          break
+        case 'right':
+          event.preventDefault()
+          if (index === -1) focusKey(0)
+          else if (index >= 0 && column < COLUMNS - 1) focusKey(index + 1)
+          break
+        case 'up':
+          event.preventDefault()
+          if (index === -1) focusKey(0)
+          else if (index >= 0 && row > 0) focusKey(index - COLUMNS)
+          break
+        case 'down':
+          event.preventDefault()
+          if (index === -1) focusKey(0)
+          else if (index >= 0 && row < KEY_ORDER.length / COLUMNS - 1) focusKey(index + COLUMNS)
+          break
+        default:
+          if (digit) {
+            event.preventDefault()
+            appendDigit(digit)
+          }
+          break
+      }
     }
 
     // Nothing typed into the keypad may reach the shell, so no key can also zap a channel or toggle the
     // player while the viewer is entering a number.
     event.stopPropagation()
-  }, [appendDigit, backspace, focusKey, onClose, tune])
+  }, [appendDigit, backspace, focusKey, onClose])
 
   return (
     <div

@@ -15,7 +15,7 @@ const socialLinks = [
     icon: FaFacebookF,
   },
   {
-    href: 'https://instagram.com',
+    href: 'https://instagram.com/sportzone.bd',
     label: 'Instagram',
     icon: FaInstagram,
   },

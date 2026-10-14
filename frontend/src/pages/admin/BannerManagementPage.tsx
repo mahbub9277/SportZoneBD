@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useMediaUploadProgress } from '@/hooks/useMediaUploadProgress'
 import { UploadProgress } from '@/components/ui/UploadProgress'
 import { useCreateBannerMutation, useDeleteBannerMutation, useGetAdminBannersQuery, useReorderBannersMutation, useUpdateBannerMutation, type Banner } from '@/features/admin/banners.api'
+import { isSupportedImageMimeType } from '@/utils/prepareUploadImage'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024
@@ -157,11 +158,15 @@ export function BannerManagementPage() {
 
   const selectMedia = async (file: File, kind: 'media' | 'poster') => {
     const isVideo = file.type.startsWith('video/')
-    if (kind === 'media' && ((form.type === 'IMAGE' && !file.type.startsWith('image/')) || (form.type === 'VIDEO' && !isVideo))) {
-      toast.error(`Choose a ${form.type === 'IMAGE' ? 'JPG, PNG, or WebP image' : 'MP4, WebM, or MOV video'}.`)
+    if (kind === 'media' && form.type === 'IMAGE' && !isSupportedImageMimeType(file.type)) {
+      toast.error('Choose a JPG, PNG, or WebP image.')
       return
     }
-    if (kind === 'poster' && !file.type.startsWith('image/')) { toast.error('Poster must be an image.'); return }
+    if (kind === 'media' && form.type === 'VIDEO' && !isVideo) {
+      toast.error('Choose an MP4, WebM, or MOV video.')
+      return
+    }
+    if (kind === 'poster' && !isSupportedImageMimeType(file.type)) { toast.error('Poster must be a JPG, PNG, or WebP image.'); return }
     const limit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE
     if (file.size > limit) { toast.error(`This file is too large. Maximum is ${isVideo ? '100 MB' : '10 MB'}.`); return }
     if (kind === 'media' && form.type === 'IMAGE') {

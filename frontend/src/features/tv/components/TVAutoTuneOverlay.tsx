@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, type KeyboardEvent } from 'react'
 import { cn } from '../../../lib/utils'
+import { actionFromRemote } from '../remoteKeys'
 import { formatChannelNumber, type TVChannel } from '../tvChannels'
 import type { AutoTuneStatus } from '../useAutoTune'
 
@@ -77,34 +78,54 @@ export function TVAutoTuneOverlay({
     const active = document.activeElement
     const index = actionRefs.current.findIndex((action) => action === active)
     const lastIndex = actions.length - 1
+    const action = actionFromRemote({ key: event.key, code: event.code })
 
-    switch (event.key) {
-      case 'Escape':
-        event.preventDefault()
-        // Escape follows the state: it stops the scan, and closes the overlay once there is nothing left
-        // to stop.
-        if (isScanning) onCancel()
-        else onClose()
-        break
-      case 'ArrowRight':
-      case 'ArrowDown':
+    if (action === 'back') {
+      event.preventDefault()
+      if (isScanning) onCancel()
+      else onClose()
+      event.stopPropagation()
+      return
+    }
+
+    if (action === 'activate' && event.repeat) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
+    if (
+      action === 'activate'
+      && event.key !== 'Enter'
+      && event.key !== ' '
+      && event.key !== 'Spacebar'
+    ) {
+      event.preventDefault()
+      if (index >= 0) actionRefs.current[index]?.click()
+      event.stopPropagation()
+      return
+    }
+
+    switch (action) {
+      case 'right':
+      case 'down':
         event.preventDefault()
         if (lastIndex > 0) focusAction(index < 0 ? 0 : Math.min(lastIndex, index + 1))
         break
-      case 'ArrowLeft':
-      case 'ArrowUp':
+      case 'left':
+      case 'up':
         event.preventDefault()
         if (lastIndex > 0) focusAction(index < 0 ? 0 : Math.max(0, index - 1))
         break
-      case 'Tab':
-        // Focus never leaves the overlay while it is open.
-        event.preventDefault()
-        if (lastIndex > 0) {
-          const step = event.shiftKey ? -1 : 1
-          focusAction(index < 0 ? 0 : (index + step + actions.length) % actions.length)
-        }
-        break
       default:
+        if (event.key === 'Tab') {
+          // Focus never leaves the overlay while it is open.
+          event.preventDefault()
+          if (lastIndex > 0) {
+            const step = event.shiftKey ? -1 : 1
+            focusAction(index < 0 ? 0 : (index + step + actions.length) % actions.length)
+          }
+        }
         break
     }
 

@@ -11,6 +11,7 @@ interface GetMatchesParams {
   premium?: boolean
   activeOnly?: boolean
   recentOnly?: boolean
+  liveSection?: boolean
   sort?: string
 }
 

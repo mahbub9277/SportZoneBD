@@ -4,6 +4,7 @@ import {
   FINISHED_MATCH_MIN_RETENTION_MINUTES,
   isFinishedMatchExpired,
   resolveFinishedMatchCleanupCutoff,
+  resolveFinishedMatchTimestamp,
   resolveFinishedMatchRetentionMinutes,
 } from './finishedMatchRetention.js'
 
@@ -70,6 +71,35 @@ test('falls back to updatedAt when no finish moment was recorded', () => {
 
   assert.equal(isFinishedMatchExpired(finishedMatch(null, new Date('2026-01-01T20:01:00.000Z')), cutoff), false)
   assert.equal(isFinishedMatchExpired(finishedMatch(null, new Date('2026-01-01T19:59:00.000Z')), cutoff), true)
+})
+
+test('provider refreshes preserve a persisted finish time and legacy finished rows do not restart retention', () => {
+  const finishedAt = new Date('2026-01-01T20:00:00.000Z')
+  const updatedAt = new Date('2026-01-01T20:10:00.000Z')
+  const refreshedAt = new Date('2026-01-01T21:00:00.000Z')
+
+  assert.equal(
+    resolveFinishedMatchTimestamp('FINISHED', 'FINISHED', finishedAt, updatedAt, refreshedAt),
+    finishedAt,
+  )
+  assert.equal(
+    resolveFinishedMatchTimestamp('FINISHED', 'FINISHED', null, updatedAt, refreshedAt),
+    updatedAt,
+  )
+})
+
+test('a genuine transition to FINISHED records the transition time; leaving FINISHED clears it', () => {
+  const now = new Date('2026-01-01T20:00:00.000Z')
+
+  assert.equal(resolveFinishedMatchTimestamp('FINISHED', 'LIVE', null, now, now), now)
+  assert.equal(resolveFinishedMatchTimestamp('UPCOMING', 'FINISHED', now, now, now), null)
+})
+
+test('an invalid legacy timestamp does not reset a finished match as newly finished', () => {
+  const invalidDate = new Date(Number.NaN)
+  const now = new Date('2026-01-01T20:00:00.000Z')
+
+  assert.equal(resolveFinishedMatchTimestamp('FINISHED', 'FINISHED', invalidDate, invalidDate, now), null)
 })
 
 test('supports a longer retention window end to end', () => {

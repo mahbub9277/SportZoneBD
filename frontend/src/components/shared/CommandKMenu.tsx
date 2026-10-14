@@ -10,6 +10,7 @@ import { useGetMatchesQuery } from '../../features/matches/matches.api'
 import type { Match } from '../../features/matches/matches.types'
 import { useGetPublicChannelsQuery } from '../../features/admin/channels.api'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { selectTeamLogo, teamInitials } from '../../utils/teamLogo'
 import type { Channel, ChannelCategory } from '@/shared/types'
 
 interface CommandKMenuProps {
@@ -20,6 +21,53 @@ interface CommandKMenuProps {
 type SearchResult =
   | { type: 'match'; data: Match }
   | { type: 'channel'; data: Channel }
+
+const TEAM_LOGO_TRANSFORM = { width: 48, height: 48, crop: 'fit' as const, quality: 'auto' as const, format: 'auto' as const }
+
+function MatchSearchCrests({ match }: { match: Match }) {
+  const [failedLogos, setFailedLogos] = useState<Record<'home' | 'away', boolean>>({ home: false, away: false })
+  const teams = [
+    {
+      side: 'home' as const,
+      name: match.homeTeamName ?? match.homeTeam?.name ?? '',
+      logo: selectTeamLogo([match.homeTeam?.logoUrl, match.homeTeamLogo], TEAM_LOGO_TRANSFORM).url,
+    },
+    {
+      side: 'away' as const,
+      name: match.awayTeamName ?? match.awayTeam?.name ?? '',
+      logo: selectTeamLogo([match.awayTeam?.logoUrl, match.awayTeamLogo], TEAM_LOGO_TRANSFORM).url,
+    },
+  ].filter((team) => Boolean(team.name.trim() || team.logo))
+
+  if (teams.length === 0) {
+    return (
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-(--surface-soft)" aria-hidden="true">
+        <Swords className="h-4 w-4 text-(--text-muted)" />
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex shrink-0 items-center -space-x-2" aria-hidden="true">
+      {teams.map(({ side, name, logo }) => (
+        <span key={side} className="grid h-7 w-7 place-items-center overflow-hidden rounded-full border border-(--border) bg-(--surface-soft) text-[9px] font-bold text-(--text-muted) ring-2 ring-(--surface)">
+          {logo && !failedLogos[side] ? (
+            <img
+              src={logo}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-contain p-0.5"
+              onError={() => setFailedLogos((current) => ({ ...current, [side]: true }))}
+            />
+          ) : (
+            teamInitials(name, { fallback: side === 'home' ? 'H' : 'A' })
+          )}
+        </span>
+      ))}
+    </span>
+  )
+}
 
 export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
   const [query, setQuery] = useState('')
@@ -135,11 +183,9 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
           isActive ? 'bg-(--surface-soft)' : 'hover:bg-white/3'
         }`}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           {result.type === 'match' ? (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-(--surface-soft)">
-              <Swords className="h-4 w-4 text-(--text-muted)" />
-            </div>
+            <MatchSearchCrests match={result.data} />
           ) : (
             <img
               src={buildCloudinaryUrl(result.data.logo, { width: 24, height: 24 })}
@@ -147,7 +193,12 @@ export function CommandKMenu({ isOpen, onClose }: CommandKMenuProps) {
               className="h-8 w-8 rounded-full object-cover"
             />
           )}
-          <span className="truncate font-medium text-(--text-primary)">{name}</span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-(--text-primary)">{name}</span>
+            {result.type === 'match' && result.data.tournamentName && (
+              <span className="block truncate text-xs text-(--text-muted)">{result.data.tournamentName}</span>
+            )}
+          </span>
         </div>
         <CornerDownLeft className="h-4 w-4 shrink-0 text-(--text-muted)" />
       </div>

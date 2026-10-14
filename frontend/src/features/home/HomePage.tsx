@@ -12,10 +12,11 @@ import type { Match } from '../matches/matches.types'
 import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
-import { filterMatches, getMatchStatus, sortMatches } from '../matches/matchOrdering'
+import { filterMatches, getMatchStatus, selectLiveSectionMatches, sortMatches } from '../matches/matchOrdering'
 import { formatMatchKickoff, getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
 import { selectTeamLogo, teamInitials } from '../../utils/teamLogo'
+import { useMatchSectionClock } from '../../hooks/useMatchSectionClock'
 
 const HOMEPAGE_MATCH_LIMIT = 24
 
@@ -41,41 +42,47 @@ export function HomePage() {
     limit: HOMEPAGE_MATCH_LIMIT,
     sort: 'date-asc',
     activeOnly: true,
+    liveSection: true,
   })
   const { data: banners = [] } = useGetActiveBannersQuery()
   const [activeBannerIndex, setActiveBannerIndex] = useState(0)
   const matches = useMemo(() => matchesData?.items ?? [], [matchesData?.items])
+  const now = useMatchSectionClock(matches)
 
-  const { liveMatches, upcomingMatches, allMatches } = useMemo(() => {
+  const { liveMatches, upcomingMatches, allMatches, activeMatchCount } = useMemo(() => {
     const sortedMatches = sortMatches(matches)
-    const live = filterMatches(sortedMatches, 'LIVE')
-    const now = new Date()
-    const nowTime = now.getTime()
-    const windowEnd = getMatchCalendarWindowEnd(now, 2)
-    const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : nowTime
+    const activeMatches = sortedMatches.filter((match) => {
+      const status = getMatchStatus(match)
+      return status === 'LIVE' || status === 'UPCOMING'
+    })
+    const live = selectLiveSectionMatches(sortedMatches, now)
+    const nowDate = new Date(now)
+    const windowEnd = getMatchCalendarWindowEnd(nowDate, 2)
+    const windowEndTime = windowEnd ? new Date(windowEnd).getTime() : now
     const upcoming = filterMatches(sortedMatches, 'UPCOMING').filter((match) => {
       const kickoffAt = new Date(match.kickoffAt).getTime()
-      return Number.isFinite(kickoffAt) && kickoffAt >= nowTime && kickoffAt < windowEndTime
+      return Number.isFinite(kickoffAt) && kickoffAt >= now && kickoffAt < windowEndTime
     })
 
     return {
       liveMatches: live.slice(0, 8),
       upcomingMatches: upcoming.slice(0, 8),
-      allMatches: sortedMatches.slice(0, HOMEPAGE_MATCH_LIMIT),
+      allMatches: activeMatches.slice(0, HOMEPAGE_MATCH_LIMIT),
+      activeMatchCount: activeMatches.length,
     }
-  }, [matches])
+  }, [matches, now])
 
   const stats = useMemo(() => {
-    const liveCount = liveMatches.length
+    const liveCount = liveMatches.filter((match) => getMatchStatus(match) === 'LIVE').length
     const upcomingCount = upcomingMatches.length
-    const syncedCount = matches.length
+    const syncedCount = activeMatchCount
 
     return [
       { label: 'Live now', value: liveCount, icon: Radio },
       { label: 'Upcoming', value: upcomingCount, icon: CalendarClock },
       { label: 'Total matches', value: syncedCount, icon: CalendarClock },
     ]
-  }, [matches.length, liveMatches.length, upcomingMatches.length])
+  }, [activeMatchCount, liveMatches, upcomingMatches.length])
 
   if (isLoading) {
     return (
@@ -88,7 +95,7 @@ export function HomePage() {
 
   return (
     <div className="home-page-shell mx-auto w-full max-w-[1920px] space-y-10 px-3 sm:space-y-12 sm:px-4 lg:px-6">
-      {banners.length > 0 ? <BannerHero banners={banners} activeIndex={activeBannerIndex} setActiveIndex={setActiveBannerIndex} /> : <HeroSection featuredMatch={liveMatches[0] ?? upcomingMatches[0]} />}
+      {banners.length > 0 ? <BannerHero banners={banners} activeIndex={activeBannerIndex} setActiveIndex={setActiveBannerIndex} /> : <HeroSection featuredMatch={liveMatches.find((match) => getMatchStatus(match) === 'LIVE') ?? upcomingMatches[0]} />}
       <StatsSection stats={stats} />
       <FixturesSection
         liveMatches={liveMatches}
