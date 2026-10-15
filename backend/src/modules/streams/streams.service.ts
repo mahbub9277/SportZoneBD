@@ -4,6 +4,7 @@ import { getPaginatedData, type PaginatedQuery, type PaginatedResult } from '../
 import { invalidateTags } from '../../core/cache.js'
 import { writeAuditLog } from '../../core/audit.js'
 import { cleanupAssetIfUnused, cleanupReplacedAsset } from '../../services/asset-cleanup.service.js'
+import { buildStreamUpdateData } from './streamUpdate.js'
 
 export const listStreams = async (query: PaginatedQuery) => {
   const { items, meta } = await getPaginatedData({
@@ -89,32 +90,23 @@ export const updateStream = async (
     if (!match) throw new Error('Match not found')
   }
 
-  const normalizedSourceType = payload.sourceType === 'CHANNEL' ? 'CHANNEL' : 'DIRECT_URL'
-  const channelId = normalizedSourceType === 'CHANNEL' && payload.channelId ? payload.channelId : null
-
-  let primaryUrl = typeof payload.primaryUrl === 'string' ? payload.primaryUrl.trim() : undefined
-  if (normalizedSourceType === 'CHANNEL' && channelId) {
-    const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { url: true } })
-    if (channel?.url) {
-      primaryUrl = channel.url.trim()
-    }
-  }
-
-  const existingStream = await prisma.stream.findFirst({ where: { id, deletedAt: null }, select: { id: true, logo: true } })
+  const existingStream = await prisma.stream.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, logo: true, sourceType: true, channelId: true, primaryUrl: true, backupUrl: true, activationMode: true },
+  })
   if (!existingStream) return null
+
+  // The channel is only read when this request names a channel to link the stream to, so an ordinary edit
+  // never pays for the extra query — playback resolves the linked channel's current URL anyway.
+  const requestedChannelId = typeof payload.channelId === 'string' && payload.channelId ? payload.channelId : null
+  const effectiveSourceType = payload.sourceType ?? (existingStream.sourceType === 'CHANNEL' ? 'CHANNEL' : 'DIRECT_URL')
+  const linkedChannelUrl = requestedChannelId && effectiveSourceType === 'CHANNEL'
+    ? (await prisma.channel.findUnique({ where: { id: requestedChannelId }, select: { url: true } }))?.url?.trim() || null
+    : null
 
   const stream = await prisma.stream.update({
     where: { id: existingStream.id },
-    data: {
-      ...payload,
-      sourceType: normalizedSourceType as 'DIRECT_URL' | 'CHANNEL',
-      channelId,
-      primaryUrl: primaryUrl ?? payload.primaryUrl ?? undefined,
-      backupUrl: payload.backupUrl?.trim() || null,
-      activationMode: (payload.activationMode === 'MANUAL' ? 'MANUAL' : 'AUTOMATIC') as 'AUTOMATIC' | 'MANUAL',
-      activationOffsetMinutes: payload.activationOffsetMinutes ?? undefined,
-      status: payload.status ?? undefined,
-    },
+    data: buildStreamUpdateData(existingStream, payload, linkedChannelUrl),
   })
   await writeAuditLog('Stream updated', { streamId: stream.id, matchId: stream.matchId, name: stream.name })
   await invalidateTags(['matches', 'streams'])

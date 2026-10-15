@@ -56,6 +56,21 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+/**
+ * A failure that belongs to the upstream source rather than to this service: the provider refused,
+ * could not be reached, or the production HTTPS-only policy rejected it.
+ *
+ * It is deliberately not a 500, so a source problem is never answered or logged as an internal server
+ * error. The specific reason travels in `details` (which production never returns) so the upstream URL
+ * is available while diagnosing without ever reaching a client.
+ */
+export class BadGatewayError extends AppError {
+  constructor(message = 'The upstream source could not be served', details?: unknown) {
+    super(502, message, details)
+    this.name = 'BadGatewayError'
+  }
+}
+
 export class PremiumRequiredError extends ForbiddenError {
   isPremiumLocked: boolean
 

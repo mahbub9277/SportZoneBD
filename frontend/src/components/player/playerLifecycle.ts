@@ -198,6 +198,16 @@ export function playbackExhaustedMessage(): string {
   return 'Every available source for this stream failed. Please try again.'
 }
 
+/**
+ * Copy for a source the browser refuses outright: an `http:` link cannot be fetched by an `https:` page.
+ *
+ * Unlike the other messages this one does not invite a retry, because nothing on this side — player,
+ * retry, or fallback — can change the outcome: the provider has to offer an HTTPS link.
+ */
+export function insecureSourceMessage(): string {
+  return 'This stream link is HTTP-only, so browsers block it on an HTTPS page. The provider must supply an HTTPS link.'
+}
+
 // ---------------------------------------------------------------- error classification
 
 export interface PlaybackFailure {

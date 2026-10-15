@@ -11,6 +11,7 @@ import { ImagePlus, Loader2, X } from 'lucide-react'
 import { UploadProgress } from '../../../components/ui/UploadProgress'
 import type { MediaUploadProgressUpdate } from '../../../utils/uploadProgress'
 import { QualityPresetSelect } from './QualityPresetSelect'
+import { insecureSourceAdminWarning } from '../../../utils/streamPlaybackUrl'
 import {
   STREAM_SOURCE_TYPE_OPTIONS,
   STREAM_STATUS_OPTIONS,
@@ -55,6 +56,9 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
   const sourceType = form.watch('sourceType')
   const selectedMatch = matches.find((match) => match.id === form.watch('matchId'))
   const selectedChannel = channels.find((channel) => channel.id === form.watch('channelId'))
+  // The proxy refuses non-HTTPS upstreams in production, so an http source cannot play either way.
+  const primaryUrlWarning = insecureSourceAdminWarning(form.watch('primaryUrl'))
+  const backupUrlWarning = insecureSourceAdminWarning(form.watch('backupUrl'))
   const [channelSearch, setChannelSearch] = useState('')
   const selectableChannels = channels.filter((channel) => channel.name.toLowerCase().includes(channelSearch.trim().toLowerCase()))
 
@@ -85,10 +89,10 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
           </FormItem>
         )} />
         <FormField control={form.control} name="primaryUrl" render={({ field }) => (
-          <FormItem className="md:col-span-2"><FormLabel>Primary URL</FormLabel><FormControl><Input {...field} placeholder="https://..." required /></FormControl><FormMessage /></FormItem>
+          <FormItem className="md:col-span-2"><FormLabel>Primary URL</FormLabel><FormControl><Input {...field} placeholder="https://..." required /></FormControl>{primaryUrlWarning && <p className="text-xs text-amber-400">{primaryUrlWarning}</p>}<FormMessage /></FormItem>
         )} />
         <FormField control={form.control} name="backupUrl" render={({ field }) => (
-          <FormItem className="md:col-span-2"><FormLabel>Backup URL (Optional)</FormLabel><FormControl><Input {...field} value={field.value ?? ''} placeholder="https://..." /></FormControl><FormMessage /></FormItem>
+          <FormItem className="md:col-span-2"><FormLabel>Backup URL (Optional)</FormLabel><FormControl><Input {...field} value={field.value ?? ''} placeholder="https://..." /></FormControl>{backupUrlWarning && <p className="text-xs text-amber-400">{backupUrlWarning}</p>}<FormMessage /></FormItem>
         )} />
         <FormField control={form.control} name="matchId" render={({ field }) => (
           <FormItem><FormLabel>Associated Match</FormLabel>

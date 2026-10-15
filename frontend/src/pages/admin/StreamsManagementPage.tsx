@@ -16,6 +16,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
 import { useGetAdminChannelsQuery, useUpdateChannelMutation } from '../../features/admin/channels.api'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
+import { hasSupportedPlaybackProtocol } from '../../utils/streamPlaybackUrl'
 
 /**
  * The Associated Match selector lists real matches from the existing paginated endpoint. The endpoint
@@ -27,8 +28,8 @@ const ASSOCIATED_MATCH_LIMIT = 100
 const streamSchema = z.object({
   name: z.string().trim().min(2, 'Channel name is required.').max(80),
   logo: z.string().url('Logo must be a valid URL.').optional().or(z.literal('')),
-  primaryUrl: z.string().url('Please enter a valid URL.'),
-  backupUrl: z.string().url('Please enter a valid URL.').optional().or(z.literal('')),
+  primaryUrl: z.string().url('Please enter a valid URL.').refine(hasSupportedPlaybackProtocol, 'Use an http:// or https:// stream URL'),
+  backupUrl: z.string().url('Please enter a valid URL.').refine(hasSupportedPlaybackProtocol, 'Use an http:// or https:// stream URL').optional().or(z.literal('')),
   matchId: z.string().min(1, 'You must select a match.').uuid('Invalid match ID format.'),
   enabled: z.boolean(),
   quality: z.string().min(1, 'Quality is required.'),

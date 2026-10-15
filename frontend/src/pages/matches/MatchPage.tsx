@@ -3,7 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { usePerformanceProfile } from '@/hooks/usePerformanceProfile'
 import { useGetMatchByIdQuery } from '../../features/matches/matches.api'
-import { findNextStreamCandidate, getPreferredStreamUrl, getStreamCandidateChain, getStreamUrlCandidates, isPlayableStream, type Match, type Stream } from '../../features/matches/matches.types'
+import { findNextStreamCandidate, getPreferredStreamSource, getStreamCandidateChain, getStreamUrlCandidates, isPlayableStream, type Match, type Stream, type StreamSourceType } from '../../features/matches/matches.types'
 import { useAppSelector } from '../../app/hooks'
 import { CustomVideoPlayer } from '../../components/player/CustomVideoPlayer'
 import { selectIsPremiumSubscriber } from '../../features/auth/authSlice'
@@ -43,6 +43,8 @@ export function MatchPage() {
 
   const [isAutoMode, setIsAutoMode] = useState(true)
   const [currentStreamUrl, setCurrentStreamUrl] = useState<string | undefined>(undefined)
+  /** Which source of `selectedStreamId` the player is on, so the proxy is asked for that same source. */
+  const [currentSourceType, setCurrentSourceType] = useState<StreamSourceType>('primary')
   const [selectedStreamId, setSelectedStreamId] = useState<string | undefined>(undefined)
   const [openSubscriptionModal, setOpenSubscriptionModal] = useState(false)
   const isPremiumSubscriber = useAppSelector(selectIsPremiumSubscriber)
@@ -82,7 +84,7 @@ export function MatchPage() {
       }),
     [match?.streams],
   )
-  const initialStream = useMemo(() => getPreferredStreamUrl(availableStreams[0]) ?? undefined, [availableStreams])
+  const initialStream = useMemo(() => getPreferredStreamSource(availableStreams[0]) ?? undefined, [availableStreams])
   // Every playable URL of the match, in display order and de-duplicated, is the bounded chain the player
   // walks when a source fails: stream A primary → A backup → stream B → … → exhausted.
   const candidateChain = useMemo(() => getStreamCandidateChain(availableStreams), [availableStreams])
@@ -119,6 +121,7 @@ export function MatchPage() {
       setIsPlaybackAllowed(false)
       setGateRequested(false)
       setCurrentStreamUrl(undefined)
+      setCurrentSourceType('primary')
       setSelectedStreamId(undefined)
       setPreStartVideoFailed(false)
     })
@@ -141,6 +144,7 @@ export function MatchPage() {
     attempted.add(next.url)
     startTransition(() => {
       setCurrentStreamUrl(next.url)
+      setCurrentSourceType(next.sourceType)
       setSelectedStreamId(next.streamId)
       setIsAutoMode(false)
     })
@@ -148,10 +152,11 @@ export function MatchPage() {
   }, [candidateChain])
 
   /** A manual stream choice always gets a fresh attempt, even if that URL failed automatically before. */
-  const selectStreamUrl = useCallback((streamId: string, nextUrl: string) => {
+  const selectStreamUrl = useCallback((streamId: string, nextUrl: string, nextSourceType: StreamSourceType) => {
     attemptedUrlsRef.current.delete(nextUrl)
     startTransition(() => {
       setCurrentStreamUrl(nextUrl)
+      setCurrentSourceType(nextSourceType)
       setSelectedStreamId(streamId)
       setIsAutoMode(false)
     })
@@ -188,7 +193,8 @@ export function MatchPage() {
     if (!match || isMatchLocked || (!isPremiumSubscriber && !isPlaybackAllowed)) return
     const firstStream = availableStreams[0]
     startTransition(() => {
-      setCurrentStreamUrl(initialStream)
+      setCurrentStreamUrl(initialStream?.url)
+      setCurrentSourceType(initialStream?.sourceType ?? 'primary')
       setSelectedStreamId(firstStream?.id)
       setIsAutoMode(false)
     })
@@ -365,6 +371,7 @@ export function MatchPage() {
             <CustomVideoPlayer
               url={currentStreamUrl}
               streamId={selectedStreamId}
+              sourceType={currentSourceType}
               onStreamFallback={handleStreamFallback}
               presenceId={match.id}
               presenceType="match"
@@ -486,10 +493,10 @@ export function MatchPage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button type="button" variant="secondary" disabled={!primaryUrl} onClick={() => selectStreamUrl(stream.id, primaryUrl)} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === primaryUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
+                    <Button type="button" variant="secondary" disabled={!primaryUrl} onClick={() => selectStreamUrl(stream.id, primaryUrl, 'primary')} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === primaryUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
                       <Server className="h-3.5 w-3.5" /> Primary
                     </Button>
-                    <Button type="button" variant="secondary" disabled={!backupUrl} onClick={() => selectStreamUrl(stream.id, backupUrl)} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === backupUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
+                    <Button type="button" variant="secondary" disabled={!backupUrl} onClick={() => selectStreamUrl(stream.id, backupUrl, 'backup')} className={cn('h-9 gap-1.5 border border-(--border) bg-(--surface)/60 text-xs hover:border-(--accent)/50 hover:bg-(--accent)/10', isSelected && currentStreamUrl === backupUrl && 'border-(--accent) text-(--accent) shadow-[0_0_14px_rgba(4,116,196,0.2)]')}>
                       <Server className="h-3.5 w-3.5" /> Backup
                     </Button>
                   </div>

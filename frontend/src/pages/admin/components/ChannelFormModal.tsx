@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ImagePlus, LayoutList, X } from 'lucide-react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
@@ -15,13 +15,14 @@ import { Button } from '../../../components/ui/Button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/Select'
 import { Switch } from '../../../components/ui/Switch'
 import { buildCloudinaryUrl } from '../../../utils/cloudinary'
+import { hasSupportedPlaybackProtocol, insecureSourceAdminWarning } from '../../../utils/streamPlaybackUrl'
 import type { Channel, ChannelCategory } from '../../../shared/types'
 import type { MediaAsset } from '../../../features/events/events.api'
 import { MediaLibraryModal } from './MediaLibraryModal'
 const channelSchema = z.object({
   name: z.string().min(2),
   logo: z.any().optional(),
-  url: z.string().url(),
+  url: z.string().url().refine(hasSupportedPlaybackProtocol, 'Use an http:// or https:// stream URL'),
   viewers: z.coerce.number().int().nonnegative().default(1280),
   categoryId: z.string().uuid(),
   isPremium: z.boolean(),
@@ -61,6 +62,8 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
   })
 
   const logoPreviewUrl = uploadedLogoPreviewUrl ?? editingChannel?.logo ?? null
+  // An http source cannot play from the HTTPS site, so the admin is told before saving one.
+  const streamUrlWarning = insecureSourceAdminWarning(useWatch({ control: form.control, name: 'url' }))
 
   useEffect(() => {
     if (!isOpen) return
@@ -162,7 +165,14 @@ export function ChannelFormModal({ isOpen, onOpenChange, onSuccess, editingChann
                 <FormMessage />
               </FormItem>
             )} />
-            <FormField control={form.control} name="url" render={({ field }) => <FormItem className="min-w-0"><FormLabel>Stream URL</FormLabel><FormControl><Input {...field} value={field.value ?? ''} className="min-h-11 min-w-0" /></FormControl><FormMessage /></FormItem>} />
+            <FormField control={form.control} name="url" render={({ field }) => (
+              <FormItem className="min-w-0">
+                <FormLabel>Stream URL</FormLabel>
+                <FormControl><Input {...field} value={field.value ?? ''} className="min-h-11 min-w-0" /></FormControl>
+                {streamUrlWarning && <p className="text-xs text-amber-400">{streamUrlWarning}</p>}
+                <FormMessage />
+              </FormItem>
+            )} />
             <FormField control={form.control} name="categoryId" render={({ field }) => (
               <FormItem>
                 <FormLabel>Category</FormLabel>

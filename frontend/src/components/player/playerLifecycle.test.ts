@@ -9,6 +9,7 @@ import {
   classifyPlaybackException,
   createPlaybackWatchdog,
   hasSourceAttemptsRemaining,
+  insecureSourceMessage,
   initialPlaybackLifecycle,
   isTerminalPlaybackStatus,
   playbackErrorMessage,
@@ -275,6 +276,14 @@ test('every error kind has viewer-facing copy without technical detail', () => {
     assert.ok(message.length > 10, `copy for ${kind}`)
     assert.doesNotMatch(message, /https?:|m3u8|hls\.js|Error:|undefined/i, `copy for ${kind}`)
   }
+})
+
+test('the insecure-source copy names the requirement instead of inviting a retry', () => {
+  const message = insecureSourceMessage()
+  assert.match(message, /HTTP-only/i)
+  assert.doesNotMatch(message, /please try again|retry/i)
+  // No provider URL or player internals leak into viewer-facing copy.
+  assert.doesNotMatch(message, /https?:|m3u8|hls\.js|Error:|undefined/i)
 })
 
 test('the watchdog fires only after a silent period and is reset by progress', (t) => {

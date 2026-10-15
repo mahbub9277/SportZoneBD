@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   findNextStreamCandidate,
+  getPreferredStreamSource,
   getStreamCandidateChain,
+  getStreamSourceCandidates,
   type Stream,
 } from './matches.types.ts'
 
@@ -27,6 +29,48 @@ test('the candidate chain keeps stream order and expands each stream in fallback
   ])
   assert.deepEqual(chain.map((candidate) => candidate.streamId), ['a', 'a', 'a', 'b'])
   assert.equal(chain[0].streamName, 'Stream A')
+})
+
+test('every candidate carries the source the proxy must be asked for', () => {
+  // The regression: a URL chosen as the backup was requested as `type=primary`, so the proxy answered
+  // with the primary the viewer had just moved away from.
+  const sources = getStreamSourceCandidates(
+    stream({ id: 'a', primaryUrl: url('a-primary'), backupUrl: url('a-backup'), backupUrls: [url('a-extra')] }),
+  )
+
+  assert.deepEqual(sources, [
+    { url: url('a-primary'), sourceType: 'primary' },
+    { url: url('a-backup'), sourceType: 'backup' },
+    { url: url('a-extra'), sourceType: 'backup' },
+  ])
+
+  const chain = getStreamCandidateChain([stream({ id: 'a', primaryUrl: url('a-primary'), backupUrl: url('a-backup') })])
+  assert.deepEqual(chain.map((candidate) => candidate.sourceType), ['primary', 'backup'])
+})
+
+test('a channel url and the legacy url field are primary sources', () => {
+  const channelStream = getStreamSourceCandidates(
+    stream({ id: 'a', sourceType: 'CHANNEL', primaryUrl: url('a-primary'), channel: { id: 'c1', name: 'Channel', url: url('channel') } }),
+  )
+  assert.deepEqual(channelStream[0], { url: url('channel'), sourceType: 'primary' })
+
+  const legacy = getStreamSourceCandidates(stream({ id: 'a', url: url('legacy') }))
+  assert.deepEqual(legacy, [{ url: url('legacy'), sourceType: 'primary' }])
+
+  // A URL listed twice keeps the first entry's type, so the primary of a stream is never typed as a backup.
+  const duplicated = getStreamSourceCandidates(stream({ id: 'a', primaryUrl: url('same'), backupUrl: url('same') }))
+  assert.deepEqual(duplicated, [{ url: url('same'), sourceType: 'primary' }])
+})
+
+test('a stream starts on its primary source, never on a backup', () => {
+  const preferred = getPreferredStreamSource(stream({ id: 'a', primaryUrl: url('a-primary'), backupUrl: url('a-backup') }))
+  assert.deepEqual(preferred, { url: url('a-primary'), sourceType: 'primary' })
+
+  const backupOnly = getPreferredStreamSource(stream({ id: 'a', backupUrl: url('a-backup') }))
+  assert.deepEqual(backupOnly, { url: url('a-backup'), sourceType: 'backup' })
+
+  assert.equal(getPreferredStreamSource(stream({ id: 'a', primaryUrl: null })), null)
+  assert.equal(getPreferredStreamSource(null), null)
 })
 
 test('a channel stream prefers its channel url', () => {

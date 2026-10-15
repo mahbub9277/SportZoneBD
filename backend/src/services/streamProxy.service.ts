@@ -8,6 +8,8 @@ import { isMultiInstanceDeployment } from '../config/deployment.js'
 import { createManifestSharedCache, type ManifestCacheEntry } from './manifestSharedCache.js'
 import { createPinnedLookup, validateProxyRedirect, validateProxyTargetUrl } from '../utils/ssrfGuard.js'
 import { rewriteManifestBody } from '../utils/streamManifest.js'
+import { resolveStreamSourceUrls } from '../utils/streamSourceUrls.js'
+import { BadGatewayError } from '../core/errors.js'
 
 interface StreamManifestProxyOptions {
   streamId?: string
@@ -40,6 +42,17 @@ const sharedManifestCache = createManifestSharedCache({
   ttlMs: manifestTtlMs,
 })
 
+/**
+ * A failure of the source itself, never of this service.
+ *
+ * Every reason here is about the upstream — it refused, it is missing, it answered with an error, or the
+ * production HTTPS-only policy would not let us relay it — so it is reported as a bad gateway. The reason
+ * stays in `details`, which production omits, keeping the upstream URL out of client-facing messages.
+ */
+function sourceUnavailable(reason: string): BadGatewayError {
+  return new BadGatewayError('The stream source is unavailable.', { reason })
+}
+
 function pruneManifestCache(now: number): void {
   for (const [key, entry] of manifestCache) {
     if (entry.expiresAt <= now) manifestCache.delete(key)
@@ -61,7 +74,7 @@ async function readManifestBody(response: IncomingMessage): Promise<string> {
     totalBytes += buffer.byteLength
     if (totalBytes > MAX_MANIFEST_BYTES) {
       response.destroy()
-      throw new Error('Manifest response is too large')
+      throw sourceUnavailable('Manifest response is too large')
     }
     chunks.push(buffer)
   }
@@ -71,7 +84,7 @@ async function readManifestBody(response: IncomingMessage): Promise<string> {
 
 function requestManifestTarget(target: Awaited<ReturnType<typeof validateProxyTargetUrl>>, signal?: AbortSignal): Promise<IncomingMessage> {
   if (isProduction && target.url.protocol !== 'https:') {
-    throw new Error('Only HTTPS stream targets are allowed in production')
+    throw sourceUnavailable('Only HTTPS stream targets are allowed in production')
   }
 
   const lookup = createPinnedLookup(target)
@@ -128,7 +141,7 @@ async function fetchManifest(
     if (responseStatus >= 300 && responseStatus < 400) {
       const location = response.headers.location
       response.resume()
-      if (!location || redirect === MAX_REDIRECTS) throw new Error('Too many manifest redirects')
+      if (!location || redirect === MAX_REDIRECTS) throw sourceUnavailable('Too many manifest redirects')
       const redirectTarget = await validateProxyRedirect(
         Array.isArray(location) ? location[0] : location,
         validated.url,
@@ -141,7 +154,7 @@ async function fetchManifest(
 
     if (responseStatus < 200 || responseStatus >= 300) {
       response.resume()
-      throw new Error(`Upstream responded with ${responseStatus}`)
+      throw sourceUnavailable(`Upstream responded with ${responseStatus}`)
     }
 
     return {
@@ -151,7 +164,7 @@ async function fetchManifest(
     }
   }
 
-  throw new Error('Manifest resolution failed')
+  throw sourceUnavailable('Manifest resolution failed')
 }
 
 export async function getStreamManifestProxy({ streamId, channelId, type, targetUrl, signal }: StreamManifestProxyOptions): Promise<StreamManifestProxyResult> {
@@ -161,6 +174,9 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
           id: streamId,
           deletedAt: null,
         },
+        // The linked channel is read so a channel-sourced stream plays the channel's current URL instead of
+        // the copy stored when the link was created.
+        include: { channel: { select: { url: true } } },
       })
     : null
   const channel = channelId
@@ -173,12 +189,13 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   const explicitTargetUrl = typeof targetUrl === 'string' ? targetUrl.trim() : ''
 
   if (!stream && !channel && !explicitTargetUrl) {
-    throw new Error('Stream is unavailable')
+    throw sourceUnavailable('Stream is unavailable')
   }
 
-  const fallbackUrl = stream?.backupUrl?.trim() || null
-  const primaryUrl = stream?.primaryUrl?.trim() || channel?.url?.trim() || explicitTargetUrl || ''
-  const preferredUrls = [primaryUrl, fallbackUrl].filter((value): value is string => Boolean(value))
+  const streamSources = resolveStreamSourceUrls(stream)
+  const fallbackUrl = streamSources.backupUrl
+  const primaryUrl = streamSources.primaryUrl || channel?.url?.trim() || explicitTargetUrl || ''
+  const preferredUrls = [...new Set([...streamSources.trustedUrls, primaryUrl, fallbackUrl].filter((value): value is string => Boolean(value)))]
 
   if (!stream && explicitTargetUrl) {
     const cacheKey = `${streamId ?? 'direct'}:${type}:${primaryUrl}`
@@ -224,7 +241,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   }
 
   if (stream && !stream.enabled) {
-    throw new Error('Stream is unavailable')
+    throw sourceUnavailable('Stream is unavailable')
   }
 
   const allowedDomains = await (prisma as any).allowedDomain.findMany({
@@ -240,7 +257,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
   const selectedUrl = type === 'backup' ? fallbackUrl : primaryUrl
 
   if (!selectedUrl) {
-    throw new Error('No stream URL is configured for the requested fallback type')
+    throw sourceUnavailable('No stream URL is configured for the requested fallback type')
   }
 
   const cacheKey = `${stream?.id ?? `channel:${channel?.id}`}:${type}:${selectedUrl}`
@@ -329,7 +346,7 @@ export async function getStreamManifestProxy({ streamId, channelId, type, target
         return { ...backupEntry, cacheControl: 'public, max-age=3, stale-while-revalidate=1' }
       }
 
-      throw new Error(error instanceof Error ? error.message : 'Failed to fetch HLS manifest')
+      throw sourceUnavailable(error instanceof Error ? error.message : 'Failed to fetch HLS manifest')
     }
   })()
 

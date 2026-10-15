@@ -6,6 +6,7 @@ import { NotFoundError, BadRequestError, UnauthorizedError } from '../../core/er
 import { normalizeChannelStatus } from './channel.service.js'
 import { hasPremiumAccess } from '../../core/premiumGuard.js'
 import { invalidateTags } from '../../core/cache.js'
+import { parseBooleanFlag } from '../../core/validation.js'
 import { emitAdminResourceCreated, emitAdminResourceUpdated, emitAdminResourceDeleted } from '../../core/socketManager.js'
 import { cleanupReplacedAsset, cleanupAssetIfUnused } from '../../services/asset-cleanup.service.js'
 
@@ -174,7 +175,8 @@ export const getAdminChannels = asyncHandler(async (_req: Request, res: Response
 export const createChannel = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { body } = req
 
-  const isPremium = body.isPremium === 'true'
+  // A JSON client sends a boolean and a form-encoded one sends the string `'true'`; both mean premium.
+  const isPremium = parseBooleanFlag(body.isPremium)
   const status = normalizeChannelStatus(body.status)
 
   const viewers = body.viewers === undefined || body.viewers === null || body.viewers === ''
@@ -218,7 +220,7 @@ export const updateChannel = asyncHandler(async (req: AuthenticatedRequest, res:
   if (body.categoryId !== undefined) updateData.categoryId = String(body.categoryId).trim()
 
   if (body.isPremium !== undefined) {
-    updateData.isPremium = body.isPremium === 'true'
+    updateData.isPremium = parseBooleanFlag(body.isPremium)
   }
 
   if (body.status !== undefined) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import logger from '../core/logger'
 import { buildHlsPlaybackUrl } from '../utils/streamPlaybackUrl'
+import { nextPlaybackAttempt } from './playbackLadder'
 
 export interface HlsPlayerState {
   currentUrl: string | null
@@ -11,11 +12,16 @@ export interface HlsPlayerState {
   retryCount: number
 }
 
-export function useHlsPlayer(initialUrl?: string | null, streamId?: string | null) {
+/**
+ * @param sourceType Which of the stream's sources `initialUrl` is. The proxy serves `type=primary` or
+ * `type=backup` from the stream record itself, so a source the UI selected has to be requested as that
+ * source instead of always starting from the primary.
+ */
+export function useHlsPlayer(initialUrl?: string | null, streamId?: string | null, sourceType: 'primary' | 'backup' = 'primary') {
   const [currentUrl, setCurrentUrl] = useState<string | null>(initialUrl ?? null)
   const [isError, setIsError] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [usedBackup, setUsedBackup] = useState(false)
+  const [usedBackup, setUsedBackup] = useState(sourceType === 'backup')
   const [hasFailedOver, setHasFailedOver] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
   const [forceDirectUrl, setForceDirectUrl] = useState(false)
@@ -26,10 +32,12 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
     setIsError(false)
     setErrorMessage(null)
     setHasFailedOver(false)
-    setUsedBackup(false)
+    // A source that is itself the backup keeps that identity through a reset, so the player never
+    // "fails over" from the backup to the same backup.
+    setUsedBackup(sourceType === 'backup')
     setRetryCount(0)
     setForceDirectUrl(false)
-  }, [])
+  }, [sourceType])
 
   const playbackUrl = useMemo(
     () => buildHlsPlaybackUrl({ url: currentUrl, streamId, usedBackup, forceDirectUrl }),
@@ -71,13 +79,17 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
 
   const retry = useCallback((): boolean => {
     if (!mountedRef.current) return false
-    const canUseBackup = !usedBackup && Boolean(streamId) && !forceDirectUrl
-    // `forceDirectUrl` only changes the playback URL while a proxy is in use, so without a streamId a
-    // "direct" retry would silently reload the identical URL. Reporting it as a successful retry used to
-    // hide the real failure behind an extra pointless attempt.
-    const canUseDirect = !forceDirectUrl && Boolean(streamId) && Boolean(currentUrl)
 
-    if (!canUseBackup && !canUseDirect) {
+    // The bounded order lives in `nextPlaybackAttempt`, so the decision is testable on its own and cannot
+    // drift from the source the proxy is asked for.
+    const nextAttempt = nextPlaybackAttempt({
+      streamId,
+      usedBackup,
+      forceDirectUrl,
+      hasUrl: Boolean(currentUrl),
+    })
+
+    if (!nextAttempt) {
       logger.error(`[useHlsPlayer] Retry called for streamId: ${streamId}, but no further fallback is available.`)
       return false
     }
@@ -85,23 +97,17 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
     setRetryCount((count) => count + 1)
     setIsError(false)
     setErrorMessage(null)
+    setHasFailedOver(true)
 
-    if (canUseBackup) {
+    if (nextAttempt === 'backup') {
       logger.warn(`[useHlsPlayer] Retrying streamId: ${streamId}. Failing over to backup.`)
       setUsedBackup(true)
-      setHasFailedOver(true)
       return true
     }
 
-    if (canUseDirect) {
-      logger.warn(`[useHlsPlayer] Proxy fallback failed for streamId: ${streamId}. Switching to direct stream URL.`)
-      setForceDirectUrl(true)
-      setHasFailedOver(true)
-      return true
-    }
-
-    logger.error(`[useHlsPlayer] Retry called for streamId: ${streamId}, but no further fallback is available.`)
-    return false
+    logger.warn(`[useHlsPlayer] Proxy fallback failed for streamId: ${streamId}. Switching to direct stream URL.`)
+    setForceDirectUrl(true)
+    return true
   }, [currentUrl, forceDirectUrl, streamId, usedBackup])
 
   useEffect(() => () => {

@@ -14,6 +14,7 @@ import { usePictureInPicture } from '../../hooks/usePictureInPicture'
 import { useVideoLifecycle } from '../../hooks/useVideoLifecycle'
 import { SportZoneBDLoader } from '../ui/SportZoneBDLoader'
 import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import { isInsecurePlaybackSource } from '../../utils/streamPlaybackUrl'
 import { PlayerControls, type MatchPlayerMetadata } from './PlayerControls'
 import { NoSignalOverlay } from './NoSignalOverlay'
 import { getPlayerContainerClass } from './playerLayout'
@@ -25,6 +26,7 @@ import {
   classifyPlaybackException,
   createPlaybackWatchdog,
   hasStartedPlayback,
+  insecureSourceMessage,
   initialPlaybackLifecycle,
   isTerminalPlaybackStatus,
   playbackErrorMessage,
@@ -87,6 +89,11 @@ export interface CustomVideoPlayerProps {
   onStreamFallback?: (failedUrl: string) => boolean
   subtitles?: SubtitleTrack[];
   matchMetadata?: MatchPlayerMetadata
+  /**
+   * Which of `streamId`'s sources `url` is. It only affects stream records, where the proxy serves the
+   * stream's own primary or backup URL — a channel plays its stored URL and ignores this.
+   */
+  sourceType?: 'primary' | 'backup'
   /**
    * Whether the player installs its document-level keyboard shortcuts (Space, arrows, F, M, P).
    *
@@ -255,6 +262,7 @@ export function CustomVideoPlayer({
   matchId,
   channelId,
   matchMetadata,
+  sourceType = 'primary',
   globalShortcuts = true,
   onTransportReady,
   onFullscreenToggle,
@@ -296,8 +304,10 @@ export function CustomVideoPlayer({
   // offer, so the caption menu lists exactly these and nothing else.
   const [hlsSubtitleTracks, setHlsSubtitleTracks] = useState<SubtitleTrack[]>([])
   const [qualityToast, setQualityToast] = useState<string | null>(null)
-  const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId)
-  const sourceKey = `${streamId || ''}|${url || ''}`
+  const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId, sourceType)
+  // The source type is part of the identity: switching a stream to its backup has to restart the attempt
+  // even when both URLs happen to be the same string.
+  const sourceKey = `${streamId || ''}|${streamId ? sourceType : ''}|${url || ''}`
   // The single authoritative playback lifecycle: every media/HLS/timer signal feeds this reducer and
   // the loader, the error copy and the recovery decisions all read from it.
   const [lifecycle, lifecycleDispatch] = useReducer(playbackLifecycleReducer, sourceKey, initialPlaybackLifecycle)
@@ -1299,6 +1309,31 @@ export function CustomVideoPlayer({
     ? buildCloudinaryUrl(resolvedUrl, { resourceType: 'video', height: manualVideoHeight, crop: 'limit' })
     : resolvedUrl
 
+  /**
+   * A source the browser will refuse before the request is even sent.
+   *
+   * Only direct sources are judged: with a stream record the browser fetches the manifest proxy path
+   * (same-origin HTTPS) and the proxy's own HTTPS-only upstream rule — with its database fallback to the
+   * backup URL — decides what may be relayed, so blocking those here would break a working backup.
+   */
+  const isBlockedByMixedContent = !streamId && isInsecurePlaybackSource(resolvedUrl, window.location.protocol)
+
+  /**
+   * Ends the attempt before it starts, so the viewer is told the real reason instead of waiting for a
+   * doomed request, an opaque media error, and the watchdog timeout that reports the same outcome.
+   */
+  useEffect(() => {
+    if (!isBlockedByMixedContent) return
+
+    const message = insecureSourceMessage()
+    trackTelemetry('network_error', { kind: 'network', detail: 'insecureSource' })
+    dispatchLifecycle({ type: 'FAILED', sourceKey, kind: 'network' })
+    dispatchLifecycle({ type: 'EXHAUSTED', sourceKey })
+    setError(message)
+    dispatch({ type: 'SET_ERROR', payload: message })
+    if (typeof onPlayerError === 'function') onPlayerError(message)
+  }, [dispatch, dispatchLifecycle, isBlockedByMixedContent, onPlayerError, setError, sourceKey, trackTelemetry])
+
   const handlePlayPause = useCallback(() => {
     const video = getVideoElement()
     if (!video) {
@@ -2048,6 +2083,20 @@ export function CustomVideoPlayer({
         <div className="text-center text-(--text-muted)">
           <Tv size={48} className="mx-auto mb-4" />
           <p>Stream unavailable</p>
+        </div>
+      </div>
+    )
+  }
+
+  // The player is never mounted for a source the browser would refuse, so no request is made and no
+  // loader can wait on data that cannot arrive.
+  if (isBlockedByMixedContent) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-black px-6">
+        <div className="max-w-md text-center text-(--text-muted)">
+          <AlertCircle size={48} className="mx-auto mb-4 text-amber-400/80" />
+          <p className="text-sm font-medium text-white/90">Insecure stream link</p>
+          <p className="mt-1 text-xs leading-relaxed">{insecureSourceMessage()}</p>
         </div>
       </div>
     )

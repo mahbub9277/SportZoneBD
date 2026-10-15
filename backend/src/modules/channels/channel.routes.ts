@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { authenticate, optionalProtect, requirePermission } from '../../core/middleware/index.js'
 import * as controller from './channel.controller.js'
 import { cacheMiddleware } from '../../core/middleware/cache.middleware.js'
+import { validateBody } from '../../core/validation.js'
+import { channelSchema, channelUpdateSchema } from './channel.validator.js'
 
 const router = Router()
 
@@ -23,7 +25,7 @@ router.delete('/categories/:id', authenticate, adminOnly, controller.deleteCateg
 
 // Channel Management
 router.get('/all', authenticate, adminOnly, cacheMiddleware(300, ['channels']), controller.getAdminChannels) // Moved up
-router.post('/', authenticate, adminOnly, controller.createChannel)
+router.post('/', authenticate, adminOnly, validateBody(channelSchema), controller.createChannel)
 
 // --- Dynamic/Parameterized Routes (Public and Admin) ---
 // Viewer counts come from live Redis presence and must never be cached.
@@ -35,7 +37,7 @@ router.post('/:id/viewers/leave', controller.leaveChannelViewer)
 router.get('/:id/related', publicCacheMiddleware, controller.getRelatedChannels)
 router.get('/admin/:id', authenticate, adminOnly, cacheMiddleware(300, ['channels']), controller.getChannelById)
 router.get('/:id', publicCacheMiddleware, controller.getChannelById) // Public get by ID should be after more specific routes
-router.put('/:id', authenticate, adminOnly, controller.updateChannel)
+router.put('/:id', authenticate, adminOnly, validateBody(channelUpdateSchema), controller.updateChannel)
 router.delete('/:id', authenticate, adminOnly, controller.deleteChannel)
 
 export { router as channelsRouter }

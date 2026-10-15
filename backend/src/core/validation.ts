@@ -12,6 +12,16 @@ export function parseUuidParam(value: unknown, label = 'id'): string {
   return result.data
 }
 
+/**
+ * Reads a boolean flag from either a JSON body or a form-encoded one.
+ *
+ * A JSON client sends `true`; a form-encoded client sends the string `'true'`. Comparing against the
+ * string alone made every JSON `true` read as false, so the flag those clients submitted was dropped.
+ */
+export function parseBooleanFlag(value: unknown): boolean {
+  return typeof value === 'string' ? value.trim().toLowerCase() === 'true' : value === true
+}
+
 export function validateBody<TSchema extends ZodTypeAny>(schema: TSchema) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {

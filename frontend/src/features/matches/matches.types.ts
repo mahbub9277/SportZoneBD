@@ -36,19 +36,52 @@ const isValidStreamUrl = (value: unknown): value is string => {
   return trimmed.length > 0 && trimmed !== 'null' && trimmed !== 'undefined'
 }
 
-export const getStreamUrlCandidates = (stream?: Partial<Stream> | null): string[] => {
+/** Which of a stream's sources a URL is, so the proxy is asked for exactly that source. */
+export type StreamSourceType = 'primary' | 'backup'
+
+export interface StreamSource {
+  url: string
+  sourceType: StreamSourceType
+}
+
+/**
+ * Every playable URL of a stream, each with the source the manifest proxy serves it from.
+ *
+ * The type matters: the proxy resolves `type=primary` and `type=backup` against the stream record's own
+ * URLs, so a backup the UI selects has to travel as `backup` — otherwise the proxy would answer with the
+ * primary the viewer just moved away from.
+ */
+export const getStreamSourceCandidates = (stream?: Partial<Stream> | null): StreamSource[] => {
   if (!stream) return []
 
-  const urls = [
-    stream.sourceType === 'CHANNEL' ? stream.channel?.url : undefined,
-    stream.primaryUrl,
-    stream.backupUrl,
-    stream.url,
-    ...(Array.isArray(stream.backupUrls) ? stream.backupUrls : []),
+  const candidates: Array<{ url: unknown; sourceType: StreamSourceType }> = [
+    { url: stream.sourceType === 'CHANNEL' ? stream.channel?.url : undefined, sourceType: 'primary' },
+    { url: stream.primaryUrl, sourceType: 'primary' },
+    { url: stream.backupUrl, sourceType: 'backup' },
+    { url: stream.url, sourceType: 'primary' },
+    ...(Array.isArray(stream.backupUrls) ? stream.backupUrls.map((url) => ({ url, sourceType: 'backup' as const })) : []),
   ]
 
-  return [...new Set(urls.filter(isValidStreamUrl).map((value) => value.trim()))]
+  const seen = new Set<string>()
+  const sources: StreamSource[] = []
+  for (const candidate of candidates) {
+    if (!isValidStreamUrl(candidate.url)) continue
+    const url = candidate.url.trim()
+    // The first entry that names a URL wins, so a URL listed as both primary and backup is the primary.
+    if (seen.has(url)) continue
+    seen.add(url)
+    sources.push({ url, sourceType: candidate.sourceType })
+  }
+
+  return sources
 }
+
+export const getStreamUrlCandidates = (stream?: Partial<Stream> | null): string[] =>
+  getStreamSourceCandidates(stream).map((source) => source.url)
+
+/** The source a stream starts on: its channel URL or primary URL, never a backup. */
+export const getPreferredStreamSource = (stream?: Partial<Stream> | null): StreamSource | null =>
+  getStreamSourceCandidates(stream)[0] ?? null
 
 export const isPlayableStream = (stream?: Partial<Stream> | null): boolean => {
   if (!stream) return false
@@ -71,6 +104,8 @@ export interface StreamCandidate {
   streamId: string
   streamName: string | null
   url: string
+  /** Which source of that stream the URL is, so the proxy serves the same one the viewer was moved to. */
+  sourceType: StreamSourceType
 }
 
 /**
@@ -89,10 +124,10 @@ export const getStreamCandidateChain = (streams?: ReadonlyArray<Partial<Stream>>
     if (!stream || typeof stream.id !== 'string' || !stream.id.trim()) continue
     if (!isPlayableStream(stream)) continue
 
-    for (const url of getStreamUrlCandidates(stream)) {
-      if (seen.has(url)) continue
-      seen.add(url)
-      chain.push({ streamId: stream.id, streamName: stream.name ?? null, url })
+    for (const source of getStreamSourceCandidates(stream)) {
+      if (seen.has(source.url)) continue
+      seen.add(source.url)
+      chain.push({ streamId: stream.id, streamName: stream.name ?? null, url: source.url, sourceType: source.sourceType })
     }
   }
 
