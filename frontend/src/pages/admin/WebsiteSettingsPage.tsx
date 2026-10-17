@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useGetAdminSettingsQuery, useUpsertAdminSettingMutation } from '@/features/admin/admin.api'
+import {
+  useGetAdminSettingsQuery,
+  useGetStreamRelaySettingQuery,
+  useUpdateStreamRelaySettingMutation,
+  useUpsertAdminSettingMutation,
+} from '@/features/admin/admin.api'
+import { cn } from '@/lib/utils'
 import { useDeleteUploadedFileMutation } from '@/features/admin/uploads.api'
 import { useMediaUploadProgress } from '@/hooks/useMediaUploadProgress'
 import { UploadProgress } from '@/components/ui/UploadProgress'
@@ -36,6 +42,8 @@ const defaultForm: WebsiteSettingsForm = {
 export default function WebsiteSettingsPage() {
   const { data: settings = [], isLoading } = useGetAdminSettingsQuery()
   const [upsertSetting, { isLoading: isSaving }] = useUpsertAdminSettingMutation()
+  const { data: relayStatus, isLoading: isRelayLoading, refetch: refetchRelay } = useGetStreamRelaySettingQuery()
+  const [updateRelaySetting, { isLoading: isRelaySaving }] = useUpdateStreamRelaySettingMutation()
   const { upload: uploadFiles, progress: videoUploadProgress, isUploading: isUploadingVideo } = useMediaUploadProgress()
   const [deleteUploadedFile] = useDeleteUploadedFileMutation()
 
@@ -70,6 +78,26 @@ export default function WebsiteSettingsPage() {
       toast.success('Website settings saved successfully.', { id: toastId })
     } catch {
       toast.error('Unable to save website settings.', { id: toastId })
+    }
+  }
+
+  /**
+   * The relay toggle always shows what the server enforces, never a local guess: while the saved value could
+   * not be confirmed the server fails closed, so the switch reads as off.
+   */
+  const relayEnabled = relayStatus?.operational === true
+
+  const handleRelayToggle = async (enabled: boolean) => {
+    const toastId = toast.loading(enabled ? 'Enabling HTTP stream relay...' : 'Disabling HTTP stream relay...')
+
+    try {
+      await updateRelaySetting({ enabled }).unwrap()
+      toast.success(enabled ? 'HTTP stream relay enabled.' : 'HTTP stream relay disabled.', { id: toastId })
+    } catch {
+      // The setting did not change, so the switch is re-read from the server instead of keeping the value
+      // the failed attempt would have shown.
+      toast.error('Unable to change the HTTP stream relay setting.', { id: toastId })
+      void refetchRelay()
     }
   }
 
@@ -271,6 +299,55 @@ export default function WebsiteSettingsPage() {
               <UploadProgress update={videoUploadProgress.update} error={isUploadingVideo ? null : videoUploadProgress.error} className="mt-2" />
               {videoError && <p className="text-xs font-medium text-(--danger)" role="alert">{videoError}</p>}
             </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.39 }}>
+        <Card className="premium-border overflow-hidden bg-linear-to-br from-(--surface-soft) via-(--surface-soft)/70 to-(--surface) shadow-[0_20px_60px_var(--shadow)]">
+          <CardHeader className="border-b border-(--border)/40 bg-linear-to-r from-(--surface-soft)/50 via-(--surface-soft)/30 to-transparent px-6 py-4">
+            <CardTitle className="text-2xl font-bold text-(--text-primary)">HTTP Stream Relay</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 p-6 sm:p-8">
+            <p className="text-sm text-(--text-muted)/80">
+              Control server-side relaying for approved HTTP streaming sources. When disabled, new relay requests are rejected and
+              direct HTTPS playback remains available.
+            </p>
+
+            {isRelayLoading ? (
+              <Skeleton className="h-16 w-full rounded-xl" />
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-(--border)/60 bg-(--surface-soft)/20 p-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="stream-relay-enabled" className="text-sm font-semibold text-(--text-primary)/90">Server-side relay</Label>
+                    <span className={cn(
+                      'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.14em] uppercase',
+                      relayEnabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-(--surface-strong) text-(--text-muted)',
+                    )}>
+                      {relayEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-(--text-muted)/70">
+                    {relayEnabled
+                      ? 'Approved HTTP sources are served through the backend. Disabling stops the streams currently being relayed.'
+                      : 'HTTP sources cannot play while this is off. HTTPS sources are unaffected.'}
+                  </p>
+                  {relayStatus?.degraded && (
+                    <p className="mt-1 text-xs font-medium text-(--danger)" role="alert">
+                      The saved value could not be confirmed, so the relay is being treated as disabled.
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  id="stream-relay-enabled"
+                  checked={relayEnabled}
+                  disabled={isRelaySaving || !relayStatus}
+                  aria-label="Enable server-side HTTP stream relay"
+                  onCheckedChange={(checked) => void handleRelayToggle(checked)}
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
       </motion.div>

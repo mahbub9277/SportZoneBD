@@ -17,7 +17,13 @@ export interface HlsPlayerState {
  * `type=backup` from the stream record itself, so a source the UI selected has to be requested as that
  * source instead of always starting from the primary.
  */
-export function useHlsPlayer(initialUrl?: string | null, streamId?: string | null, sourceType: 'primary' | 'backup' = 'primary') {
+export function useHlsPlayer(
+  initialUrl?: string | null,
+  streamId?: string | null,
+  sourceType: 'primary' | 'backup' = 'primary',
+  /** The channel record a channel source belongs to, so an HTTP source can be routed through the relay. */
+  channelId?: string | null,
+) {
   const [currentUrl, setCurrentUrl] = useState<string | null>(initialUrl ?? null)
   const [isError, setIsError] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -40,8 +46,15 @@ export function useHlsPlayer(initialUrl?: string | null, streamId?: string | nul
   }, [sourceType])
 
   const playbackUrl = useMemo(
-    () => buildHlsPlaybackUrl({ url: currentUrl, streamId, usedBackup, forceDirectUrl }),
-    [currentUrl, forceDirectUrl, streamId, usedBackup],
+    () => buildHlsPlaybackUrl({
+      url: currentUrl,
+      streamId,
+      channelId,
+      usedBackup,
+      forceDirectUrl,
+      pageProtocol: typeof window === 'undefined' ? 'https:' : window.location.protocol,
+    }),
+    [channelId, currentUrl, forceDirectUrl, streamId, usedBackup],
   )
 
   useEffect(() => {

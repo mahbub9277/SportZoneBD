@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildHlsPlaybackUrl, classifyPlaybackSourceScheme, hasSupportedPlaybackProtocol, insecureSourceAdminWarning, isInsecurePlaybackSource } from './streamPlaybackUrl.ts'
+import { buildHlsPlaybackUrl, classifyPlaybackSourceScheme, hasSupportedPlaybackProtocol, insecureSourceAdminWarning, isInsecurePlaybackSource, isStreamBackendRequestUrl } from './streamPlaybackUrl.ts'
 import { getStreamCandidateChain } from '../features/matches/matches.types.ts'
 
 const CHANNEL_URL = 'https://cdn.example.com/banglavision/index.m3u8'
@@ -86,6 +86,37 @@ test('an admin is warned about an HTTP source and only about an HTTP source', ()
   }
 })
 
+test('an HTTP channel is handed to the server, an HTTPS channel still plays directly', () => {
+  const http = 'http://stream.example.com/234/index.m3u8'
+  const https = 'https://cdn.example.com/live/index.m3u8'
+
+  // HTTPS stays a direct provider fetch: the relay is never on the path for it.
+  assert.equal(buildHlsPlaybackUrl({ url: https, channelId: 'channel-1', usedBackup: false, forceDirectUrl: false, pageProtocol: 'https:' }), https)
+  // The scheme is never upgraded either — the URL reaches the server exactly as configured.
+  assert.equal(
+    buildHlsPlaybackUrl({ url: http, channelId: 'channel-1', usedBackup: false, forceDirectUrl: false, pageProtocol: 'https:' }),
+    `/api/v1/stream/proxy?channelId=channel-1&type=primary&url=${encodeURIComponent(http)}`,
+  )
+  // A channel is identified by its own id: a channel id must never travel as a stream id.
+  const proxied = buildHlsPlaybackUrl({ url: http, channelId: 'channel-1', usedBackup: true, forceDirectUrl: false, pageProtocol: 'https:' })
+  const params = new URLSearchParams(proxied!.split('?')[1])
+  assert.equal(params.get('streamId'), null)
+  assert.equal(params.get('channelId'), 'channel-1')
+  assert.equal(params.get('type'), 'backup')
+  assert.equal(params.get('url'), http)
+})
+
+test('a secure page is what makes an HTTP channel proxied, and a direct source without a record is untouched', () => {
+  const http = 'http://stream.example.com/234/index.m3u8'
+
+  // On the HTTP development page the browser fetches it itself, exactly as before.
+  assert.equal(buildHlsPlaybackUrl({ url: http, channelId: 'channel-1', usedBackup: false, forceDirectUrl: false, pageProtocol: 'http:' }), http)
+  // No record id means no server path to use, so the caller keeps the direct URL and its own guard applies.
+  assert.equal(buildHlsPlaybackUrl({ url: http, usedBackup: false, forceDirectUrl: false, pageProtocol: 'https:' }), http)
+  // The direct fallback of a stream still bypasses the proxy deliberately.
+  assert.equal(buildHlsPlaybackUrl({ url: http, streamId: 'stream-1', usedBackup: false, forceDirectUrl: true, pageProtocol: 'https:' }), http)
+})
+
 test('an insecure provider link is never rewritten to another scheme', () => {
   // Upgrading `http://` to `https://` in the player would only replace a transport the provider never
   // offered, so the stored URL must be delivered unchanged and the browser's own verdict reported.
@@ -150,4 +181,33 @@ test('a request whose url is a channel manifest still carries only the stream id
   assert.ok(proxied?.startsWith('/api/v1/stream/proxy?'))
   assert.equal(new URLSearchParams(proxied!.split('?')[1]).get('streamId'), '11111111-2222-4333-8444-555555555555')
   assert.equal(new URLSearchParams(proxied!.split('?')[1]).get('channelId'), null)
+})
+
+test('a request to our own stream backend is recognised, whatever form the url takes', () => {
+  const backendUrls = [
+    '/api/v1/stream/proxy?streamId=s&type=primary',
+    '/api/v1/stream/relay?channelId=c&type=primary&url=http%3A%2F%2Fprovider.example%2Fseg.ts',
+    'https://sportzonebd-1.onrender.com/api/v1/stream/proxy?streamId=s',
+    'https://sportzonebd-1.onrender.com/api/v1/stream/relay?channelId=c',
+    'http://localhost:5000/api/v1/stream/relay?channelId=c',
+  ]
+
+  for (const url of backendUrls) {
+    assert.equal(isStreamBackendRequestUrl(url), true, url)
+  }
+
+  const providerUrls = [
+    'http://stream.mcquack.net/234/index.m3u8',
+    'https://cdn.example.com/live/index.m3u8',
+    'https://cdn.example.com/api/v1/stream/proxy/deeper.m3u8',
+    'https://cdn.example.com/api/v1/stream/proxying',
+    '',
+    null,
+    undefined,
+    'not a url',
+  ]
+
+  for (const url of providerUrls) {
+    assert.equal(isStreamBackendRequestUrl(url), false, String(url))
+  }
 })

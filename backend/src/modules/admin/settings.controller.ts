@@ -7,6 +7,7 @@ import { invalidateTags } from '../../core/cache.js'
 import { emitAdminResourceUpdated } from '../../core/socketManager.js'
 import { isSiteSettingKey, siteSettings } from '../settings/site-settings.js'
 import { AUTOMATION_SWITCH_SETTING_KEYS } from '../../core/automationSwitches.js'
+import { STREAM_RELAY_SETTING_KEY } from '../../core/streamRelaySwitch.js'
 
 const API_SETTINGS = {
   'api.base_url': {
@@ -31,7 +32,12 @@ const isApiSettingKey = (key: string): key is ApiSettingKey => key in API_SETTIN
  * They are left out of the generic settings list and refused by the generic settings update, because only
  * their dedicated endpoint applies the change to the running subsystem and records what it replaced.
  */
-export const SETTING_KEYS_WITH_DEDICATED_ENDPOINTS: string[] = ['telemetry.enabled', ...AUTOMATION_SWITCH_SETTING_KEYS]
+export const SETTING_KEYS_WITH_DEDICATED_ENDPOINTS: string[] = [
+  'telemetry.enabled',
+  ...AUTOMATION_SWITCH_SETTING_KEYS,
+  // Turned on and off through its own endpoint, which stops active relay work as it applies the change.
+  STREAM_RELAY_SETTING_KEY,
+]
 
 export const hasDedicatedSettingEndpoint = (key: string): boolean => SETTING_KEYS_WITH_DEDICATED_ENDPOINTS.includes(key)
 
@@ -78,6 +84,11 @@ const updateSettings = asyncHandler(async (req: Request, res: Response) => {
       // One write path per switch: the dedicated endpoint applies the change to the running subsystem and
       // records the previous value, which a raw setting update would silently skip.
       return res.status(403).json({ success: false, message: 'Use the automation switch endpoints to change this setting.' })
+    }
+    if (hasDedicatedSettingEndpoint(setting.key)) {
+      // The same rule for every other key with its own endpoint: applying it there also stops active work
+      // and records the change, neither of which a raw setting update can do.
+      return res.status(403).json({ success: false, message: 'Use the dedicated endpoint to change this setting.' })
     }
     if (isApiSettingKey(setting.key) && !API_SETTINGS[setting.key].validate(setting.value)) {
       return res.status(400).json({ success: false, message: `Invalid value for ${setting.key}.` })

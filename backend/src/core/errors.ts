@@ -57,6 +57,19 @@ export class ServiceUnavailableError extends AppError {
 }
 
 /**
+ * The HTTP stream relay is switched off, so no relayed resource may be fetched.
+ *
+ * Reported as 503 with the machine-readable code `STREAM_RELAY_DISABLED` (derived from this class name by
+ * the error handler), which is what the player recognises instead of treating it as a provider outage.
+ */
+export class StreamRelayDisabledError extends ServiceUnavailableError {
+  constructor(message = 'The relay for HTTP stream sources is disabled.') {
+    super(message)
+    this.name = 'StreamRelayDisabledError'
+  }
+}
+
+/**
  * A failure that belongs to the upstream source rather than to this service: the provider refused,
  * could not be reached, or the production HTTPS-only policy rejected it.
  *

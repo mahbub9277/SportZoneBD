@@ -274,6 +274,15 @@ async function bootstrap(): Promise<void> {
     logger.error({ error }, 'Automation switch initialization failed; both automation subsystems stay disabled until the state can be read')
   }
 
+  // The HTTP stream relay switch is read before any relay request can arrive. A value that cannot be read
+  // leaves the relay disabled, which is the same state a fresh deployment starts in.
+  try {
+    const { initializeStreamRelaySwitch } = await import('./core/streamRelaySwitch.js')
+    await initializeStreamRelaySwitch()
+  } catch (error) {
+    logger.error({ error }, 'HTTP stream relay initialization failed; the relay stays disabled until the state can be read')
+  }
+
   startNotificationWorker()
   void matchAutomationService.start().catch((error) => {
     logger.error({ error }, 'Failed to start match automation service')

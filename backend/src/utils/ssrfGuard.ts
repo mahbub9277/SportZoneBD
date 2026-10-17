@@ -116,6 +116,22 @@ function isPrivateOrLocalAddress(address: string): boolean {
   return false
 }
 
+/**
+ * Whether a host matches the explicit allowlist, using the same rule the guard applies internally: an
+ * exact host or any subdomain of an allowed domain.
+ *
+ * Exported so the one place that needs to decide "is this provider explicitly authorized?" — the relay
+ * policy for `http://` upstreams — cannot drift from the check the guard itself performs.
+ */
+export function isHostAllowlisted(host: string, allowedDomains: string[]): boolean {
+  const normalizedHost = normalizeHostname(host)
+  if (!normalizedHost) return false
+
+  return (allowedDomains ?? [])
+    .map((domain) => normalizeHostname(domain))
+    .some((domain) => Boolean(domain) && (domain === normalizedHost || normalizedHost.endsWith(`.${domain}`)))
+}
+
 export interface ValidatedTargetUrl {
   url: URL
   resolvedAddresses: string[]

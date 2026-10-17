@@ -12,6 +12,8 @@
  *  - an event that belongs to another source generation can never mutate the current source's state.
  */
 
+import { isStreamBackendRequestUrl } from '../../utils/streamPlaybackUrl.ts'
+
 export type PlaybackStatus =
   | 'idle'
   | 'loading'
@@ -29,6 +31,7 @@ export type PlaybackErrorKind =
   | 'media'
   | 'decoder'
   | 'unsupported'
+  | 'relay_unavailable'
   | 'unknown'
 
 /**
@@ -189,6 +192,10 @@ export function playbackErrorMessage(kind: PlaybackErrorKind): string {
       return 'This stream cannot be played by the current browser.'
     case 'unsupported':
       return 'This stream format is not supported in this browser.'
+    case 'relay_unavailable':
+      // The server refused to serve the source, which is a condition of our own infrastructure: nothing
+      // about it is actionable for a viewer and it can be resolved from the admin console.
+      return 'This stream is temporarily unavailable.'
     default:
       return 'Playback could not be started.'
   }
@@ -199,13 +206,23 @@ export function playbackExhaustedMessage(): string {
 }
 
 /**
- * Copy for a source the browser refuses outright: an `http:` link cannot be fetched by an `https:` page.
+ * Viewer-facing copy for a source this player cannot use.
  *
- * Unlike the other messages this one does not invite a retry, because nothing on this side — player,
- * retry, or fallback — can change the outcome: the provider has to offer an HTTPS link.
+ * It deliberately carries no transport detail: the mixed-content rule, the upstream URL and the proxy's
+ * reply are things a viewer cannot act on, so they belong in telemetry rather than on screen. A retry is
+ * not offered with it for the same reason — nothing the viewer does can change the source.
  */
-export function insecureSourceMessage(): string {
-  return 'This stream link is HTTP-only, so browsers block it on an HTTPS page. The provider must supply an HTTPS link.'
+export function streamUnavailableMessage(presenceType?: string | null): string {
+  return presenceType === 'channel'
+    ? 'This channel is temporarily unavailable.'
+    : 'This stream is temporarily unavailable.'
+}
+
+/** The second line shown under {@link streamUnavailableMessage}. */
+export function streamUnavailableDetail(presenceType?: string | null): string {
+  return presenceType === 'channel'
+    ? 'Please try again later or choose another channel.'
+    : 'Please try again later or choose another stream.'
 }
 
 // ---------------------------------------------------------------- error classification
@@ -263,6 +280,12 @@ export interface HlsErrorData {
   status?: number
 }
 
+/** Context the loader cannot carry in the error payload itself. */
+export interface HlsErrorContext {
+  /** The URL this attempt requested; tells a server-side refusal apart from a provider failure. */
+  sourceUrl?: string | null
+}
+
 /**
  * Classifies an hls.js ERROR payload.
  *
@@ -270,12 +293,19 @@ export interface HlsErrorData {
  * stalls are always treated as a buffering condition (never as a source failure), because a live
  * stream that momentarily runs out of data is still a healthy source.
  */
-export function classifyHlsError(data: HlsErrorData | null | undefined): PlaybackFailure | null {
+export function classifyHlsError(data: HlsErrorData | null | undefined, context?: HlsErrorContext): PlaybackFailure | null {
   if (!data) return null
 
   const detail = typeof data.details === 'string' ? data.details : undefined
   const status = data.response?.code ?? data.status
   const fatal = data.fatal === true
+
+  // The loader keeps the HTTP status but drops the response body, so the relay's own refusal code cannot be
+  // read back. What identifies it is the combination: a 503 carrying the request to our stream backend. A
+  // provider failure is reported as 502 from the same paths, and 5xx from a provider is never forwarded.
+  if (status === 503 && isStreamBackendRequestUrl(context?.sourceUrl)) {
+    return createFailure('relay_unavailable', fatal, detail, status)
+  }
 
   if (detail === 'bufferStalledError' || detail === 'bufferNudgeOnStall') {
     return createFailure('network', false, detail)

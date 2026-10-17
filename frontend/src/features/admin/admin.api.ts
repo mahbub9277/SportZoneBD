@@ -55,6 +55,24 @@ export interface SiteSetting {
   updatedAt?: string
 }
 
+/** What the server reports about the HTTP stream relay, including whether it could confirm the value. */
+export interface StreamRelaySettingStatus {
+  settingKey: string
+  label: string
+  description: string
+  /** Value the database holds, or null when the server could not read it. */
+  desired: boolean | null
+  /** Value the server enforces right now — fail closed, so false while the value is unknown. */
+  operational: boolean
+  degraded: boolean
+  degradedReason: string | null
+  confirmedAt: string | null
+  activeRelayRequests?: number
+  /** Echoed by the update endpoint: the value that was actually persisted. */
+  enabled?: boolean
+  previous?: boolean | null
+}
+
 /**
  * Consolidated API slice for all admin-related operations.
  */
@@ -104,6 +122,22 @@ export const adminApi = emptyApi.injectEndpoints({
       invalidatesTags: [{ type: 'AdminSettings', id: 'LIST' }],
       transformResponse: (response: ApiResponse<SiteSetting[]>) => unwrapApiResponse(response),
     }),
+    /**
+     * The server-side HTTP stream relay switch.
+     *
+     * Its own endpoint rather than a generic setting: enabling and disabling it also stops or resumes relay
+     * work on the server, so the response carries the state the database actually holds.
+     */
+    getStreamRelaySetting: builder.query<StreamRelaySettingStatus, void>({
+      query: () => '/admin/settings/stream-relay',
+      providesTags: [{ type: 'AdminSettings', id: 'STREAM_RELAY' }],
+      transformResponse: (response: ApiResponse<StreamRelaySettingStatus>) => unwrapApiResponse(response),
+    }),
+    updateStreamRelaySetting: builder.mutation<StreamRelaySettingStatus, { enabled: boolean }>({
+      query: (body) => ({ url: '/admin/settings/stream-relay', method: 'PATCH', body }),
+      invalidatesTags: [{ type: 'AdminSettings', id: 'STREAM_RELAY' }],
+      transformResponse: (response: ApiResponse<StreamRelaySettingStatus>) => unwrapApiResponse(response),
+    }),
     deleteAdminSetting: builder.mutation<void, string>({
       query: (key) => ({
         url: `/admin/settings/${key}`,
@@ -122,5 +156,7 @@ export const {
   useGetAdvertisementAnalyticsQuery,
   useGetAdminSettingsQuery,
   useUpsertAdminSettingMutation,
+  useGetStreamRelaySettingQuery,
+  useUpdateStreamRelaySettingMutation,
   useDeleteAdminSettingMutation,
 } = adminApi

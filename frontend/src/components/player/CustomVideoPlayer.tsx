@@ -26,7 +26,6 @@ import {
   classifyPlaybackException,
   createPlaybackWatchdog,
   hasStartedPlayback,
-  insecureSourceMessage,
   initialPlaybackLifecycle,
   isTerminalPlaybackStatus,
   playbackErrorMessage,
@@ -34,6 +33,8 @@ import {
   playbackLifecycleReducer,
   playbackLoaderLabel,
   playbackLoaderVariant,
+  streamUnavailableDetail,
+  streamUnavailableMessage,
   type PlaybackFailure,
   type PlaybackLifecycleAction,
   type PlaybackLifecycleState,
@@ -304,7 +305,7 @@ export function CustomVideoPlayer({
   // offer, so the caption menu lists exactly these and nothing else.
   const [hlsSubtitleTracks, setHlsSubtitleTracks] = useState<SubtitleTrack[]>([])
   const [qualityToast, setQualityToast] = useState<string | null>(null)
-  const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId, sourceType)
+  const { currentUrl, retry, reset: resetFallbackState, setError } = useHlsPlayer(url, streamId, sourceType, channelId)
   // The source type is part of the identity: switching a stream to its backup has to restart the attempt
   // even when both URLs happen to be the same string.
   const sourceKey = `${streamId || ''}|${streamId ? sourceType : ''}|${url || ''}`
@@ -352,6 +353,8 @@ export function CustomVideoPlayer({
   const sourceGenerationRef = useRef(0)
   const manualQualityRef = useRef(false)
   const currentSourceKeyRef = useRef(sourceKey)
+  /** The URL the current attempt requested: an hls.js error carries the status but not the URL. */
+  const requestUrlRef = useRef('')
   const terminatedRef = useRef(false)
   const previousSourceKeyRef = useRef(sourceKey)
   const qualityToastTimeoutRef = useRef<number | null>(null)
@@ -1047,7 +1050,7 @@ export function CustomVideoPlayer({
     }
     const onHlsError = (_event: string, data: HlsEventData) => {
       if (!isCurrentHandle()) return
-      const failure = classifyHlsError(data)
+      const failure = classifyHlsError(data, { sourceUrl: requestUrlRef.current })
       if (!failure) return
 
       if (!failure.fatal) {
@@ -1309,30 +1312,37 @@ export function CustomVideoPlayer({
     ? buildCloudinaryUrl(resolvedUrl, { resourceType: 'video', height: manualVideoHeight, crop: 'limit' })
     : resolvedUrl
 
+  useEffect(() => {
+    requestUrlRef.current = playbackUrl
+  }, [playbackUrl])
+
   /**
    * A source the browser will refuse before the request is even sent.
    *
-   * Only direct sources are judged: with a stream record the browser fetches the manifest proxy path
-   * (same-origin HTTPS) and the proxy's own HTTPS-only upstream rule — with its database fallback to the
-   * backup URL — decides what may be relayed, so blocking those here would break a working backup.
+   * It only describes what the browser is about to fetch: an `http://` URL that is still direct. A record
+   * with an id is fetched through the proxy path instead (same-origin HTTPS), so the server — not this
+   * check — decides whether that source may be relayed over HTTPS, and a backup that does play is never
+   * cut short here.
    */
-  const isBlockedByMixedContent = !streamId && isInsecurePlaybackSource(resolvedUrl, window.location.protocol)
+  const isBlockedByMixedContent = !streamId && !channelId && isInsecurePlaybackSource(resolvedUrl, window.location.protocol)
 
   /**
-   * Ends the attempt before it starts, so the viewer is told the real reason instead of waiting for a
-   * doomed request, an opaque media error, and the watchdog timeout that reports the same outcome.
+   * Ends the attempt before it starts instead of waiting for a doomed request, an opaque media error, and
+   * the watchdog timeout that reports the same outcome.
    */
   useEffect(() => {
     if (!isBlockedByMixedContent) return
 
-    const message = insecureSourceMessage()
+    // The reason stays in telemetry for an operator, while the viewer sees the same friendly copy as any
+    // other unavailable source.
+    const message = streamUnavailableMessage(presenceType)
     trackTelemetry('network_error', { kind: 'network', detail: 'insecureSource' })
     dispatchLifecycle({ type: 'FAILED', sourceKey, kind: 'network' })
     dispatchLifecycle({ type: 'EXHAUSTED', sourceKey })
     setError(message)
     dispatch({ type: 'SET_ERROR', payload: message })
     if (typeof onPlayerError === 'function') onPlayerError(message)
-  }, [dispatch, dispatchLifecycle, isBlockedByMixedContent, onPlayerError, setError, sourceKey, trackTelemetry])
+  }, [dispatch, dispatchLifecycle, isBlockedByMixedContent, onPlayerError, presenceType, setError, sourceKey, trackTelemetry])
 
   const handlePlayPause = useCallback(() => {
     const video = getVideoElement()
@@ -2077,29 +2087,36 @@ export function CustomVideoPlayer({
     ...(isHlsSource ? { hls: hlsOptions } : {}),
   }) as ReactPlayerProps['config'], [hlsOptions, isHlsSource])
 
-  if (!resolvedUrl) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-black">
-        <div className="text-center text-(--text-muted)">
-          <Tv size={48} className="mx-auto mb-4" />
-          <p>Stream unavailable</p>
+  /**
+   * The two "nothing to play" states.
+   *
+   * They render the player's own frame — the same responsive container class, aspect ratio, rounding and
+   * shadow the video uses — so the notice occupies exactly the video's box instead of collapsing to its
+   * own arbitrary height, and no layout shift or permanent black screen is introduced.
+   */
+  const renderUnavailableNotice = (heading: string, detail: string) => (
+    <div
+      aria-label={title ? `${title} video player` : 'Video player'}
+      className={getPlayerContainerClass({ compact: compactControls, fullscreen: isFullscreen })}
+    >
+      <div className="absolute inset-0 z-30 flex items-center justify-center px-5 text-center">
+        <div className="max-w-xs">
+          <Tv className="mx-auto mb-3 h-10 w-10 text-(--text-muted) sm:mb-4 sm:h-12 sm:w-12" />
+          <h3 className="text-sm font-semibold text-white/95 sm:text-base lg:text-lg">{heading}</h3>
+          <p className="mt-1.5 text-xs leading-relaxed text-(--text-muted) sm:mt-2 sm:text-sm">{detail}</p>
         </div>
       </div>
-    )
+    </div>
+  )
+
+  if (!resolvedUrl) {
+    return renderUnavailableNotice(streamUnavailableMessage(presenceType), streamUnavailableDetail(presenceType))
   }
 
   // The player is never mounted for a source the browser would refuse, so no request is made and no
   // loader can wait on data that cannot arrive.
   if (isBlockedByMixedContent) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-black px-6">
-        <div className="max-w-md text-center text-(--text-muted)">
-          <AlertCircle size={48} className="mx-auto mb-4 text-amber-400/80" />
-          <p className="text-sm font-medium text-white/90">Insecure stream link</p>
-          <p className="mt-1 text-xs leading-relaxed">{insecureSourceMessage()}</p>
-        </div>
-      </div>
-    )
+    return renderUnavailableNotice(streamUnavailableMessage(presenceType), streamUnavailableDetail(presenceType))
   }
 
   // One status for the whole surface, derived from the lifecycle: an initial load or a retry shows the

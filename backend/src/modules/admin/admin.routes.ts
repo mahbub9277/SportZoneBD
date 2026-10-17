@@ -10,6 +10,7 @@ import emailTemplatesRouter from './email.templates.routes.js'
 import { emailTemplatesController } from './email.templates.controller.js'
 import { adminMatchesRouter } from './admin.matches.routes.js'
 import { settingsController } from './settings.controller.js'
+import { streamRelayController } from './streamRelay.controller.js'
 import { getAllPayments } from '../payments/payment.controller.js'
 import { getPermissions } from './permissions.controller.js'
 import { mediaRouter } from './media.routes.js'
@@ -77,6 +78,9 @@ adminRouter.use('/email-templates', requirePermission('admin.content.manage'), e
 // Settings
 adminRouter.get('/settings', requirePermission('admin.settings.manage'), settingsController.getSettings)
 adminRouter.patch('/settings', requirePermission('admin.settings.manage'), settingsController.updateSettings)
+// The HTTP stream relay switch: its own endpoint, because applying it also stops active relay work.
+adminRouter.get('/settings/stream-relay', requirePermission('admin.settings.manage'), streamRelayController.getStreamRelaySetting)
+adminRouter.patch('/settings/stream-relay', requirePermission('admin.settings.manage'), streamRelayController.updateStreamRelaySetting)
 adminRouter.get('/push-notification-templates', requirePermission('admin.settings.manage'), settingsController.getPushNotificationTemplates)
 adminRouter.post('/push-notification-templates', requirePermission('admin.settings.manage'), settingsController.createPushNotificationTemplate)
 adminRouter.patch('/push-notification-templates/:id', requirePermission('admin.settings.manage'), settingsController.updatePushNotificationTemplate)

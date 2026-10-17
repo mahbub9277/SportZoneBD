@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createPinnedLookup, validateProxyRedirect, validateProxyTargetUrl } from './ssrfGuard.js'
+import { createPinnedLookup, isHostAllowlisted, validateProxyRedirect, validateProxyTargetUrl } from './ssrfGuard.js'
 
 const allowlist = ['example.com']
 const resolvePublicHost = async () => ['8.8.8.8']
@@ -51,6 +51,21 @@ test('rejects public hostnames resolving to private addresses', async () => {
     }),
     /Resolved address is private or local/,
   )
+})
+
+test('the allowlist matches an exact host or its subdomains, and nothing else', () => {
+  const allowlist = ['example.com', 'cdn.other.test']
+
+  // A trailing dot is the root-anchored spelling of the same host, so it matches too.
+  for (const host of ['example.com', 'EXAMPLE.com', 'live.example.com', 'a.b.example.com', 'cdn.other.test', 'example.com.']) {
+    assert.equal(isHostAllowlisted(host, allowlist), true, host)
+  }
+  for (const host of ['notexample.com', 'example.com.evil.test', 'other.test', 'evil-example.com', '', '   ']) {
+    assert.equal(isHostAllowlisted(host, allowlist), false, host)
+  }
+
+  // An empty allowlist authorizes nothing, which is what keeps an unlisted provider off the relay.
+  assert.equal(isHostAllowlisted('example.com', []), false)
 })
 
 test('rejects unsupported protocols and embedded URL credentials', async () => {

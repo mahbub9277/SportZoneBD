@@ -9,7 +9,6 @@ import {
   classifyPlaybackException,
   createPlaybackWatchdog,
   hasSourceAttemptsRemaining,
-  insecureSourceMessage,
   initialPlaybackLifecycle,
   isTerminalPlaybackStatus,
   playbackErrorMessage,
@@ -17,6 +16,8 @@ import {
   playbackLifecycleReducer,
   playbackLoaderLabel,
   playbackLoaderVariant,
+  streamUnavailableDetail,
+  streamUnavailableMessage,
   type PlaybackErrorKind,
   type PlaybackLifecycleAction,
   type PlaybackLifecycleState,
@@ -105,6 +106,35 @@ test('manifest timeouts and parsing errors are classified separately', () => {
   assert.equal(classifyHlsError({ type: 'otherError', details: 'internalException', fatal: true })?.kind, 'decoder')
   assert.equal(classifyHlsError({ type: 'networkError', details: 'levelLoadError', fatal: true })?.detail, 'levelLoadError')
   assert.equal(classifyHlsError({ type: 'networkError', details: 'unknownDetail', fatal: true })?.kind, 'network')
+})
+
+test('a refused relay is reported as an unavailable source, and only for our own backend', () => {
+  const data = { type: 'networkError', details: 'manifestLoadError', fatal: true, response: { code: 503 } }
+
+  // The server refused to serve the source. hls.js drops the response body, so the request being ours is
+  // what identifies it: the provider never answers 503 through these paths (it is reported as 502).
+  assert.deepEqual(classifyHlsError(data, { sourceUrl: '/api/v1/stream/proxy?channelId=c&type=primary&url=http%3A%2F%2Fp.example%2Fi.m3u8' }), {
+    kind: 'relay_unavailable', fatal: true, detail: 'manifestLoadError', status: 503,
+  })
+  assert.equal(
+    classifyHlsError(data, { sourceUrl: 'https://sportzonebd-1.onrender.com/api/v1/stream/relay?channelId=c' })?.kind,
+    'relay_unavailable',
+  )
+
+  // The same status from anywhere else keeps the existing meaning, as does a request our backend answered
+  // with another status.
+  assert.equal(classifyHlsError(data, { sourceUrl: 'http://stream.mcquack.net/234/index.m3u8' })?.kind, 'network')
+  assert.equal(classifyHlsError(data)?.kind, 'network')
+  assert.equal(
+    classifyHlsError({ ...data, response: { code: 502 } }, { sourceUrl: '/api/v1/stream/proxy?streamId=s' })?.kind,
+    'network',
+  )
+  assert.equal(classifyHlsError({ ...data, fatal: false }, { sourceUrl: '/api/v1/stream/relay?channelId=c' })?.fatal, false)
+})
+
+test('the viewer is told an unavailable source without being told anything internal', () => {
+  assert.equal(playbackErrorMessage('relay_unavailable'), 'This stream is temporarily unavailable.')
+  assert.doesNotMatch(playbackErrorMessage('relay_unavailable'), /relay|http|proxy|503/i)
 })
 
 test('a buffer stall is a buffering condition, never an initial source failure', () => {
@@ -278,12 +308,21 @@ test('every error kind has viewer-facing copy without technical detail', () => {
   }
 })
 
-test('the insecure-source copy names the requirement instead of inviting a retry', () => {
-  const message = insecureSourceMessage()
-  assert.match(message, /HTTP-only/i)
-  assert.doesNotMatch(message, /please try again|retry/i)
-  // No provider URL or player internals leak into viewer-facing copy.
-  assert.doesNotMatch(message, /https?:|m3u8|hls\.js|Error:|undefined/i)
+test('the unavailable copy is friendly, channel-aware and free of transport detail', () => {
+  const channelMessage = streamUnavailableMessage('channel')
+  const streamMessage = streamUnavailableMessage('stream')
+
+  assert.match(channelMessage, /channel is temporarily unavailable/i)
+  assert.match(streamMessage, /stream is temporarily unavailable/i)
+  // An unknown surface still reads as a stream rather than leaking an internal name.
+  assert.equal(streamUnavailableMessage(undefined), streamMessage)
+  assert.match(streamUnavailableDetail('channel'), /another channel/i)
+  assert.match(streamUnavailableDetail('stream'), /another stream/i)
+
+  // No upstream URL, transport rule, status code or player internal ever reaches a viewer.
+  for (const message of [channelMessage, streamMessage, streamUnavailableDetail('channel'), streamUnavailableDetail('stream')]) {
+    assert.doesNotMatch(message, /https?:|m3u8|hls\.js|Error:|undefined|proxy|insecure|forbidden|\b\d{3}\b/i)
+  }
 })
 
 test('the watchdog fires only after a silent period and is reset by progress', (t) => {

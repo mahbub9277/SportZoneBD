@@ -54,7 +54,7 @@ export function ManageChannelPage() {
       <Card className="relative overflow-hidden border-border bg-transparent p-0 shadow-lg">
         <div className="aspect-video w-full bg-black/80">
           {channel.url ? (
-            <CustomVideoPlayer url={channel.url} presenceId={channel.id} presenceType="channel" />
+            <CustomVideoPlayer url={channel.url} presenceId={channel.id} channelId={channel.id} presenceType="channel" />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center bg-black text-center text-muted-foreground">
               <motion.div whileHover={{ scale: 1.15, rotate: 5 }}><Tv size={48} className="mx-auto mb-4" /></motion.div>

@@ -9,20 +9,68 @@
 export function buildHlsPlaybackUrl(options: {
   url: string | null | undefined
   streamId?: string | null
+  channelId?: string | null
   usedBackup: boolean
   forceDirectUrl: boolean
+  /** The page's protocol. Only used to spot a source the browser would refuse to fetch itself. */
+  pageProtocol?: string
 }): string | null {
-  const { url, streamId, usedBackup, forceDirectUrl } = options
+  const { url, streamId, channelId, usedBackup, forceDirectUrl, pageProtocol = 'https:' } = options
   if (!url) return null
-  if (!streamId || forceDirectUrl) return url
+  if (forceDirectUrl) return url
 
-  const params = new URLSearchParams({
-    streamId,
-    type: usedBackup ? 'backup' : 'primary',
-    url,
-  })
+  // A stream record is always proxied: the server owns which of its two sources `type` means.
+  if (streamId) {
+    const params = new URLSearchParams({
+      streamId,
+      type: usedBackup ? 'backup' : 'primary',
+      url,
+    })
 
-  return `/api/v1/stream/proxy?${params.toString()}`
+    return `/api/v1/stream/proxy?${params.toString()}`
+  }
+
+  // A channel is played straight from the provider while the browser can fetch it, which is every HTTPS
+  // source. An `http://` source cannot be fetched by an HTTPS page at all, so it is handed to the server,
+  // which either serves it over HTTPS through its relay (only for an explicitly allowlisted provider) or
+  // refuses it — the browser never issues the blocked request either way.
+  if (channelId && isInsecurePlaybackSource(url, pageProtocol)) {
+    const params = new URLSearchParams({
+      channelId,
+      type: usedBackup ? 'backup' : 'primary',
+      url,
+    })
+
+    return `/api/v1/stream/proxy?${params.toString()}`
+  }
+
+  return url
+}
+
+/** The paths the backend serves stream manifests and relayed media from. */
+const STREAM_BACKEND_PATHS = ['/api/v1/stream/proxy', '/api/v1/stream/relay']
+
+/**
+ * Whether a playback URL is served by our own stream backend rather than by the provider.
+ *
+ * When such a request fails, the reply came from the server the app controls, so its status describes the
+ * server's own condition — a rejected relay, a busy relay, an outage — and not the provider's stream. Both
+ * a relative proxy path and an absolute deployment URL are recognised, because either can appear
+ * depending on how the app is deployed.
+ */
+export function isStreamBackendRequestUrl(url: string | null | undefined): boolean {
+  const trimmedUrl = typeof url === 'string' ? url.trim() : ''
+  if (!trimmedUrl) return false
+
+  const path = trimmedUrl.startsWith('/') ? trimmedUrl : (() => {
+    try {
+      return new URL(trimmedUrl).pathname
+    } catch {
+      return ''
+    }
+  })()
+
+  return STREAM_BACKEND_PATHS.some((backendPath) => path === backendPath || path.startsWith(`${backendPath}?`))
 }
 
 export type PlaybackSourceScheme = 'http' | 'https' | 'other'

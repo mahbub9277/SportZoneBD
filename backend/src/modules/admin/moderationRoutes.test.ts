@@ -49,6 +49,8 @@ const GATE_CASES: GateCase[] = [
   { what: 'dashboard statistics', router: adminRouter, method: 'get', path: '/dashboard/stats', permission: 'admin.dashboard.view' },
   { what: 'user administration', router: adminRouter, method: 'get', path: '/permissions', permission: 'admin.users.manage' },
   { what: 'platform settings', router: adminRouter, method: 'get', path: '/settings', permission: 'admin.settings.manage' },
+  { what: 'http stream relay state', router: adminRouter, method: 'get', path: '/settings/stream-relay', permission: 'admin.settings.manage' },
+  { what: 'http stream relay change', router: adminRouter, method: 'patch', path: '/settings/stream-relay', permission: 'admin.settings.manage' },
 ]
 
 /** Routes that are mounted rather than registered, so their gate lives on the mount. */
@@ -267,4 +269,14 @@ test('a request with the reported permissions reaches the controller the route b
     403,
     'holding the permission must not be refused by the gate',
   )
+})
+
+test('the http stream relay switch can only be changed through its own endpoint', async () => {
+  const { STREAM_RELAY_SETTING_KEY } = await import('../../core/streamRelaySwitch.js')
+  const { hasDedicatedSettingEndpoint } = await import('./settings.controller.js')
+
+  // The generic settings endpoint writes any key it is handed, so the relay key has to be excluded from it
+  // — otherwise the switch could be flipped without the endpoint that also stops active relay work.
+  assert.equal(hasDedicatedSettingEndpoint(STREAM_RELAY_SETTING_KEY), true)
+  assert.equal(hasDedicatedSettingEndpoint('site.title'), false)
 })
