@@ -12,6 +12,7 @@ import { UploadProgress } from '../../../components/ui/UploadProgress'
 import type { MediaUploadProgressUpdate } from '../../../utils/uploadProgress'
 import { QualityPresetSelect } from './QualityPresetSelect'
 import { insecureSourceAdminWarning } from '../../../utils/streamPlaybackUrl'
+import { resolveChannelPlaybackUrl, STREAM_CHANNEL_URL_MISSING } from './streamFormValidation'
 import {
   STREAM_SOURCE_TYPE_OPTIONS,
   STREAM_STATUS_OPTIONS,
@@ -56,6 +57,7 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
   const sourceType = form.watch('sourceType')
   const selectedMatch = matches.find((match) => match.id === form.watch('matchId'))
   const selectedChannel = channels.find((channel) => channel.id === form.watch('channelId'))
+  const selectedChannelPlaybackUrl = resolveChannelPlaybackUrl(selectedChannel)
   // The proxy refuses non-HTTPS upstreams in production, so an http source cannot play either way.
   const primaryUrlWarning = insecureSourceAdminWarning(form.watch('primaryUrl'))
   const backupUrlWarning = insecureSourceAdminWarning(form.watch('backupUrl'))
@@ -89,7 +91,17 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
           </FormItem>
         )} />
         <FormField control={form.control} name="primaryUrl" render={({ field }) => (
-          <FormItem className="md:col-span-2"><FormLabel>Primary URL</FormLabel><FormControl><Input {...field} placeholder="https://..." required /></FormControl>{primaryUrlWarning && <p className="text-xs text-amber-400">{primaryUrlWarning}</p>}<FormMessage /></FormItem>
+          <FormItem className="md:col-span-2">
+            <FormLabel>{sourceType === 'CHANNEL' ? 'Primary URL (optional for a channel stream)' : 'Primary URL'}</FormLabel>
+            <FormControl>
+              {/* A channel-sourced stream plays from the linked channel, so the field is not required there —
+                  the native `required` attribute would otherwise block the save before validation runs. */}
+              <Input {...field} placeholder="https://..." required={sourceType !== 'CHANNEL'} />
+            </FormControl>
+            {sourceType === 'CHANNEL' && <p className="text-xs text-text-muted">Leave this empty to play from the selected channel&apos;s existing URL.</p>}
+            {primaryUrlWarning && <p className="text-xs text-amber-400">{primaryUrlWarning}</p>}
+            <FormMessage />
+          </FormItem>
         )} />
         <FormField control={form.control} name="backupUrl" render={({ field }) => (
           <FormItem className="md:col-span-2"><FormLabel>Backup URL (Optional)</FormLabel><FormControl><Input {...field} value={field.value ?? ''} placeholder="https://..." /></FormControl>{backupUrlWarning && <p className="text-xs text-amber-400">{backupUrlWarning}</p>}<FormMessage /></FormItem>
@@ -128,7 +140,9 @@ export function StreamForm({ form, onSubmit, isLoading, matches, channels, onLog
           <FormItem><FormLabel>Stream type</FormLabel><Select onValueChange={field.onChange} value={field.value} disabled={isLoading}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{STREAM_SOURCE_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem>
         )} />
         {sourceType === 'CHANNEL' && <FormField control={form.control} name="channelId" render={({ field }) => (
-          <FormItem><FormLabel>Existing channel</FormLabel><Input value={channelSearch} onChange={(event) => setChannelSearch(event.target.value)} placeholder="Search channels..." className="mb-2" /><Select onValueChange={field.onChange} value={field.value ?? ''} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an existing channel"><span className="block truncate">{selectedChannel ? selectedChannel.name : 'Select an existing channel'}</span></SelectValue></SelectTrigger></FormControl><SelectPortal><SelectContent>{selectableChannels.map((channel) => <SelectItem key={channel.id} value={channel.id} className="gap-2.5 pl-8"><StreamOptionBadge name={channel.name} logo={channel.logo} /><span className="min-w-0 truncate">{channel.name}{channel.category?.name ? ` · ${channel.category.name}` : ''}</span></SelectItem>)}</SelectContent></SelectPortal></Select>{selectedChannel && <p className="mt-2 text-xs text-text-muted">Using existing {selectedChannel.name} channel record{selectedChannel.category?.name ? ` in ${selectedChannel.category.name}` : ''}.</p>}<FormMessage /></FormItem>
+          <FormItem><FormLabel>Existing channel</FormLabel><Input value={channelSearch} onChange={(event) => setChannelSearch(event.target.value)} placeholder="Search channels..." className="mb-2" /><Select onValueChange={field.onChange} value={field.value ?? ''} disabled={isLoading}><FormControl><SelectTrigger><SelectValue placeholder="Select an existing channel"><span className="block truncate">{selectedChannel ? selectedChannel.name : 'Select an existing channel'}</span></SelectValue></SelectTrigger></FormControl><SelectPortal><SelectContent>{selectableChannels.map((channel) => <SelectItem key={channel.id} value={channel.id} className="gap-2.5 pl-8"><StreamOptionBadge name={channel.name} logo={channel.logo} /><span className="min-w-0 truncate">{channel.name}{channel.category?.name ? ` · ${channel.category.name}` : ''}</span></SelectItem>)}</SelectContent></SelectPortal></Select>{selectedChannel && <p className="mt-2 text-xs text-text-muted">Using existing {selectedChannel.name} channel record{selectedChannel.category?.name ? ` in ${selectedChannel.category.name}` : ''}.</p>}{selectedChannel && (selectedChannelPlaybackUrl
+            ? <p className="mt-1 text-xs text-text-muted">Playback uses this channel&apos;s existing URL: <span className="break-all">{selectedChannelPlaybackUrl}</span></p>
+            : <p className="mt-1 text-xs font-medium text-red-400">{STREAM_CHANNEL_URL_MISSING}</p>)}<FormMessage /></FormItem>
         )} />}
         <FormField control={form.control} name="quality" render={({ field }) => (
           <FormItem><FormLabel>Quality</FormLabel>

@@ -14,6 +14,7 @@ import { writeAuditLog } from '../../core/audit.js'
 import { AppError } from '../../core/errors.js'
 import { resolveTeam } from '../teams/team.service.js'
 import { resolveFinishedMatchRetentionMinutes } from '../../services/finishedMatchRetention.js'
+import { buildFinishedMatchStreamUpdate } from '../../services/matchStreamLifecycle.js'
 import { parsePendingMatchFilters } from './pendingMatches.js'
 import {
   buildAcceptablePendingWhere,
@@ -586,9 +587,11 @@ export const updateMatchStatus = asyncHandler(async (req: Request, res: Response
 
   const updatedMatch = await prisma.$transaction(async (tx) => {
     if (status === 'FINISHED') {
+      // Playback stops immediately, but the stream row is kept: the match and its stream are removed
+      // together when the finished-match retention window expires.
       await tx.stream.updateMany({
         where: { matchId: id, deletedAt: null },
-        data: { enabled: false, status: 'OFFLINE', deletedAt: new Date() },
+        data: buildFinishedMatchStreamUpdate(),
       })
     }
 

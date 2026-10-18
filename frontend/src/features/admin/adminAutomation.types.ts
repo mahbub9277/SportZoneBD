@@ -53,3 +53,20 @@ export type AutomationMetrics = Record<string, unknown> & {
  * Represents the paginated response for automation logs.
  */
 export type AutomationLogsResponse = PaginatedResult<AutomationLog>
+
+/**
+ * The outcome of the "delete logs older than 30 days" cleanup. Mirrors the backend payload exactly: the
+ * counts are what the database confirmed, and `complete` is only true when nothing older than the cutoff is
+ * left.
+ */
+export interface AutomationLogRetentionResult {
+  /** ISO 8601 instant used as the retention boundary. */
+  cutoff: string
+  deletedCount: number
+  remainingCount: number | null
+  complete: boolean
+  retentionDays: number
+  batchSize: number
+  maxPerRequest: number
+  batches: number
+}

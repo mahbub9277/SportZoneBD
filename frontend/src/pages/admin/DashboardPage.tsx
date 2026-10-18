@@ -1,13 +1,16 @@
 import { memo, startTransition, useEffect, useState, type ElementType } from 'react'
-import { Users, Swords, DollarSign, Radio, Clock3, Sparkles, ShieldCheck, TrendingUp, Zap, AlertCircle, Activity, CheckCircle2, XCircle, Clock, Gauge } from 'lucide-react'
+import { Users, Swords, DollarSign, Radio, Clock3, Sparkles, ShieldCheck, TrendingUp, Zap, AlertCircle, Activity, CheckCircle2, XCircle, Clock, Gauge, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useGetDashboardStatsQuery } from '../../features/admin/admin.api'
-import { useGetAutomationStatusQuery, useGetAutomationMetricsQuery, useTriggerManualSyncMutation } from '../../features/admin/adminAutomation.api' 
+import { useGetAutomationStatusQuery, useGetAutomationMetricsQuery, useTriggerManualSyncMutation, useDeleteAutomationLogsOlderThanRetentionMutation } from '../../features/admin/adminAutomation.api'
+import { describeRetentionFailure, describeRetentionOutcome } from '../../features/admin/automationLogRetentionFeedback'
 import { useRealtimeAutomationUpdates } from '../../features/admin/useRealtimeAutomationUpdates'
 import { Button } from '../../components/ui/Button'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
 import { formatCurrency } from '../../lib/utils'
 import { useSocket } from '../../hooks/useSocket'
 import { useGetStreamHealthSummaryQuery } from '../../features/analytics/analytics.api'
@@ -104,6 +107,8 @@ const AdminDashboardPage = () => {
   const { data: automationStatus, isLoading: isAutomationStatusLoading } = useGetAutomationStatusQuery(undefined)
   const { data: automationMetrics, isLoading: isAutomationMetricsLoading } = useGetAutomationMetricsQuery(undefined)
   const [triggerManualSync, { isLoading: isSyncLoading }] = useTriggerManualSyncMutation()
+  const [deleteOldAutomationLogs, { isLoading: isRetentionCleanupLoading }] = useDeleteAutomationLogsOlderThanRetentionMutation()
+  const [isRetentionDialogOpen, setIsRetentionDialogOpen] = useState(false)
   useRealtimeAutomationUpdates() // Handles all socket events and cache updates
 
   useEffect(() => {
@@ -162,6 +167,26 @@ const AdminDashboardPage = () => {
       await triggerManualSync().unwrap()
     } catch (error) {
       console.error('Failed to trigger manual sync:', error)
+    }
+  }
+
+  /**
+   * Deletes the automation logs older than the retention window.
+   *
+   * The dialog closes first so the button cannot be pressed twice while the request is in flight, and the
+   * toast is built from what the backend confirmed — a failure is never presented as a success.
+   */
+  const handleRetentionCleanup = async () => {
+    if (isRetentionCleanupLoading) return
+    setIsRetentionDialogOpen(false)
+
+    try {
+      const result = await deleteOldAutomationLogs().unwrap()
+      const feedback = describeRetentionOutcome(result)
+      toast[feedback.tone](feedback.title, { description: feedback.description })
+    } catch (error) {
+      const feedback = describeRetentionFailure(error)
+      toast[feedback.tone](feedback.title, { description: feedback.description })
     }
   }
 
@@ -441,11 +466,28 @@ const AdminDashboardPage = () => {
         <motion.div whileHover={{ y: -5 }} transition={{ type: 'spring', stiffness: 300 }}>
           <Card className="border border-(--border) bg-linear-to-br from-(--surface-soft)/80 via-(--surface-soft)/40 to-(--surface)">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Activity className="h-5 w-5 text-(--accent)" />
-                Recent logs
-              </CardTitle>
-              <p className="text-sm text-(--text-muted)">Last automation actions</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-(--accent)" />
+                    Recent logs
+                  </CardTitle>
+                  <p className="text-sm text-(--text-muted)">Last automation actions</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-(--border) text-(--text-secondary) hover:border-red-500/50 hover:text-red-400"
+                  onClick={() => setIsRetentionDialogOpen(true)}
+                  disabled={isRetentionCleanupLoading}
+                  aria-label="Delete automation logs older than 30 days"
+                  title="Permanently delete automation logs older than 30 days"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  {isRetentionCleanupLoading ? 'Deleting…' : 'Delete logs older than 30 days'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {isAutomationStatusLoading ? (
@@ -495,6 +537,31 @@ const AdminDashboardPage = () => {
           </Card>
         </motion.div>
       </motion.div>
+
+      <AlertDialog open={isRetentionDialogOpen} onOpenChange={setIsRetentionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete automation logs older than 30 days?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>Only AutomationLog records created more than 30 days ago will be deleted.</p>
+                <p>Recent records — everything from the last 30 days, whatever its status — will remain.</p>
+                <p className="font-semibold text-red-500">Deletion is permanent and cannot be undone.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRetentionCleanupLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleRetentionCleanup()}
+              disabled={isRetentionCleanupLoading}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isRetentionCleanupLoading ? 'Deleting…' : 'Delete old logs'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

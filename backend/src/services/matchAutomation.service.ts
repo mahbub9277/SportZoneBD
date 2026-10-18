@@ -5,6 +5,7 @@ import { validateProxyTargetUrl } from '../utils/ssrfGuard.js'
 import { emitAutomationStatusUpdate, emitAutomationMetricsUpdate, emitAutomationLogEntry, emitAdminResourceUpdated } from '../core/socketManager.js'
 import { notifyMatchStarted, notifyMatchReminder, MATCH_PUSH_SELECT } from './notification.service.js'
 import { cleanupMatch } from './match-cleanup.service.js'
+import { buildFinishedMatchStreamUpdate } from './matchStreamLifecycle.js'
 import { prewarmUpcomingMatches, cleanupCloudinaryOrphans } from './automation-support.service.js'
 import { AUTOMATION_METRICS_ACTIONS, AUTOMATION_METRICS_WINDOW_MS, summarizeAutomationMetrics } from './automationMetrics.js'
 import { isRedisConfigured, redis } from '../core/redis.js'
@@ -419,9 +420,10 @@ export class MatchAutomationService {
     if (matchesToFinish.length > 0) {
       const finishedMatchIds = matchesToFinish.map((match) => match.id)
       await prisma.$transaction([
+        // Playback stops now; the rows stay with the match until the retention cleanup deletes both.
         prisma.stream.updateMany({
           where: { matchId: { in: finishedMatchIds }, deletedAt: null },
-          data: { enabled: false, status: 'OFFLINE', deletedAt: now },
+          data: buildFinishedMatchStreamUpdate(),
         }),
         prisma.match.updateMany({
           where: { id: { in: finishedMatchIds }, status: 'LIVE' },

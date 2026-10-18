@@ -14,27 +14,26 @@ import { cn } from '../../lib/utils'
 import { useGetActiveBannersQuery, type Banner } from '../admin/banners.api'
 import { filterMatches, getMatchStatus, selectLiveSectionMatches, sortMatches } from '../matches/matchOrdering'
 import { formatMatchKickoff, getMatchCalendarWindowEnd } from '../../utils/matchDateTime'
-import { buildCloudinaryUrl } from '../../utils/cloudinary'
+import {
+  BANNER_MOBILE_MEDIA,
+  BANNER_TABLET_MEDIA,
+  buildBannerArtwork,
+} from './bannerRenditions'
 import { selectTeamLogo, teamInitials } from '../../utils/teamLogo'
 import { useMatchSectionClock } from '../../hooks/useMatchSectionClock'
+import { buildCloudinaryUrl } from '../../utils/cloudinary'
 
 const HOMEPAGE_MATCH_LIMIT = 24
 
-const BANNER_IMAGE_WIDTHS = [640, 960, 1280, 1600, 1920]
-
-// The banner specification is unchanged; this only lets the browser download the width it actually
-// needs. The URLs come from the shared Cloudinary builder, so a non-Cloudinary URL is still handed
-// back untouched and `dpr_auto` stays out of the descriptors.
-const buildBannerSrcSet = (url?: string | null) => {
-  if (!url || !/cloudinary\.com/i.test(url)) return undefined
-
-  return BANNER_IMAGE_WIDTHS
-    .map((width) => `${buildCloudinaryUrl(url, { width, crop: 'fill', gravity: 'center' })} ${width}w`)
-    .join(', ')
-}
-
-// Mirrors the homepage shell insets (px-3 / sm:px-4 / lg:px-6) and its 1920px max width.
-const BANNER_SIZES = '(min-width: 1920px) 1856px, (min-width: 1024px) calc(100vw - 48px), (min-width: 640px) calc(100vw - 32px), calc(100vw - 24px)'
+/**
+ * The hero's box per device class.
+ *
+ * Desktop (`lg`) keeps the established 16:5 composition. Tablet (`sm`) is slightly shorter than the old
+ * 16:7, and mobile is a compact 5:2 horizontal box instead of the previous 16:7 image with a second
+ * full-width text panel stacked under it — that stack, not the artwork, is what made the mobile hero tall
+ * and pushed the rest of the page (and its LCP element) down.
+ */
+const BANNER_FRAME_CLASS = 'aspect-5/2 min-h-34 sm:aspect-12/5 sm:min-h-52 lg:aspect-16/5 lg:min-h-0'
 
 export function HomePage() {
   const { data: matchesData, isLoading, isError } = useGetMatchesQuery({
@@ -115,6 +114,9 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
 
   useEffect(() => {
     if (banners.length < 2 || typeof document === 'undefined') return
+    // A rotating hero is motion; a visitor who asked for less of it gets the artwork without the rotation
+    // and can still switch banners with the controls.
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     const advance = () => {
       if (!document.hidden) {
         setSlideDirection(1)
@@ -130,10 +132,14 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
   const bannerLink = banner.ctaUrl?.trim() || ''
   // A banner may legitimately have no title; the homepage then renders no heading instead of a label.
   const displayTitle = banner.title?.trim() ?? ''
-  const bannerImage = buildCloudinaryUrl(banner.imageUrl ?? banner.posterUrl ?? null, { width: 1800, crop: 'fill', gravity: 'center' })
-  const bannerPoster = buildCloudinaryUrl(banner.posterUrl ?? banner.imageUrl ?? null, { width: 1600, crop: 'fill', gravity: 'center' })
+  const artwork = buildBannerArtwork(banner.imageUrl ?? banner.posterUrl)
+  const posterArtwork = buildBannerArtwork(banner.posterUrl ?? banner.imageUrl)
+  // The video poster keeps the exact width it had before this change; only its srcSet is new.
+  const bannerPoster = banner.posterUrl || banner.imageUrl
+    ? buildCloudinaryUrl(banner.posterUrl ?? banner.imageUrl, { width: 1600, crop: 'fill', gravity: 'center' })
+    : ''
   const bannerLinkLabel = displayTitle || banner.ctaText?.trim() || 'featured banner'
-  const bannerHasMedia = isVideo || Boolean(bannerImage)
+  const bannerHasMedia = isVideo || Boolean(artwork)
   // The placeholder covers the media area until this banner's own media can paint, and never appears for a
   // banner that has no media at all (so it cannot get stuck).
   const showBannerPlaceholder = bannerHasMedia && readyBannerId !== banner.id
@@ -143,18 +149,28 @@ const BannerHero = ({ banners, activeIndex, setActiveIndex }: { banners: Banner[
     setSlideDirection(index >= activeIndex ? 1 : -1)
     setActiveIndex(index)
   }
-  return <motion.section role={bannerLink ? 'link' : undefined} tabIndex={bannerLink ? 0 : undefined} onClick={bannerLink ? openBannerLink : undefined} onKeyDown={bannerLink ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openBannerLink() } } : undefined} aria-label={bannerLink ? `Open ${bannerLinkLabel}${displayTitle && banner.ctaText?.trim() ? `: ${banner.ctaText}` : ''}` : undefined} className={cn('relative w-full overflow-hidden rounded-3xl border border-white/10 bg-(--surface-strong) shadow-premium', 'sm:aspect-16/7 sm:min-h-60 lg:aspect-16/5', bannerLink && 'cursor-pointer')} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
+  // When the title is rendered as text next to the image, the artwork itself carries no information a
+  // screen reader would miss — so it is decorative. Without a title it gets the closest description there is.
+  const bannerImageAlt = displayTitle ? '' : (banner.badge?.trim() || 'SportZoneBD banner')
+  return <motion.section role={bannerLink ? 'link' : undefined} tabIndex={bannerLink ? 0 : undefined} onClick={bannerLink ? openBannerLink : undefined} onKeyDown={bannerLink ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openBannerLink() } } : undefined} aria-label={bannerLink ? `Open ${bannerLinkLabel}${displayTitle && banner.ctaText?.trim() ? `: ${banner.ctaText}` : ''}` : undefined} className={cn('relative w-full overflow-hidden rounded-3xl border border-white/10 bg-(--surface-strong) shadow-premium', BANNER_FRAME_CLASS, bannerLink && 'cursor-pointer')} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}>
     <AnimatePresence initial={false} mode="wait" custom={slideDirection}>
-      <motion.div key={banner.id} custom={slideDirection} variants={{ enter: (direction: number) => ({ opacity: 0, x: direction * 44, scale: 1.025 }), center: { opacity: 1, x: 0, scale: 1 }, exit: (direction: number) => ({ opacity: 0, x: direction * -44, scale: 0.99 }) }} initial="enter" animate="center" exit="exit" transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} className="relative sm:absolute sm:inset-0">
-        <div className="relative aspect-16/7 min-h-44 w-full overflow-hidden sm:absolute sm:inset-0 sm:aspect-auto sm:min-h-0">
-          {isVideo ? <>{bannerPoster && <img src={bannerPoster} srcSet={buildBannerSrcSet(banner.posterUrl ?? banner.imageUrl)} sizes={BANNER_SIZES} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" decoding="async" onLoad={markBannerReady} />}<video src={banner.videoUrl ?? undefined} poster={bannerPoster || undefined} autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 h-full w-full object-cover object-center" onLoadedData={markBannerReady} onPlaying={markBannerReady} onError={(event) => { event.currentTarget.style.display = 'none'; markBannerReady() }} /></> : bannerImage ? <img src={bannerImage} srcSet={buildBannerSrcSet(banner.imageUrl ?? banner.posterUrl)} sizes={BANNER_SIZES} alt={displayTitle || 'SportZoneBD banner'} className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" fetchPriority="high" decoding="async" onLoad={markBannerReady} onError={markBannerReady} /> : null}
-          <div className="absolute inset-0 bg-linear-to-r from-black/85 via-black/45 to-transparent" />
+      <motion.div key={banner.id} custom={slideDirection} variants={{ enter: (direction: number) => ({ opacity: 0, x: direction * 44, scale: 1.025 }), center: { opacity: 1, x: 0, scale: 1 }, exit: (direction: number) => ({ opacity: 0, x: direction * -44, scale: 0.99 }) }} initial="enter" animate="center" exit="exit" transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} className="absolute inset-0">
+        <div className="absolute inset-0 overflow-hidden">
+          {isVideo ? <>{bannerPoster && <img src={bannerPoster} srcSet={posterArtwork?.desktop.srcSet} sizes={posterArtwork?.desktop.sizes} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" decoding="async" onLoad={markBannerReady} />}<video src={banner.videoUrl ?? undefined} poster={bannerPoster || undefined} autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 h-full w-full object-cover object-center" onLoadedData={markBannerReady} onPlaying={markBannerReady} onError={(event) => { event.currentTarget.style.display = 'none'; markBannerReady() }} /></> : artwork ? <picture>
+            {/* One <source> per device class: the browser downloads exactly one file, cropped to the box it
+                will paint into. A phone therefore never fetches the desktop artwork. */}
+            <source media={BANNER_MOBILE_MEDIA} srcSet={artwork.mobile.srcSet} sizes={artwork.mobile.sizes} />
+            <source media={BANNER_TABLET_MEDIA} srcSet={artwork.tablet.srcSet} sizes={artwork.tablet.sizes} />
+            <img src={artwork.desktop.src} srcSet={artwork.desktop.srcSet} sizes={artwork.desktop.sizes} alt={bannerImageAlt} className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" fetchPriority="high" decoding="async" onLoad={markBannerReady} onError={markBannerReady} />
+          </picture> : null}
+          {/* A stronger bottom gradient on mobile keeps the overlaid text readable on the shorter box. */}
+          <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/55 to-black/10 sm:bg-linear-to-r sm:from-black/85 sm:via-black/45 sm:to-transparent" />
           {showBannerPlaceholder && <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden bg-(--surface-soft)"><div className="absolute inset-0 animate-shimmer bg-linear-to-r from-transparent via-(--skeleton-shimmer) to-transparent motion-reduce:hidden" /></div>}
         </div>
-        <div className="relative z-10 flex items-end bg-(--surface-strong) p-3 sm:absolute sm:inset-0 sm:h-full sm:bg-transparent sm:p-8 sm:pb-8 lg:p-12"><motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }} className="max-w-2xl space-y-2 sm:space-y-4">{banner.badge && banner.badge !== 'SportZoneBD' && <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white sm:text-xs sm:tracking-[0.28em]">{banner.badge}</p>}{displayTitle && <h1 className="text-xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">{displayTitle}</h1>}{banner.subtitle && <p className="max-w-xl text-[11px] leading-5 text-white sm:text-base sm:leading-7">{banner.subtitle}</p>}{banner.ctaText?.trim() && bannerLink && <span aria-hidden="true" className="inline-flex min-h-9 items-center rounded-lg border border-white/30 bg-black/35 px-4 text-sm font-semibold text-white shadow-sm">{banner.ctaText}</span>}</motion.div></div>
+        <div className="absolute inset-0 z-10 flex items-end p-4 sm:p-8 sm:pb-8 lg:p-12"><motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }} className="max-w-2xl space-y-1.5 sm:space-y-4">{banner.badge && banner.badge !== 'SportZoneBD' && <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white sm:text-xs sm:tracking-[0.28em]">{banner.badge}</p>}{displayTitle && <h1 className="line-clamp-2 text-lg font-semibold tracking-tight text-white sm:line-clamp-none sm:text-4xl lg:text-5xl">{displayTitle}</h1>}{banner.subtitle && <p className="line-clamp-2 max-w-xl text-[11px] leading-5 text-white/95 sm:line-clamp-none sm:text-base sm:leading-7">{banner.subtitle}</p>}{banner.ctaText?.trim() && bannerLink && <span aria-hidden="true" className="inline-flex min-h-8 items-center rounded-lg border border-white/30 bg-black/35 px-3 text-xs font-semibold text-white shadow-sm sm:min-h-9 sm:px-4 sm:text-sm">{banner.ctaText}</span>}</motion.div></div>
       </motion.div>
     </AnimatePresence>
-    {banners.length > 1 && <div className="absolute right-4 top-3 z-20 flex items-center gap-2 rounded-full border border-white/15 bg-black/25 px-3 py-2 backdrop-blur-md sm:bottom-4 sm:right-5 sm:top-auto" onClick={(event) => event.stopPropagation()}>{banners.map((item, index) => <button key={item.id} type="button" aria-label={`Show banner ${index + 1}`} onClick={() => selectBanner(index)} className={cn('h-1.5 rounded-full transition-[width,background-color,opacity] duration-300', index === activeIndex ? 'w-8 bg-(--accent)' : 'w-1.5 bg-white/60 hover:bg-white')} />)}</div>}
+    {banners.length > 1 && <div className="absolute right-3 top-2 z-20 flex items-center gap-2 rounded-full border border-white/15 bg-black/25 px-2.5 py-1.5 backdrop-blur-md sm:bottom-4 sm:right-5 sm:top-auto sm:px-3 sm:py-2" onClick={(event) => event.stopPropagation()}>{banners.map((item, index) => <button key={item.id} type="button" aria-label={`Show banner ${index + 1}`} aria-current={index === activeIndex} onClick={() => selectBanner(index)} className={cn('h-1.5 rounded-full transition-[width,background-color,opacity] duration-300 motion-reduce:transition-none', index === activeIndex ? 'w-6 bg-(--accent) sm:w-8' : 'w-1.5 bg-white/60 hover:bg-white')} />)}</div>}
   </motion.section>
 }
 

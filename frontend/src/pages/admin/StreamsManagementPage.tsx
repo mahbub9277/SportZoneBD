@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { z } from 'zod'
 import { motion } from 'framer-motion'
 import { Radio, Edit, Trash2, Zap } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
@@ -14,9 +13,9 @@ import { StreamForm, type StreamFormValues } from './components/StreamForm'
 import type { Stream } from '../../features/admin/adminStreams.api'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMediaUploadProgress } from '../../hooks/useMediaUploadProgress'
-import { useGetAdminChannelsQuery, useUpdateChannelMutation } from '../../features/admin/channels.api'
+import { useGetAdminChannelsQuery } from '../../features/admin/channels.api'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/AlertDialog'
-import { hasSupportedPlaybackProtocol } from '../../utils/streamPlaybackUrl'
+import { resolveStreamAssociation, streamFormSchema } from './components/streamFormValidation'
 
 /**
  * The Associated Match selector lists real matches from the existing paginated endpoint. The endpoint
@@ -25,18 +24,9 @@ import { hasSupportedPlaybackProtocol } from '../../utils/streamPlaybackUrl'
  */
 const ASSOCIATED_MATCH_LIMIT = 100
 
-const streamSchema = z.object({
-  name: z.string().trim().min(2, 'Channel name is required.').max(80),
-  logo: z.string().url('Logo must be a valid URL.').optional().or(z.literal('')),
-  primaryUrl: z.string().url('Please enter a valid URL.').refine(hasSupportedPlaybackProtocol, 'Use an http:// or https:// stream URL'),
-  backupUrl: z.string().url('Please enter a valid URL.').refine(hasSupportedPlaybackProtocol, 'Use an http:// or https:// stream URL').optional().or(z.literal('')),
-  matchId: z.string().min(1, 'You must select a match.').uuid('Invalid match ID format.'),
-  enabled: z.boolean(),
-  quality: z.string().min(1, 'Quality is required.'),
-  status: z.enum(['READY', 'LIVE', 'OFFLINE', 'ERROR']),
-  sourceType: z.enum(['DIRECT_URL', 'CHANNEL']),
-  channelId: z.string().optional(),
-})
+// One schema for the form: a direct stream needs a primary URL, a channel-sourced stream needs a valid
+// channel selection instead (see `streamFormSchema`).
+const streamSchema = streamFormSchema
 
 export function StreamsManagementPage() {
   const streamsQuery = useGetAdminStreamsQuery({})
@@ -48,7 +38,6 @@ export function StreamsManagementPage() {
   const [deleteStream, { isLoading: isDeleting }] = useDeleteStreamMutation()
   const { upload: uploadFiles, progress: logoUploadProgress, isUploading: isUploadingLogo } = useMediaUploadProgress()
   const { data: channels = [] } = useGetAdminChannelsQuery()
-  const [updateChannel] = useUpdateChannelMutation()
 
   const [editingStream, setEditingStream] = useState<Stream | null>(null)
   const [deletingStream, setDeletingStream] = useState<Stream | null>(null)
@@ -89,23 +78,22 @@ export function StreamsManagementPage() {
   }
 
   const handleFormSubmit = async (values: StreamFormValues) => {
-    try {
-      const normalizedValues: StreamFormValues = {
-        ...values,
-        channelId: values.sourceType === 'CHANNEL' && values.channelId?.trim()
-          ? values.channelId.trim()
-          : undefined,
-      }
+    // A channel-sourced stream is played from the channel it links to, so the channel selection — not a
+    // manually entered primary URL — is what has to be valid. Nothing about the channel is written here.
+    const association = resolveStreamAssociation(values, channels)
+    if (!association.ok) {
+      form.setError(association.field, { type: 'manual', message: association.message })
+      toast.error(association.message)
+      return
+    }
 
-      if (normalizedValues.sourceType === 'CHANNEL' && normalizedValues.channelId) {
-        await updateChannel({ id: normalizedValues.channelId, data: { url: normalizedValues.primaryUrl } }).unwrap()
-      }
+    try {
       if (editingStream) {
-        await updateStream({ id: editingStream.id, ...normalizedValues }).unwrap()
+        await updateStream({ id: editingStream.id, ...association.values }).unwrap()
         toast.success('Stream updated successfully!')
         setEditingStream(null)
       } else {
-        await createStream(normalizedValues).unwrap()
+        await createStream(association.values).unwrap()
         toast.success('New stream created!')
         form.reset()
       }

@@ -5,6 +5,7 @@ import type {
   AutomationStatus,
   AutomationMetrics,
   AutomationLogsResponse,
+  AutomationLogRetentionResult,
 } from './adminAutomation.types'
 
 export const adminAutomationApi = emptyApi.injectEndpoints({
@@ -47,6 +48,21 @@ export const adminAutomationApi = emptyApi.injectEndpoints({
       // The backend returns 204 No Content, so no transformResponse is needed.
       invalidatesTags: ['AutomationLogs'],
     }),
+
+    /**
+     * Deletes the automation logs older than the retention window (30 days) in bounded batches.
+     *
+     * The status/quality of a log never matters — every status older than the cutoff is eligible. The
+     * response carries what the database actually deleted, so a request that stops at the per-run ceiling is
+     * reported as incomplete rather than as success.
+     */
+    deleteAutomationLogsOlderThanRetention: builder.mutation<AutomationLogRetentionResult, void>({
+      query: () => ({ url: '/admin/automation/logs/retention', method: 'DELETE' }),
+      transformResponse: (response: ApiResponse<AutomationLogRetentionResult>) => unwrapApiResponse(response),
+      // The cleanup changes the log history, the status card that lists the latest logs and the metrics
+      // computed from that history, so all three are refetched.
+      invalidatesTags: ['AutomationStatus', 'AutomationLogs', 'AutomationMetrics'],
+    }),
   }),
 })
 
@@ -56,6 +72,7 @@ export const {
   useGetAutomationLogsQuery,
   useGetAutomationMetricsQuery,
   useDeleteAutomationLogMutation,
+  useDeleteAutomationLogsOlderThanRetentionMutation,
 } = adminAutomationApi
 
-export type { AutomationLog, AutomationStatus, AutomationMetrics, AutomationLogsResponse } from './adminAutomation.types'
+export type { AutomationLog, AutomationStatus, AutomationMetrics, AutomationLogsResponse, AutomationLogRetentionResult } from './adminAutomation.types'
